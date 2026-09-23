@@ -13,4 +13,5 @@ path = "src/main.rs"
 
 [dependencies]
 unim-dbus = { path = "../../unim-dbus" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+futures-util = "0.3"

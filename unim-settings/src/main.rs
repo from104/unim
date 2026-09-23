@@ -21,7 +21,8 @@ use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
     english_layout_display_name, normalize_korean_layout_name,
-    AppRule, AutoTypeFixConfig, CommitUnit, Config, InputCategory, ModeSharingMode,
+    AppRule, AutoTypeFixConfig, CommitUnit, Config, HanjaOutputFormat, InputCategory,
+    ModeSharingMode,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -524,7 +525,7 @@ fn merge_field<T: Clone + std::fmt::Debug>(dst: &mut T, baseline: Option<&T>, ui
 ///   engine.{default_category, mode_sharing, toggle_keys, hanja_keys, app_rules,
 ///           toggle_announce_beep, auto_typefix, auto_english},
 ///   engine.korean.{layout, active_rule_sets, layout_rule_sets, bidirectional_combine,
-///                  chord_window_ms, commit_unit, word_mode_apps},
+///                  chord_window_ms, commit_unit, hanja_output_format, word_mode_apps},
 ///   engine.english.layout.
 /// `ignore_key_repeat` 는 양 플랫폼 UI-소유(Windows·Linux 모두 설정에 노출)라 UI 값으로
 ///   덮어쓴다 — Linux 는 데몬 repeat 게이트가 이 값을 집행한다.
@@ -576,6 +577,11 @@ fn merge_ui_owned(disk: &mut Config, ui: &Config) {
         &u.korean.chord_window_ms,
     );
     merge_field(&mut d.korean.commit_unit, bk.map(|k| &k.commit_unit), &u.korean.commit_unit);
+    merge_field(
+        &mut d.korean.hanja_output_format,
+        bk.map(|k| &k.hanja_output_format),
+        &u.korean.hanja_output_format,
+    );
     merge_field(
         &mut d.korean.word_mode_apps,
         bk.map(|k| &k.word_mode_apps),
@@ -853,6 +859,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or(0) as i32,
         );
 
+        // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — HanjaOutputFormat::all() 순서 = 콤보 인덱스.
+        ui.set_hanja_output_format_options(string_model(
+            HanjaOutputFormat::all()
+                .iter()
+                .map(|f| SharedString::from(f.display_name()))
+                .collect(),
+        ));
+        ui.set_hanja_output_format_index(
+            HanjaOutputFormat::all()
+                .iter()
+                .position(|f| *f == e.korean.hanja_output_format)
+                .unwrap_or(0) as i32,
+        );
+
         // 시작 입력 모드: 0=영문, 1=한글 (DLL 다이얼로그와 동일 순서).
         let tr = ui.global::<Tr>();
         ui.set_category_options(string_model(vec![
@@ -936,6 +956,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cu_all = CommitUnit::all();
             let cu_idx = (ui.get_commit_unit_index().max(0) as usize).min(cu_all.len() - 1);
             e.korean.commit_unit = cu_all[cu_idx];
+
+            // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — 콤보 인덱스 = HanjaOutputFormat::all() 순서.
+            let hof_all = HanjaOutputFormat::all();
+            let hof_idx = (ui.get_hanja_output_format_index().max(0) as usize).min(hof_all.len() - 1);
+            e.korean.hanja_output_format = hof_all[hof_idx];
 
             e.default_category = if ui.get_category_index() == 1 {
                 InputCategory::Korean

@@ -46,6 +46,10 @@ impl InputEngine {
 
     /// KeyCode를 처리합니다.
     ///
+    /// 본 처리는 `press_key_inner` 가 하고, 이 래퍼는 그 결과로 최근 확정 음절 버퍼
+    /// (한자 단어 대상①)를 갱신하는 단일 초크포인트다(HANJA_WORD_SPEC §2.2.1 —
+    /// `recent_track_after_key`). `InputResult` 는 inner 결과 그대로.
+    ///
     /// # Arguments
     ///
     /// * `keycode` - 변환된 키코드
@@ -56,6 +60,23 @@ impl InputEngine {
     ///
     /// 입력 처리 결과
     pub fn press_key(
+        &mut self,
+        keycode: KeyCode,
+        modifier: ModifierState,
+        config: &Config,
+    ) -> InputResult {
+        let before_len = self.commit_buffer.len();
+        // 한자키 분기가 같은 키 안의 chord 확정 델타를 중간 흡수하는 기준점.
+        self.recent_mark = before_len;
+        let was_popup = self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active();
+        let cat_before = self.input_category;
+        let r = self.press_key_inner(keycode, modifier, config);
+        self.recent_track_after_key(keycode, modifier, &r, before_len, was_popup, cat_before);
+        r
+    }
+
+    /// `press_key` 의 본 처리 (래퍼 없이). 팝업 미지원 키 재처리 재귀가 이것을 부른다.
+    pub(super) fn press_key_inner(
         &mut self,
         keycode: KeyCode,
         modifier: ModifierState,
@@ -86,6 +107,16 @@ impl InputEngine {
         // (팝업 중에는 토글키도 다른 키와 동일하게 팝업이 우선 처리한다 —
         //  기존 한/영 키 동작과 동일.)
         if self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active() {
+            // 한자 팝업 중 한자키 재타 = 대상① target 접미 축소(HANJA_WORD_SPEC Q7(a)).
+            // 축소할 수 없으면(길이 1·대상②·단축키 조합) 현행 경로(미지원 키 재처리).
+            if self.hanja_mode
+                && self.hanja_keys.contains(&keycode)
+                && !(modifier.control || modifier.alt || modifier.super_key)
+            {
+                if let Some(r) = self.shrink_hanja_target() {
+                    return r;
+                }
+            }
             return self.process_popup_key(keycode, modifier, _config);
         }
 
@@ -217,8 +248,10 @@ impl InputEngine {
         }
 
         // Hanja 키는 언어 모드 무관 dispatch — preedit/조합 상태에 따라 분기.
-        //   * 조합 중 (Korean only): 한자 변환
-        //   * idle (조합 없음): 이모지 팝업 트리거 (항상 ON)
+        //   * 조합 중 (Korean only): 한자 변환 — 대상①(최근 확정 음절+preedit 최장 사전
+        //     접미) 또는 종전(마지막 음절) (HANJA_WORD_SPEC §2.2·§2.3)
+        //   * idle + 앱 선택 영역이 사전 정확 일치 한글: 대상② 한자 팝업 (§2.4)
+        //   * 그 외 idle (선택 없음·불일치 선택): 이모지 팝업 트리거 (항상 ON, Q8(a))
         //
         // English 모드에서도 idle Hanja → 이모지가 동작해야 함. 종전엔 분기가
         // process_korean_key 안에 있어 영문 모드에서 Hanja 키가 not_consumed 로
@@ -228,9 +261,19 @@ impl InputEngine {
             // chord 진행 중 한자 키 입력 시 현재 chord 를 음절로 확정한 뒤 한자 변환 진입.
             // (preview inject 된 경우 finalize_chord_buffer 가 중복 처리 회피)
             self.finalize_chord_buffer();
+            // chord finalize 가 방금 확정한 음절("민")을 target 풀에 흡수 — 안 하면 풀이
+            // "대한"+"국" 이 되어 "한국"·확정 접두 1 로 '민' 을 오삭제한다(§2.2.1).
+            self.recent_absorb_commit_delta();
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {
+                if self.has_selection() {
+                    let r = self.start_hanja_conversion();
+                    if self.hanja_mode {
+                        return r; // 대상②
+                    }
+                    // 불일치 선택 → 종전 idle 동작으로 폴백(Q8(a)). 선택은 건드리지 않는다.
+                }
                 self.start_emoji_popup();
                 return InputResult::consumed();
             }

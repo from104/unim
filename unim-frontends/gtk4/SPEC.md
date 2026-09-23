@@ -295,31 +295,43 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 #### 4.6.2 결과 처리
 
 ```
-result.consumed == TRUE:
+result.consumed == TRUE && (commit 비어있지 않음 || preedit 비어있지 않음):
   → 1. 선택 영역 삭제 (retrieve-surrounding → delete_surrounding)
   → 2. commit 텍스트 커밋  (commit 시그널)
   → 3. preedit-changed 시그널
+  → return TRUE
+
+result.consumed == TRUE && commit 비어있음 && preedit 비어있음:
+  → 선택 영역 삭제 건너뜀 (§4.7 게이트)
   → return TRUE
 
 result.consumed == FALSE:
   → return FALSE (앱에 키 바이패스)
 ```
 
-### 4.7 선택 영역 자동 삭제
+### 4.7 선택 영역 자동 삭제 — 래퍼 게이트 [HANJA_WORD_SPEC.md §4.5]
 
-키가 엔진에 의해 소비된 경우, 선택 영역이 있으면 자동 삭제:
+키가 엔진에 의해 소비되고 **commit 또는 preedit 중 하나라도 비어있지 않을 때만**
+선택 영역을 자동 삭제한다(치환):
 
 ```
-retrieve-surrounding 시그널 → 최신 주변 텍스트 획득
-  → cursor_index != selection_index (선택 영역 존재)
-    → 바이트 오프셋 → 문자 오프셋 변환
-    → gtk_im_context_delete_surrounding(context, offset, length)
-    → 캐시 무효화
+result.consumed && (commit 비어있지 않음 || preedit 비어있지 않음)
+  → retrieve-surrounding 시그널 → 최신 주변 텍스트 획득
+    → cursor_index != selection_index (선택 영역 존재)
+      → 바이트 오프셋 → 문자 오프셋 변환
+      → gtk_im_context_delete_surrounding(context, offset, length)
+      → 캐시 무효화
 ```
 
 > [!NOTE]
 > GTK3에서는 `g_signal_emit_by_name(context, "delete-surrounding", ...)` 사용,
 > GTK4에서는 **`gtk_im_context_delete_surrounding()`** API 직접 호출합니다.
+
+> [!NOTE]
+> commit·preedit 가 모두 없는 "빈 소비 키"(한자 팝업 열림, 팝업 중 내비/Esc,
+> 불일치 선택 + 한자키 등)에서는 선택을 지우지 않는다. 이전에는 `result.consumed`
+> 만으로 게이트해 이런 키에서도 선택이 조용히 사라졌다 — 특히 선택한 채
+> 한/영 전환키를 누르면 선택이 지워지던 것은 의도된 동작이 아니었다.
 
 ---
 
@@ -408,6 +420,16 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 > GTK3에서는 `set_surrounding`만 존재하고, anchor 정보가 없어
 > `selection_index = cursor_index`로 동일하게 설정합니다.
 > GTK4에서는 정확한 선택 범위를 알 수 있어 선택 영역 삭제가 더 정확합니다.
+
+> [!NOTE]
+> **한자 단어 확정 — 선택 영역(대상②, `HANJA_WORD_SPEC.md` §2.4)**: GTK4는 매 키
+> 입력 직전 `set_surrounding_with_selection`으로 정확한 anchor/cursor 를 이미
+> 보내므로(위 §7.2), IM 모듈 쪽 배선은 무수정이다. idle 상태에서 앱 선택 영역이
+> 사전에 있는 한글 단어와 정확히 일치하면 한자키가 그 단어를 target 으로 한자
+> 팝업을 띄운다(판정은 엔진). 확정은 §4.6 의 일반 커밋 경로(위젯이 선택 영역을
+> 커밋 문자열로 치환)를 그대로 탄다 — 별도 교체 채널이 필요 없다.
+> GTK3는 anchor 가 항상 `cursor_index`와 같아(위 주석) 선택 판정이 불가능하므로
+> 대상② 미지원이다(idle 한자키는 이모지 경로로 폴백, 종전과 동일).
 
 ---
 

@@ -104,6 +104,9 @@ impl HanjaPopup {
         target_label.set_halign(gtk4::Align::Start);
         target_label.set_hexpand(true);
         target_label.set_xalign(0.0);
+        // target 이 8~18자(공백 포함)면 팝업 폭을 넘을 수 있어 말줄임 처리한다
+        // (HANJA_WORD_SPEC.md §2.5.4).
+        target_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         header_box.append(&target_label);
 
         vbox.append(&header_box);

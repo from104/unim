@@ -1,7 +1,8 @@
 //! 한자 변환 + 특수문자 변환·선택·취소.
 
 use super::engine::InputEngine;
-use super::types::{InputResult, PopupAction};
+use super::hanja_word::{HanjaTargetSpec, Resolve};
+use super::types::{HanjaReplacement, HanjaSource, InputResult, PopupAction};
 use crate::popup::PopupState;
 use crate::unim_log;
 
@@ -12,100 +13,138 @@ impl InputEngine {
 
     /// 한자 변환 모드를 시작합니다.
     ///
-    /// 현재 preedit 또는 마지막 음절에서 한자 후보를 검색합니다.
+    /// 대상은 `resolve_hanja_target` 이 정한다(HANJA_WORD_SPEC §2.1): 조합 중이면
+    /// 대상①(최근 확정 음절+preedit / 단어 모드 preedit 의 최장 사전 접미) 또는 종전
+    /// (preedit 마지막 음절), idle 이면 대상②(앱 선택 영역). 다음절 일치가 없고 preedit 이
+    /// 1자면 종전과 바이트 동일하다. 한자 후보가 없고 대상이 초성이면 특수문자로 전환.
     pub fn start_hanja_conversion(&mut self) -> InputResult {
-        // 이미 한자 모드이면 무시
+        // 이미 한자 모드 — pull 경로(GetHanjaCandidates: Qt·GTK4·GTK3 X11·XIM)의 한자키
+        // 재타다. push 경로(press_key)와 같이 대상① 접미 축소를 시도하고(Q7(a)), 못 하면
+        // 종전대로 무시해 호출부가 같은 팝업을 재발행한다. push 경로는 press_key 가 팝업
+        // 분기에서 먼저 가로채므로 한 번의 키가 두 번 축소되는 일은 없다.
         if self.hanja_mode {
+            if let Some(r) = self.shrink_hanja_target() {
+                return r;
+            }
             return InputResult::consumed();
         }
 
-        // 변환 대상 결정: preedit 우선, 없으면 마지막 커밋 음절
-        let target = if !self.preedit_cache.is_empty() {
-            // preedit의 마지막 음절
-            self.preedit_cache.chars().last().map(|c| c.to_string())
-        } else {
-            // 커밋 버퍼의 마지막 음절 (이미 입력된 경우)
-            None
+        let spec = match self.resolve_hanja_target() {
+            Resolve::Target(spec) => spec,
+            Resolve::NoMatchSelection => {
+                // 로그에 선택 텍스트를 남기지 않는다(§2.8).
+                unim_log!("ENGINE", "선택 단어 한자 불일치");
+                return InputResult::consumed();
+            }
+            Resolve::None => {
+                unim_log!("ENGINE", "한자/특수문자 후보 없음");
+                return InputResult::consumed();
+            }
         };
 
-        if let Some(target_syllable) = target {
-            let mut candidates = self.hanja_dict.search(&target_syllable);
-            if !candidates.is_empty() {
-                // 즐겨찾기 항목을 상단으로 정렬 (원본 상대 순서는 유지 — stable sort)
-                let bookmarks = &self.hanja_bookmarks;
-                candidates.sort_by_key(|e| !bookmarks.is_bookmarked(&target_syllable, &e.hanja));
-                unim_log!(
-                    "ENGINE",
-                    "한자 후보 발견: '{}' -> {} 개",
-                    target_syllable,
-                    candidates.len()
-                );
-                self.hanja_target = target_syllable.clone();
-                let hanja_pairs = candidates
-                    .iter()
-                    .map(|e| (e.hanja.clone(), e.meaning.clone()))
-                    .collect::<Vec<_>>();
-                let bookmark_flags: Vec<bool> = candidates
-                    .iter()
-                    .map(|e| {
-                        self.hanja_bookmarks
-                            .is_bookmarked(&target_syllable, &e.hanja)
-                    })
-                    .collect();
-                self.hanja_candidates = candidates;
-                self.hanja_mode = true;
-                // expanded(9x9) 컬럼 라벨에 키맵별 top_row를 그대로 흘려보낸다 (special과 동일 source).
-                let mut popup_state = PopupState::new_hanja_with_top_row(
-                    &target_syllable,
-                    hanja_pairs.clone(),
-                    &self.top_row_labels,
-                );
-                popup_state.set_bookmark_flags(bookmark_flags);
-                self.popup_state = Some(popup_state);
-                // 팝업 액션 설정
-                self.popup_pending_action = Some(PopupAction::ShowHanja {
-                    target: target_syllable,
-                    candidates: hanja_pairs,
-                    top_row: self.top_row_labels.clone(),
-                });
-                return InputResult::hanja_candidates();
-            }
+        let candidates = self.hanja_dict.search(&spec.key);
+        if !candidates.is_empty() {
+            self.open_hanja_popup(spec, candidates);
+            return InputResult::hanja_candidates();
+        }
+        if spec.source == HanjaSource::Selection {
+            // 대상② 는 사전 정확 일치만 통과하므로 도달하지 않지만, 특수문자 폴백은 없다.
+            unim_log!("ENGINE", "한자/특수문자 후보 없음");
+            return InputResult::consumed();
+        }
 
-            // 한자 후보 없음 → 초성이면 특수문자 검색 시도
-            let ch = target_syllable.chars().next().unwrap_or('\0');
-            if let Some(entry) = crate::special_chars::search_by_choseong(ch) {
-                unim_log!(
-                    "ENGINE",
-                    "특수문자 후보 발견: '{}' ({}) -> {} 개",
-                    ch,
-                    entry.category,
-                    entry.characters.len()
-                );
-                self.special_char_target = target_syllable;
-                self.special_char_candidates = entry.characters.to_vec();
-                self.special_char_mode = true;
-                let chars: Vec<String> = self
-                    .special_char_candidates
-                    .iter()
-                    .map(|c| c.to_string())
-                    .collect();
-                self.popup_state = Some(PopupState::new_special(
-                    &self.special_char_target,
-                    chars.clone(),
-                    &self.top_row_labels,
-                ));
-                // 팝업 액션 설정
-                self.popup_pending_action = Some(PopupAction::ShowSpecial {
-                    target: self.special_char_target.clone(),
-                    characters: chars,
-                    top_row: self.top_row_labels.clone(),
-                });
-                return InputResult::special_char_candidates();
-            }
+        // 한자 후보 없음 → 초성이면 특수문자 검색 시도
+        let target_syllable = spec.key;
+        let ch = target_syllable.chars().next().unwrap_or('\0');
+        if let Some(entry) = crate::special_chars::search_by_choseong(ch) {
+            unim_log!(
+                "ENGINE",
+                "특수문자 후보 발견: '{}' ({}) -> {} 개",
+                ch,
+                entry.category,
+                entry.characters.len()
+            );
+            self.special_char_target = target_syllable;
+            self.special_char_candidates = entry.characters.to_vec();
+            self.special_char_mode = true;
+            let chars: Vec<String> = self
+                .special_char_candidates
+                .iter()
+                .map(|c| c.to_string())
+                .collect();
+            self.popup_state = Some(PopupState::new_special(
+                &self.special_char_target,
+                chars.clone(),
+                &self.top_row_labels,
+            ));
+            // 팝업 액션 설정
+            self.popup_pending_action = Some(PopupAction::ShowSpecial {
+                target: self.special_char_target.clone(),
+                characters: chars,
+                top_row: self.top_row_labels.clone(),
+            });
+            return InputResult::special_char_candidates();
         }
 
         unim_log!("ENGINE", "한자/특수문자 후보 없음");
         InputResult::consumed()
+    }
+
+    /// 대상 명세와 후보로 한자 팝업 상태를 세팅하고 `ShowHanja` 를 발행한다.
+    ///
+    /// 진입(`start_hanja_conversion`)과 팝업 중 대상 축소(`shrink_hanja_target`)가 공유.
+    pub(super) fn open_hanja_popup(
+        &mut self,
+        spec: HanjaTargetSpec,
+        mut candidates: Vec<crate::hanja::HanjaEntry>,
+    ) {
+        let target = spec.key;
+        // 즐겨찾기 항목을 상단으로 정렬 (원본 상대 순서는 유지 — stable sort)
+        let bookmarks = &self.hanja_bookmarks;
+        candidates.sort_by_key(|e| !bookmarks.is_bookmarked(&target, &e.hanja));
+        // target 은 최대 18자 타이핑 텍스트라 평문을 남기지 않는다 — 길이만(§2.8).
+        unim_log!(
+            "ENGINE",
+            "한자 후보 발견: {}자 -> {} 개",
+            target.chars().count(),
+            candidates.len()
+        );
+        let hanja_pairs = self.hanja_display_pairs(&candidates);
+        let bookmark_flags: Vec<bool> = candidates
+            .iter()
+            .map(|e| self.hanja_bookmarks.is_bookmarked(&target, &e.hanja))
+            .collect();
+        self.hanja_target = target.clone();
+        self.hanja_source = spec.source;
+        self.hanja_committed_chars = spec.committed;
+        self.hanja_recommit = spec.recommit;
+        self.hanja_commit_prefix = spec.prefix;
+        self.hanja_commit_suffix = spec.suffix;
+        self.hanja_candidates = candidates;
+        self.hanja_mode = true;
+        // expanded(9x9) 컬럼 라벨에 키맵별 top_row를 그대로 흘려보낸다 (special과 동일 source).
+        let mut popup_state = PopupState::new_hanja_with_top_row(
+            &target,
+            hanja_pairs.clone(),
+            &self.top_row_labels,
+        );
+        popup_state.set_bookmark_flags(bookmark_flags);
+        self.popup_state = Some(popup_state);
+        // 팝업 액션 설정
+        self.popup_pending_action = Some(PopupAction::ShowHanja {
+            target,
+            candidates: hanja_pairs,
+            top_row: self.top_row_labels.clone(),
+        });
+    }
+
+    /// 후보 목록을 팝업 표시용 `(한자, 뜻)` 쌍으로 조립한다. 뜻은 다음절 항목이면
+    /// 글자별 뜻 합성(`display_meaning`, HANJA_WORD_SPEC §2.5.3 Q5).
+    fn hanja_display_pairs(&self, candidates: &[crate::hanja::HanjaEntry]) -> Vec<(String, String)> {
+        candidates
+            .iter()
+            .map(|e| (e.hanja.clone(), self.hanja_dict.display_meaning(e)))
+            .collect()
     }
 
     /// 현재 한자 모드 상태를 반환합니다.
@@ -117,13 +156,10 @@ impl InputEngine {
     ///
     /// 각 항목은 (한자, 뜻풀이) 튜플입니다.
     pub fn get_hanja_candidates(&self) -> Vec<(String, String)> {
-        self.hanja_candidates
-            .iter()
-            .map(|entry| (entry.hanja.clone(), entry.meaning.clone()))
-            .collect()
+        self.hanja_display_pairs(&self.hanja_candidates)
     }
 
-    /// 한자 변환 대상 문자열을 반환합니다.
+    /// 한자 변환 대상 문자열(사전 키 — 어절일 수 있다)을 반환합니다.
     pub fn get_hanja_target(&self) -> &str {
         &self.hanja_target
     }
@@ -136,27 +172,37 @@ impl InputEngine {
     ///
     /// # 반환
     ///
-    /// 선택된 한자 문자열. 유효하지 않은 인덱스면 None.
+    /// 확정 문자열 = `커밋 접두 + 서식(target, 한자) + 커밋 접미`(HANJA_WORD_SPEC §2.6).
+    /// 유효하지 않은 인덱스면 None. 대상①(`RecentWord`, 확정 접두 > 0)이면 교체 페이로드
+    /// (`take_hanja_replacement`)도 남긴다 — 호출부는 이때 `commit_buffer` 에 넣지 않는다.
     pub fn select_hanja(&mut self, index: usize) -> Option<String> {
         if !self.hanja_mode || index >= self.hanja_candidates.len() {
             return None;
         }
 
-        let selected = &self.hanja_candidates[index];
-        let hanja = selected.hanja.clone();
+        let hanja = self.hanja_candidates[index].hanja.clone();
+        unim_log!("ENGINE", "한자 선택: [{}] {}자", index, hanja.chars().count());
 
-        unim_log!("ENGINE", "한자 선택: [{}] '{}'", index, hanja);
-
-        // preedit에서 마지막 음절을 제거
-        if !self.preedit_cache.is_empty() {
-            self.korean_context.clear();
-            self.preedit_cache.clear();
-            // DBus 응답으로 한자를 반환하므로 commit_buffer에 추가하지 않음
-            // (추가 시 다음 키 입력에 묻어나와 이중 커밋 발생)
+        let body = self.hanja_output_format.render(&self.hanja_target, &hanja);
+        let text = format!(
+            "{}{}{}",
+            self.hanja_commit_prefix, body, self.hanja_commit_suffix
+        );
+        // 이번 확정의 페이로드만 남긴다(미드레인 잔류가 확정 경로를 오판하지 않도록).
+        self.pending_hanja_replacement = None;
+        if self.hanja_source == HanjaSource::RecentWord && self.hanja_committed_chars > 0 {
+            self.pending_hanja_replacement = Some(HanjaReplacement {
+                delete_chars: self.hanja_committed_chars,
+                preedit_chars: self.hanja_recommit.chars().count() as u32,
+                text: text.clone(),
+            });
         }
 
+        // preedit 제거 — DBus 응답으로 확정 문자열을 반환하므로 commit_buffer에 추가하지
+        // 않음(추가 시 다음 키 입력에 묻어나와 이중 커밋 발생).
+        self.remove_preedit();
         self.cancel_hanja();
-        Some(hanja)
+        Some(text)
     }
 
     /// 현재 한자 후보 목록의 즐겨찾기 상태를 반환합니다.
@@ -212,11 +258,7 @@ impl InputEngine {
             .unwrap_or(index);
 
         // (3) popup_state 일괄 갱신 — items/meanings/bookmarks/cursor
-        let new_pairs: Vec<(String, String)> = self
-            .hanja_candidates
-            .iter()
-            .map(|e| (e.hanja.clone(), e.meaning.clone()))
-            .collect();
+        let new_pairs: Vec<(String, String)> = self.hanja_display_pairs(&self.hanja_candidates);
         let new_flags: Vec<bool> = self
             .hanja_candidates
             .iter()
@@ -251,8 +293,8 @@ impl InputEngine {
 
         unim_log!(
             "ENGINE",
-            "한자 즐겨찾기 토글+재정렬: target='{}', '{}' [{} -> {}] state={} (was={})",
-            self.hanja_target,
+            "한자 즐겨찾기 토글+재정렬: target={}자, '{}' [{} -> {}] state={} (was={})",
+            self.hanja_target.chars().count(),
             hanja,
             index,
             new_index,
@@ -263,11 +305,17 @@ impl InputEngine {
     }
 
     /// 한자 모드를 취소합니다.
+    ///
+    /// 확정·취소 공통 정리 — 대상 필드를 기본값으로, 최근 확정 음절 버퍼도 비운다
+    /// (팝업 확정/취소는 버퍼 리셋 조건, §2.2.1 — `CancelHanja` RPC 등 래퍼 밖 경로 포함).
+    /// 교체 페이로드는 호스트가 drain 하므로 건드리지 않는다.
     pub fn cancel_hanja(&mut self) {
         self.hanja_mode = false;
         self.hanja_candidates.clear();
         self.hanja_target.clear();
         self.popup_state = None;
+        self.reset_hanja_word_fields();
+        self.recent_clear();
 
         // preedit도 클리어 (한자 선택 후 원래 한글이 남지 않도록)
         self.korean_context.clear();
@@ -322,6 +370,7 @@ impl InputEngine {
 
     /// 특수문자 모드를 취소합니다.
     pub fn cancel_special_char(&mut self) {
+        self.recent_clear();
         self.special_char_mode = false;
         self.special_char_candidates.clear();
         self.special_char_target.clear();

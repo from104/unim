@@ -193,10 +193,14 @@ F9 또는 Hangul_Hanja 입력
 #### 4.4.2 결과 처리
 
 ```
-result.consumed == true:
+result.consumed == true && (commit 비어있지 않음 || preedit 비어있지 않음):
   → 1. 선택 영역 삭제 (ImAnchorPosition ≠ ImCursorPosition)
   → 2. commit 텍스트 커밋
   → 3. m_composing 갱신 + updatePreedit()
+  → return true
+
+result.consumed == true && commit 비어있음 && preedit 비어있음:
+  → 선택 영역 삭제 건너뜀 (§4.5 게이트)
   → return true
 
 result.consumed == false:
@@ -209,15 +213,23 @@ result.consumed == false:
 > 영문 모드의 Space는 엔진이 직접 커밋 경로(`consumed=true`, `commit=" "`)로 처리합니다 (552b5bd).
 > 한글 모드 직접 커밋과 동일하게 Qt 플러그인은 `result.consumed == true` 분기의 `commitString(" ")`만 수행합니다.
 
-### 4.5 선택 영역 자동 삭제
+### 4.5 선택 영역 자동 삭제 — 래퍼 게이트 [HANJA_WORD_SPEC.md §4.5, Q4]
 
-키가 엔진에 의해 소비된 경우, 선택 영역이 있으면 자동 삭제:
+키가 엔진에 의해 소비되고 **commit 또는 preedit 중 하나라도 비어있지 않을 때만**
+선택 영역을 자동 삭제한다(치환):
 
 ```
-QInputMethodQueryEvent(ImAnchorPosition | ImCursorPosition)
-  → anchorPos ≠ cursorPos (선택 영역 존재)
-    → QInputMethodEvent::setCommitString("", offset, length)로 삭제
+result.consumed && (!result.commit.isEmpty() || !result.preedit.isEmpty())
+  → QInputMethodQueryEvent(ImAnchorPosition | ImCursorPosition)
+    → anchorPos ≠ cursorPos (선택 영역 존재)
+      → QInputMethodEvent::setCommitString("", offset, length)로 삭제
 ```
+
+> [!NOTE]
+> commit·preedit 가 모두 없는 "빈 소비 키"(한자 팝업 열림, 팝업 중 Esc/내비,
+> 불일치 선택 + 한자키 등)에서는 선택을 지우지 않는다. 이전에는 `result.consumed`
+> 만으로 게이트해 이런 키에서도 선택이 조용히 사라졌다 — 특히 선택한 채
+> 한/영 전환키를 누르면 선택이 지워지던 것은 의도된 동작이 아니었다.
 
 ---
 
@@ -297,6 +309,30 @@ update(Qt::ImCursorRectangle) 호출
 > [!NOTE]
 > GTK에서는 `set_cursor_location()`이 로컬 좌표를 받아 팝업 표시 시 변환하지만,
 > Qt에서는 `update()` 시 **미리 글로벌 좌표로 변환**하여 저장합니다.
+
+### 7.1 주변 텍스트 재질의 — 한자 단어 대상②(선택 영역) [HANJA_WORD_SPEC.md §2.10]
+
+```
+update(queries) 에 ImSurroundingText|ImCursorPosition|ImAnchorPosition 이 섞여 있으면:
+  → 비번/PIN 필드(m_contentPurpose)면 재질의를 버리고 ("", 0, 0) 만 후보로
+  → 아니면 QInputMethodQueryEvent(ImSurroundingText|ImCursorPosition|ImAnchorPosition) 재질의
+    → toChars(pos) = text.left(pos).toUcs4().size() 로 UTF-16 오프셋 → 문자 수 변환
+  → (text, cursorChars, anchorChars) 를 캐시 삼중과 비교
+    → 바뀐 경우에만 setSurroundingText(text, cursorChars, anchorChars) — 빈 텍스트도 전송
+```
+
+> [!NOTE]
+> `setFocusObject()`(§5)의 surrounding 전달은 **focus-in 1회**뿐이라, 같은 위젯에
+> 포커스가 유지된 채 선택이 바뀌면(예: QLineEdit Tab 포커스 = 전체 선택 스냅샷이
+> 이후 타이핑으로 stale 화) `has_selection()` 오판을 일으킨다. Qt 는 위젯의 커서·
+> 선택이 바뀔 때마다 프레임워크가 알아서 `update(ImSurroundingText|...)` 를 불러
+> 주므로, 여기서 캐시를 갱신해두면 나중에 한자키가 눌리는 시점엔 이미 최신
+> 값이다. `filterEvent`(§4.2) 의 `Key_F9`/`Key_Hangul_Hanja` 하드코딩 pull 경로에
+> 재질의를 **더 넣지는 않는다**(§4.2, 중복) — 이 §7.1 갱신 하나로 F9/Hangul_Hanja
+> 와 다른 `hanja_keys`(`processKey` 경유, §4.4) 모두가 최신 값을 쓴다.
+> focus-in 전달(§5) 자체도 **빈 텍스트를 조건 없이 보낸다** — DBus 컨텍스트가 창
+> 단위(`focusIn(m_windowId)`)라, 선택이 있던 위젯에서 빈 위젯으로 포커스가 옮겨갈 때
+> 미전송이면 이전 위젯의 선택 스냅샷이 stale 로 남는다(`HANJA_WORD_SPEC.md` §4.5).
 
 ---
 

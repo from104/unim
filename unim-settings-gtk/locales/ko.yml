@@ -22,7 +22,7 @@ row_english_layout: "영어 자판"
 row_toggle_keys: "한/영 전환 키"
 row_toggle_keys_subtitle: "쉼표로 구분 (예: Korean, RightAlt)"
 row_hanja_keys: "한자 키"
-row_hanja_keys_subtitle: "쉼표로 구분 (예: Hanja, F9) — 조합 없을 때는 이모지 팝업으로 동작"
+row_hanja_keys_subtitle: "쉼표로 구분 (예: Hanja, F9) — 조합 중이면 어절/음절 한자 변환, 한글 단어를 선택한 뒤 누르면 그 단어 변환, 그 외에는 이모지 팝업"
 
 # 일반 > 입력 모드
 group_input_mode: "입력 모드"
@@ -36,6 +36,10 @@ row_commit_unit: "조합 확정 단위"
 commit_unit_syllable: "음절 단위"
 commit_unit_word: "단어 단위"
 commit_unit_smart: "스마트"
+row_hanja_output_format: "한자 출력 형식"
+hanja_output_format_hanja: "한자만 (漢字)"
+hanja_output_format_hangul_hanja: "한글(한자) — 한자(漢字)"
+hanja_output_format_hanja_hangul: "한자(한글) — 漢字(한자)"
 
 # 일반 > 자동 영문 전환
 group_auto_english: "자동 영문 전환"
@@ -162,6 +166,7 @@ row_english_layout_subtitle: "QWERTY가 기본. Dvorak/Colemak/Colemak-DH/Workma
 row_initial_mode_subtitle: "데몬을 시작했을 때 한글/영문 중 어느 쪽으로 둘지."
 row_mode_sharing_subtitle: "「창별 독립」: 창마다 한/영 모드 따로 유지. 「전역 공유」: 한 번 바꾸면 모든 창 동기화."
 row_commit_unit_subtitle: "음절/단어/스마트. 단어 단위는 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에는 적용되지 않습니다."
+row_hanja_output_format_subtitle: "漢字 · 한자(漢字) · 漢字(한자) — 한자 팝업에서 확정할 때 넣는 형식"
 
 # 일반 > 자동 영문 전환 (NEW subtitle)
 row_auto_english_enable_subtitle: "트리거 키를 만나면 한글 모드여도 강제로 영문 모드로 전환합니다."
@@ -186,12 +191,13 @@ row_ime_enable_subtitle: "Wayland 전용: GNOME 확장이 키를 가로채 unim-
 row_korean_layout_tooltip: "내장 자판 10종 + ~/.config/unim/layouts/*.json 의 사용자 자판이 표시됩니다. 선택 시 아래 옵션 그룹이 해당 자판 규칙으로 재구성됩니다. AutoTypeFix 순방향 교정도 이 자판 기준."
 row_english_layout_tooltip: "AutoTypeFix가 영문 단어를 추론할 때 기준이 되는 자판. 실제 사용 중인 영어 자판과 다르면 순방향 교정이 오작동합니다. 기본값: QWERTY."
 row_toggle_keys_tooltip: "한/영 전환 키를 쉼표로 구분해 입력합니다. 예: Korean, RightAlt. 키 이름은 xkb 키심(keysym) 기준. 충돌 시 첫 번째 키 우선."
-row_hanja_keys_tooltip: "한자/특수문자 팝업을 띄울 키를 쉼표로 구분해 입력합니다. 예: Hanja, F9. 한글 조합 중이면 한자 변환, 조합이 없으면 이모지 팝업 또는 특수문자 팝업."
+row_hanja_keys_tooltip: "한자/특수문자 팝업을 띄울 키. 예: Hanja, F9. 한글 조합 중: 방금 친 어절(예: 대한민국)이 한자 사전에 있으면 단어 후보, 없으면 마지막 음절 후보. 앱에서 한글 단어를 선택한 채 누르면 그 단어의 한자 후보(GTK4·Qt·GNOME·Wayland·Windows). 조합·선택이 모두 없으면 이모지 팝업."
 
 # 일반 > 입력 모드
 row_initial_mode_tooltip: "데몬 시작 직후 모드. 「영문」이 안전한 기본값 — 로그인 시 비밀번호 필드 등에서 한글 입력 방지. 한글 작업이 주된 경우 「한글」로 변경 가능."
 row_mode_sharing_tooltip: "창별 독립(PerApp) 권장: 터미널은 영문 유지, 에디터·메신저는 한글 유지. 전역 공유(Global)는 모든 창이 한 번에 같이 전환 — 모드 혼란이 잦으면 PerApp으로."
 row_commit_unit_tooltip: "「단어」는 단어 경계까지 preedit(밑줄)로 누적했다가 한 번에 확정합니다. 「스마트」(기본)는 word-mode-apps 목록에 등록된 앱에서만 단어 단위로 동작하고 그 외에는 음절 단위입니다. 터미널·XIM에는 적용되지 않으며, 모아치기(동시치기)를 사용 중이면 항상 음절 단위로 동작합니다."
+row_hanja_output_format_tooltip: "「한자만」은 漢字만 넣습니다. 「한글(한자)」는 대한민국(大韓民國)처럼 한글 뒤에 괄호로 한자를, 「한자(한글)」는 大韓民國(대한민국)처럼 한자 뒤에 괄호로 한글을 붙입니다. 한 글자 변환과 단어 변환 모두 같은 형식을 씁니다."
 
 # 일반 > 자동 영문 전환
 row_auto_english_enable_tooltip: "vim/Emacs/터미널에서 Esc나 '/'를 눌렀을 때 한글 모드가 자동으로 영문으로 전환됩니다. 한글 입력 중 명령어를 치다 실수하는 패턴을 방지. 비밀번호 필드는 이미 강제 영문이라 영향 없음."

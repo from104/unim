@@ -1,6 +1,7 @@
 //! Content purpose + surrounding text + smart_backspace + typefix_convert.
 
 use super::engine::InputEngine;
+use super::types::PopupAction;
 use crate::config::{ContentPurpose, InputCategory};
 use crate::unim_log;
 
@@ -36,6 +37,32 @@ impl InputEngine {
         self.content_purpose = purpose;
 
         if purpose.should_block_hangul() {
+            // 한자 단어 게이트 — 반드시 이 분기의 첫 줄(아래 flush_preedit 앞, HANJA_WORD_SPEC
+            // §2.8). 한자 팝업은 preedit 을 유지한 채 열리므로 정리가 flush 뒤에 오면 "국" 이
+            // commit_buffer 로 흘러 다음 키 처리에서 비번 필드로 나간다.
+            //   - 최근 확정 음절 버퍼 비움
+            //   - 목적 통지보다 먼저 온 surrounding(선택 스냅샷) 잔류 제거
+            //   - 팝업이 열려 있으면 재커밋 없이 닫는다(비번 필드에 원문 재삽입 금지)
+            self.recent_clear();
+            self.surrounding_text.clear();
+            self.surrounding_cursor = 0;
+            self.surrounding_anchor = 0;
+            let popup_open = if self.hanja_mode {
+                self.cancel_hanja();
+                true
+            } else if self.special_char_mode {
+                self.cancel_special_char();
+                true
+            } else if self.is_emoji_popup_active() {
+                self.cancel_emoji_popup();
+                true
+            } else {
+                false
+            };
+            if popup_open {
+                self.popup_pending_action = Some(PopupAction::HidePopup);
+            }
+
             // 비밀번호/PIN 진입: 직전 카테고리 저장(최초 1회) + 영문 강제.
             if self.saved_category.is_none() {
                 self.saved_category = Some(self.input_category);
@@ -67,7 +94,12 @@ impl InputEngine {
     /// 이로써 이를 소비하는 `GlobalTypeFix`/`smart_backspace`/`typefix_convert` 경로가
     /// 자연히 무력화된다. 필드를 벗어나면(비-비밀번호 목적) 이후 호출부터 정상 저장이
     /// 재개된다(fail-closed — 이탈 신호가 늦어도 비번 평문은 잔류하지 않는다).
+    ///
+    /// 호출 사실 자체는 `surrounding_seen` 으로 기억한다(빈 값·비밀번호 필드 포함) — 이
+    /// 컨텍스트에서는 이후 빈 surrounding 이 한자 대상①의 접두 검증 실패가 된다
+    /// (HANJA_WORD_SPEC Q9(b), Wayland 미수신 마커 `("",0,0)`).
     pub fn set_surrounding_text(&mut self, text: String, cursor_pos: u32, anchor_pos: u32) {
+        self.surrounding_seen = true;
         if self.content_purpose.should_block_hangul() {
             self.surrounding_text.clear();
             self.surrounding_cursor = 0;
@@ -185,18 +217,12 @@ impl InputEngine {
             return None;
         }
 
+        // 선택 영역이 없거나 오프셋이 문자 길이를 넘으면(단위 불일치) 변환하지 않음 —
+        // 클램프하면 실제 선택과 다른 구간을 지운다(HANJA_WORD_SPEC §2.4.1).
+        let (start, end) = self.selection_span()?;
         let chars: Vec<char> = self.surrounding_text.chars().collect();
         let cursor = self.surrounding_cursor as usize;
-        let anchor = self.surrounding_anchor as usize;
-
-        // 선택 영역이 없으면 변환하지 않음
-        if cursor == anchor {
-            return None;
-        }
-
-        let start = cursor.min(anchor);
-        let end = cursor.max(anchor);
-        let word: String = chars[start..end.min(chars.len())].iter().collect();
+        let word: String = chars[start..end].iter().collect();
         let delete_chars = word.chars().count() as u32;
 
         // 커서로부터의 오프셋 계산: 음수=커서 앞, 0=커서 뒤

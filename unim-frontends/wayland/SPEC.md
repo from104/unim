@@ -295,8 +295,10 @@ virtual_keyboard.key(time, evdev_key, state)
 
 ```
 fn apply_auto_typefix:
+  0. is_hanja = commit_text 에 ASCII 도 한글(음절·자모)도 아닌 문자가 있는가  ← 한자 교체 판별자
   1. is_forward = commit_text 의 첫 글자가 ASCII(영→한) 인지 한글(한→영) 인지 판정
-  2. before_bytes = is_forward ? delete_chars (ASCII 1B/char)
+  2. before_bytes = is_hanja   ? delete_chars * 3 (완성 음절 UTF-8 3B/char)
+                  : is_forward ? delete_chars     (ASCII 1B/char)
                                : delete_chars * 3 (한글 UTF-8 3B/char)
   3. im.delete_surrounding_text(before_bytes, 0)   ← 핵심: 프로토콜 단일 원자 삭제
   4. im.commit_string(commit_text)
@@ -314,6 +316,47 @@ fn apply_auto_typefix:
 > 필요하지 않습니다. `virtual_keyboard.key()`는 오직 **미소비 키 바이패스**(§5.4)에만 사용됩니다.
 >
 > 방향 판정은 `commit_text` 첫 문자의 ASCII 여부로만 결정됩니다. 혼합 문자열은 현재 지원하지 않습니다.
+> 단, **한자 교체는 방향 판정보다 먼저 판별**합니다(§5.6) — `한자(漢字)` 서식은 첫 글자가 한글이라
+> 방향 판정만으로는 순방향(ASCII 1B)으로 오판해 삭제 대상의 1/3 만 지웁니다.
+
+---
+
+### 5.6 한자 단어 교체 (HANJA_WORD_SPEC)
+
+한자 팝업의 변환 대상이 "preedit 마지막 음절" 에서 **방금 입력한 어절(대상①)** 과
+**앱 선택 영역(대상②)** 으로 넓어지면서 Wayland 프론트엔드가 맡는 몫은 두 가지입니다.
+
+**(1) 삭제 바이트 판별** (`state.rs::apply_auto_typefix`)
+
+- 교체 채널은 AutoTypeFix 와 같은 `AutoTypefixApply` 시그널입니다(신규 시그널 없음).
+- `commit_text` 에 ASCII 도 한글(완성 음절·자모)도 아닌 문자가 하나라도 있으면 한자 교체로 보고
+  `before_bytes = delete_chars × 3` 을 씁니다. 대상① 의 삭제 대상은 구성상 **항상 완성 음절**
+  (UTF-8 3B)이라 추정이 아닌 확정값입니다.
+- AutoTypeFix 의 `commit_text` 는 한글(순방향) 아니면 ASCII(역방향) 뿐이라 이 판별자와 서로소입니다
+  → 기존 교정 경로는 바이트 동일(회귀 0).
+
+**(2) `surrounding_text` 배선** (`state.rs` ↔ `dbus_client.rs::SetSurroundingText`)
+
+| 시점 | 동작 |
+|------|------|
+| `surrounding_text` 이벤트 | 더블버퍼 값이라 `pending_surrounding` 에 보관만 (바이트 오프셋 원본) |
+| `done` (활성화 커밋) | `FocusIn` → `SetContentType` **뒤에** pending 을 문자 오프셋으로 바꿔 `SetSurroundingText` 송신 |
+| `done` (포커스 유지 중) | pending 이 있으면 같은 변환으로 송신 (커서 이동·편집 반영) |
+| `done` (활성화인데 pending 없음) | **미지원 마커** `SetSurroundingText("", 0, 0)` 송신 |
+| `deactivate` | `SetSurroundingText("", 0, 0)` + pending/`saw_surrounding` 초기화 (stale 제거) |
+
+- **용도**: 선택 영역 변환(대상②) 감지 + 확정 접두 정합성 검증. AutoTypeFix 바이트 계산에는 쓰지
+  않습니다((1) 과 독립).
+- **오프셋 변환**: 프로토콜은 UTF-8 **바이트** 오프셋, 엔진 계약(`SetSurroundingText`)은 **문자**
+  오프셋입니다. `AppState::byte_offset_to_chars` 가 길이로 클램프하고 문자 경계까지 내려 변환합니다
+  (앱이 어긋난 오프셋을 줘도 패닉하지 않습니다). `str::floor_char_boundary` 는 선언 MSRV 에서
+  불안정이라 쓰지 않습니다.
+- **미지원 마커**: 프로토콜은 "첫 `done` 이전에 `surrounding_text` 가 오지 않으면 텍스트 입력이
+  기능을 지원하지 않는 것으로 봐도 된다" 고 규정합니다. 미지원 앱에서는 엔진이 지울 접두를 대조할
+  수 없어 마우스 클릭 뒤 교체가 무관 텍스트를 지울 수 있으므로(Wayland 는 클릭 시 `Reset` 을 보내지
+  않습니다), 빈 값을 보내 엔진이 **단음절 변환으로 퇴화**하게 합니다
+  (`HANJA_WORD_SPEC.md` §0 Q9(b) · §2.2.3).
+- **로그**: surrounding 본문은 로그에 남기지 않고 길이만 찍습니다(비밀번호 필드 평문 노출 방지).
 
 ---
 
@@ -342,6 +385,7 @@ AppState ← std::sync::mpsc::channel       ← DbusClient
 | `FocusOut` | `CommitText { text }` | Deactivate→Done 시 조합 텍스트 커밋 (RPC 반환값 단일 경로) |
 | `ProcessKey` | `KeyProcessed { consumed, preedit, commit }` | 키 입력 처리 |
 | `Reset` | — | 상태 초기화 |
+| `SetSurroundingText` | — | 커서 주변 텍스트·선택 전달 (문자 오프셋, §5.6) |
 
 | 시그널 (수신) | 페이로드 | 용도 |
 |------|------|------|
@@ -381,6 +425,9 @@ pub struct AppState {
     pending_activate / pending_deactivate: bool,
     current_active / grab_active: bool,
     keymap_init: bool,
+    pending_content_purpose: Option<u32>,            // Done 에서 SetContentType 으로 소비
+    pending_surrounding: Option<(String, u32, u32)>, // Done 에서 문자 오프셋 변환 후 송신 (§5.6)
+    saw_surrounding: bool,                           // 미지원 마커 판정 (§5.6)
 
     // 키 처리
     keymap_handler: KeymapHandler,
@@ -476,6 +523,9 @@ make dev-wayland PREFIX=/usr
 | 한자/특수문자 DBus | ✅ 통합 | DBus 요청/응답 타입 추가 |
 | 한자/특수문자 팝업 | ✅ 구현 | `zwp_input_popup_surface_v2` + `tiny-skia` + `cosmic-text` 기반 렌더링 |
 | AutoTypeFix | ✅ 구현 | `delete_surrounding_text` 기반 원자 교정 (self-feedback 없음, §5.5) |
+| 한자 단어 교체 | ✅ 구현 | 대상①(방금 입력한 어절)·대상②(선택 영역) 모두 지원 — 바이트 판별 + `surrounding_text` 배선 (§5.6) |
+| Content Type | ✅ 구현 | `content_type` 이벤트를 `pending_content_purpose` 에 보관, `done` 에서 `SetContentType` 송신 (활성화 시 미수신이면 Normal 명시, 비활성화 시 Normal 복귀) |
+| Surrounding Text | ✅ 구현 | `done` 에서 바이트→문자 오프셋 변환 후 `SetSurroundingText` 송신 (§5.6) |
 | Focus-out 이중 커밋 방지 | ✅ 해결 | `FocusOut` RPC 반환값만 사용 (`552b5bd`) |
 | Space 영문 모드 커밋 | ✅ 해결 | 엔진이 `consumed=true, commit=" "` 반환 (`552b5bd`) |
 
@@ -483,8 +533,7 @@ make dev-wayland PREFIX=/usr
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| Surrounding Text | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 (AutoTypeFix는 엔진이 결정한 `delete_chars`에 의존) |
-| Content Type | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
+| surrounding 미지원 앱 | ⚠ 퇴화 | `surrounding_text` 를 보내지 않는 앱에서는 빈 값 마커로 한자 **단음절** 변환만 허용 (§5.6, Q9(b)) |
 | GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 → GNOME Extension 경로 사용 |
 | 순수 Wayland 팝업 (일부 컴포지터) | ⚠ 부분 | Hyprland 등 일부 버전에서 `zwp_input_popup_surface_v2` 동작이 불안정 |
 | 혼합 ASCII/한글 AutoTypeFix | ❌ 미지원 | `commit_text` 첫 글자로 바이트 계산 방식이 고정되어 있음 |
@@ -501,7 +550,6 @@ make dev-wayland PREFIX=/usr
 
 | 단계 | 내용 |
 |------|------|
-| Phase 4 | Surrounding Text / Content Type 활용 |
 | — | 혼합 ASCII/한글 AutoTypeFix 바이트 계산 정교화 |
 
 ---

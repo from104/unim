@@ -156,6 +156,19 @@ static quint32 purposeFromHints(Qt::InputMethodHints hints)
     return purpose;
 }
 
+/* Qt::ImCursorPosition/ImAnchorPosition 은 QString 단위(UTF-16 코드유닛) 오프셋을
+ * 반환하는데, 엔진 쪽 검증(§2.2.3)·대상② 판정은 문자(유니코드 스칼라) 개수를
+ * 기대한다. text.left(pos) 로 접두를 자른 뒤 toUcs4() 로 실제 문자 수를 센다 —
+ * pos 가 text 길이를 넘어도 QString::left() 가 안전하게 클램프한다
+ * (HANJA_WORD_SPEC.md §4.5). */
+static quint32 unim_toCharOffset(const QString &text, int pos)
+{
+    if (pos <= 0) {
+        return 0;
+    }
+    return static_cast<quint32>(text.left(pos).toUcs4().size());
+}
+
 
 UnimInputContext::UnimInputContext()
     : QPlatformInputContext()
@@ -338,6 +351,42 @@ void UnimInputContext::update(Qt::InputMethodQueries queries)
             }
         }
     }
+
+    if (queries & (Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition)) {
+        /* 한자 단어 대상②(선택 영역) 재질의 — HANJA_WORD_SPEC.md §2.10/§4.5.
+         * focus-in 1회 스냅샷(setFocusObject)만으로는 같은 위젯에 포커스가 유지된 채
+         * 선택이 바뀌는 경우(예: QLineEdit Tab 포커스=전체 선택 스냅샷이 이후 타이핑으로
+         * stale 화)를 못 잡는다. update() 는 커서·선택 변경 시마다 불리므로 여기서 캐시와
+         * 비교해 값이 실제로 바뀐 경우에만 DBus 로 보낸다(설정된 커스텀 hanja_keys 포함 —
+         * F9/Hangul_Hanja 하드코딩 pull 경로(아래 filterEvent 의 Key_F9 분기)에는
+         * 별도 재질의를 두지 않는다, HANJA_WORD_SPEC.md §4.5 "중복" 참고). */
+        if (m_focusObject && m_dbus) {
+            QString surrText;
+            quint32 cursorChars = 0;
+            quint32 anchorChars = 0;
+
+            /* 비번/PIN 필드는 재질의 결과를 버리고 빈 값만 후보로 삼는다(§2.8 프런트
+             * 이중 게이트) — 엔진이 버리더라도 평문을 DBus 로 실어 보내지 않는다. */
+            if (!unim_is_sensitive(m_contentPurpose)) {
+                QInputMethodQueryEvent surrQuery(
+                    Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+                QCoreApplication::sendEvent(m_focusObject, &surrQuery);
+                surrText = surrQuery.value(Qt::ImSurroundingText).toString();
+                cursorChars = unim_toCharOffset(surrText, surrQuery.value(Qt::ImCursorPosition).toInt());
+                anchorChars = unim_toCharOffset(surrText, surrQuery.value(Qt::ImAnchorPosition).toInt());
+            }
+
+            /* 빈 텍스트도 전송(§4.5) — stale 선택 제거 목적. 값이 안 바뀌면 스팸 방지. */
+            if (surrText != m_surroundingTextCache ||
+                cursorChars != m_surroundingCursorCache ||
+                anchorChars != m_surroundingAnchorCache) {
+                m_surroundingTextCache = surrText;
+                m_surroundingCursorCache = cursorChars;
+                m_surroundingAnchorCache = anchorChars;
+                m_dbus->setSurroundingText(surrText, cursorChars, anchorChars);
+            }
+        }
+    }
 }
 
 void UnimInputContext::invokeAction(QInputMethod::Action action, int cursorPosition)
@@ -444,7 +493,10 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                qPrintable(unim_mask(m_contentPurpose, result.preedit)),
                qPrintable(unim_mask(m_contentPurpose, result.commit))));
 
-    if (result.consumed) {
+    /* commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·한/영 전환 등)는
+     * 아무것도 넣지 않으므로 선택을 지우지 않는다(HANJA_WORD_SPEC.md §4.5) — 이전엔
+     * consumed 만으로 게이트해 선택한 채 한/영 전환키를 누르면 선택이 조용히 사라졌다. */
+    if (result.consumed && (!result.commit.isEmpty() || !result.preedit.isEmpty())) {
         /* 선택 영역 삭제 처리 */
         if (m_focusObject) {
             QInputMethodQueryEvent query(Qt::ImAnchorPosition | Qt::ImCursorPosition);
@@ -553,16 +605,27 @@ void UnimInputContext::setFocusObject(QObject *object)
                    static_cast<int>(hints), purpose));
 
         /* Surrounding text 전달 */
-        QInputMethodQueryEvent stQuery(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
-        QCoreApplication::sendEvent(object, &stQuery);
-        QString surroundingText = stQuery.value(Qt::ImSurroundingText).toString();
-        int cursorPos = stQuery.value(Qt::ImCursorPosition).toInt();
-        int anchorPos = stQuery.value(Qt::ImAnchorPosition).toInt();
-        if (!surroundingText.isEmpty()) {
-            m_dbus->setSurroundingText(surroundingText,
-                                        static_cast<quint32>(cursorPos),
-                                        static_cast<quint32>(anchorPos));
+        QString surroundingText;
+        int cursorPos = 0;
+        int anchorPos = 0;
+        /* 비번/PIN 필드는 질의하지 않고 빈 값만 보낸다(§2.8 프런트 이중 게이트) —
+         * update() 와 같은 규칙. 여기가 빠지면 포커스 진입 순간 평문이 한 번 나간다. */
+        if (!unim_is_sensitive(purpose)) {
+            QInputMethodQueryEvent stQuery(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+            QCoreApplication::sendEvent(object, &stQuery);
+            surroundingText = stQuery.value(Qt::ImSurroundingText).toString();
+            cursorPos = stQuery.value(Qt::ImCursorPosition).toInt();
+            anchorPos = stQuery.value(Qt::ImAnchorPosition).toInt();
         }
+        /* 빈 텍스트도 전송한다(HANJA_WORD_SPEC.md §4.5). DBus 컨텍스트는 창 단위
+         * (focusIn(m_windowId))라, 같은 창 안에서 선택이 있던 위젯에서 빈 위젯으로
+         * 포커스가 옮겨갈 때 미전송이면 이전 위젯의 선택 스냅샷이 stale 로 남아
+         * 대상②(선택 영역)를 오판한다. 여기서는 dedupe 캐시를 건드리지 않는다 —
+         * 다음 update() 가 문자 단위로 변환한 값을 한 번 더 보내 오프셋 단위까지
+         * 바로잡게 둔다(§7.1). */
+        m_dbus->setSurroundingText(surroundingText,
+                                    static_cast<quint32>(cursorPos),
+                                    static_cast<quint32>(anchorPos));
     } else if (m_dbus) {
         /* 포커스 객체 소실(창 비활성화 등) — Normal 복귀.
          * 다음 포커스 필드의 purpose 는 위 분기에서 다시 명시 송신되므로, 여기서

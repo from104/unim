@@ -119,9 +119,10 @@ GNOME extension 고유 사항:
 
 - **수신 경로**: `dbus_ime.js` 글로벌 signal 구독 (자기 context 한정) → `_handleContextSignal`
 - **적용 로직** (`extension.js` `onAutoTypeFix`):
-  1. `expectSelfBackspaces(deleteChars)` — `UnimInputMethod`의 self-backspace 카운터 등록
-  2. `vkbd.backspaceMultiple(deleteChars)` — 가상 키보드로 BackSpace 연타
-  3. 50ms 후 `commitText(commitText)`, 다시 10ms 후 `updatePreedit(preeditText)`
+  1. preedit 비어 있지 않으면 `clearPreedit()` 선행 (한자 단어 교체 잔상 방지)
+  2. `expectSelfBackspaces(deleteChars)` — `UnimInputMethod`의 self-backspace 카운터 등록
+  3. `vkbd.backspaceMultiple(deleteChars)` — 가상 키보드로 BackSpace 연타
+  4. 50ms 후 `commitText(commitText)`, 다시 10ms 후 `updatePreedit(preeditText)`
 - **Self-feedback 차단 (af8b563)**: vkbd가 보낸 BackSpace는 Mutter를 거쳐 `vfunc_filter_key_event`에 재진입한다. 한글 엔진이 이를 실제 backspace로 오인해 복원된 preedit 음절을 다시 깎는 self-feedback을 막기 위해 `_selfBackspaceCount`를 PRESS+RELEASE = 2×N으로 등록하고, 매칭되는 BackSpace 이벤트는 IM 처리 없이 `false` 반환으로 mutter에 통과시킨다.
 
 ### 2.7 콘텐츠 목적(Content Purpose) 억제 — 비밀번호/PIN 필드 자동 영문 전환
@@ -246,7 +247,7 @@ extension.js `_onFocusWindowChanged` 의 창 전환 fail-safe(Clutter vfunc 를 
 | `HanjaBookmarkChanged(index, bookmarked)` | InputContext | → `_onHanjaBookmarkChanged` |
 | `HanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selR, selC, bookmarked, wasBookmarked)` | InputContext | → `_onHanjaCandidatesReordered` (cursor flash 분기) |
 | `PopupRender(...)` (v3.2) | InputContext | → `_onPopupRender` — 통합 view_model. 헤더/푸터/탭 라벨/확장 아이콘 등 daemon 산출 문자열 일괄 적용. 자세한 페이로드는 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
-| `AutoTypefixApply(deleteChars, commit, preedit)` | InputContext | 자기 context에서만 `_onAutoTypeFix` 호출 |
+| `AutoTypefixApply(deleteChars, commit, preedit)` | InputContext | 자기 context에서만 `_onAutoTypeFix` 호출. 한자 단어 교체에도 사용(preedit_text="") |
 
 - InputContext 시그널은 `_icProxy` g-signal과 **세션 버스 글로벌 구독(`signal_subscribe`)** 두 경로를 병용. 자기 context는 proxy 경로, 외부 context(Wayland 전용)는 글로벌 경로로 처리하여 중복 방지.
 - `AutoTypefixApply`는 proxy introspection 미등록 가능성 때문에 자기 context도 글로벌 경로에서 dispatch.
@@ -293,7 +294,7 @@ extension.js `_onFocusWindowChanged` 의 창 전환 fail-safe(Clutter vfunc 를 
 | `vfunc_focus_out()` | 포커스 상실 → 팝업 정리 + 조합 커밋 |
 | `vfunc_reset()` | 입력 상태 리셋 |
 | `vfunc_set_cursor_location(rect)` | 커서 위치 저장 (팝업 배치용) |
-| `vfunc_set_surrounding(text, cursor, anchor)` | 주변 텍스트 수신 (TypeFIX용) |
+| `vfunc_set_surrounding(text, cursor, anchor)` | 주변 텍스트 수신 (TypeFIX용). 한자 선택 변환(대상②)·접두 정합성 검증 용도 |
 | `vfunc_update_content_hints(hints)` | 힌트 저장 → `_applyContentPurpose()` 재판정(§2.7) |
 | `vfunc_update_content_purpose(purpose)` | Clutter 원시값 저장 → `CLUTTER_PURPOSE_TO_UNIM` 매핑 → `_applyContentPurpose()`(§2.7) |
 

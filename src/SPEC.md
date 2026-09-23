@@ -111,9 +111,33 @@ pub struct InputEngine {
     hanja_dict: Arc<HanjaDictionary>,       // 한자 사전 (공유)
     hanja_candidates: Vec<HanjaEntry>,      // 현재 한자 후보
     hanja_mode: bool,                       // 한자 선택 모드
-    hanja_target: String,                   // 한자 변환 대상 음절
+    hanja_target: String,                   // 사전 키 = 팝업 헤더 = 즐겨찾기 키 (어절 가능 — "대한민국")
+    // ── 한자 단어 입력 (docs/dev/specs/HANJA_WORD_SPEC.md) ──
+    recent_syllables: String,               // 최근 확정 음절 버퍼 (앱에 커밋한 한글 완성 음절열, ≤17자)
+    recent_mark: usize,                     // press_key 래퍼가 저장한 commit_buffer 길이 (델타 흡수 기준점)
+    hanja_source: HanjaSource,              // Syllable(종전) / RecentWord / WordBuffer / Selection
+    hanja_committed_chars: u32,             // 확정 접두 길이 (RecentWord 만 > 0)
+    hanja_recommit: String,                 // 취소 시 재커밋 = 진입 시 preedit 전체 (Selection "")
+    hanja_commit_prefix: String,            // 확정 문자열 앞 (단어 모드 비일치 접두 / 선택 앞 공백)
+    hanja_commit_suffix: String,            // 확정 문자열 뒤 (선택 뒤 공백)
+    pending_hanja_replacement: Option<HanjaReplacement>, // 교체 페이로드 (take_hanja_replacement)
+    hanja_output_format: HanjaOutputFormat, // config 캐시 (set_hanja_output_format 비파괴)
+    hanja_word_replace_capable: bool,       // 호스트 능력 플래그 (기본 false — IMM32·capi 바이트 동일)
+    surrounding_includes_preedit: bool,     // TSF 만 true — 접두 검증 prefix+pre 절 게이트
+    surrounding_seen: bool,                 // set_surrounding_text 를 받은 적 있음 (빈 값 포함)
 }
 ```
+
+**한자 단어 상태의 수명**
+
+| 필드 | `reset()` | 엔진 재생성(`new` — 데몬 CreateContext·FocusOut·Reset) | `rebuild_korean_context` |
+|---|---|---|---|
+| `recent_syllables`·`hanja_source` 등 대상 필드·`pending_hanja_replacement` | 비움 | 기본값 | 버퍼만 비움 |
+| `hanja_word_replace_capable`·`surrounding_includes_preedit` | 보존(호스트 속성) | false — 호스트가 생성 직후 다시 켠다 | 보존 |
+| `surrounding_seen` | 보존(앱·포커스 컨텍스트 — `surrounding_*` 와 동일) | false | 보존 |
+| `hanja_output_format` | 보존 | config 값 | config 재동기 |
+
+`surrounding_seen` 계약(Q9(b), Wayland U4): `set_surrounding_text` 가 한 번이라도 불린 컨텍스트(빈 값·비밀번호 필드 포함)에서는 이후 surrounding 이 비어 있으면 대상① 접두 검증(`recent_prefix_verified`)을 **실패**로 보아 확정 접두가 있는 대상① 을 단음절로 퇴화시킨다. Wayland 프런트는 text-input 활성화 `Done` 에서 `SetSurroundingText("",0,0)` 마커를 보내 surrounding 미지원 앱을 이 경로에 태운다. 한 번도 받지 않은 컨텍스트(XIM 등)는 종전대로 검증을 생략한다. 엔진 재생성(데몬 FocusOut·Reset 은 `InputEngine::new`)은 플래그를 false 로 되돌리지만 버퍼도 함께 비므로 확정 접두 교체가 생기지 않고, 이후 프런트가 surrounding 을 다시 보내면 곧바로 true 가 된다.
 
 ### 2.2 InputResult — 7가지 결과 패턴
 
@@ -134,9 +158,27 @@ pub struct InputEngine {
 
 ### 2.3 키 처리 파이프라인 (`press_key`)
 
+`press_key` 는 래퍼다: 키 진입 시 `commit_buffer` 길이·팝업 활성·입력 카테고리를 저장하고 본 처리 `press_key_inner` 를 부른 뒤 `recent_track_after_key` 로 최근 확정 음절 버퍼를 갱신한다(단일 초크포인트 — HANJA_WORD_SPEC §2.2.1). `InputResult` 는 inner 결과 그대로다. 팝업 미지원 키 재처리 재귀는 `press_key_inner` 를 불러 래퍼가 1회만 돈다.
+
+| 순서 | 조건 | 버퍼 |
+|---|---|---|
+| (0) | 비밀번호/PIN 필드 | 비움 (fail-closed) |
+| (1)~(3) | `commit_buffer` 가 줄었음 / 팝업 중 키였음 / 한·영 카테고리가 바뀜 | 비움 |
+| (4) | 커밋 델타 | 한글 완성 음절이면 push(상한 17, 초과 시 앞에서 버림), 그 외 문자면 비움 |
+| (5) | 수정자 단독 키 | 유지 |
+| | Ctrl/Alt/Super 조합 | 비움 |
+| | 통과 키(`consumed=false`) | Backspace(조합 없음·커밋 없음)면 끝 1자 pop(선택 있으면 비움), 그 외 비움 |
+
+래퍼 밖 훅: chord idle 만료 flush(`chord_idle_flush_pending`)가 새로 커밋한 음절을 흡수, `set_input_category` 실제 변경·`reset()`·`rebuild_korean_context`·팝업 취소 3종(`cancel_hanja`/`cancel_special_char`/`cancel_emoji_popup`)·비밀번호 진입이 비운다. `recent_push_char` 는 차단 중이면 push 대신 비운다(`pub` — 데몬의 AutoTypeFix 순방향 시드용).
+
 ```mermaid
 flowchart TD
-    START["press_key(keycode, modifier, config)"]
+    START["press_key(keycode, modifier, config)<br/>= 래퍼 → press_key_inner → recent_track_after_key"]
+    POPUP{"팝업 활성?"}
+    SHRINK{"한자 팝업 + 한자키<br/>+ 대상①·2자 이상?"}
+    HK{"Hanja 키?\n(설정: hanja_keys)"}
+    IDLE{"preedit/조합 idle?"}
+    SEL{"선택 영역이<br/>사전 정확 일치 한글?"}
     MOD{"수정자 키만?<br/>(Shift/Ctrl/Alt 등)"}
     CTRL{"Ctrl/Alt/Super<br/>눌림?"}
     COMPOSE_CHECK{"조합 중?"}
@@ -147,16 +189,29 @@ flowchart TD
     
     START --> MOD
     MOD -->|Yes| NC["not_consumed()"]
-    MOD -->|No| CTRL
+    MOD -->|No| POPUP
+    POPUP -->|Yes| SHRINK
+    SHRINK -->|Yes| SH["target 접미 축소 → ShowHanja 재발행"]
+    SHRINK -->|No| PK["process_popup_key()"]
+    POPUP -->|No| TOGGLE
+    TOGGLE -->|Yes| T1["toggle + consumed/committed()"]
+    TOGGLE -->|No| CTRL
     CTRL -->|Yes| COMPOSE_CHECK
     COMPOSE_CHECK -->|"Yes → flush"| CM1["committed()"]
     COMPOSE_CHECK -->|No| NC
-    CTRL -->|No| TOGGLE
-    TOGGLE -->|Yes| T1["toggle + consumed/committed()"]
-    TOGGLE -->|No| CATEGORY
+    CTRL -->|No| HK
+    HK -->|"Yes (chord finalize + 델타 흡수)"| IDLE
+    IDLE -->|"No (조합 중)"| HC["start_hanja_conversion()<br/>대상① 또는 종전(마지막 음절)"]
+    IDLE -->|Yes| SEL
+    SEL -->|Yes| HC2["대상② 한자 팝업"]
+    SEL -->|"No (선택 없음·불일치)"| EMO["start_emoji_popup() (종전 idle)"]
+    HK -->|No| CATEGORY
     CATEGORY -->|Korean| KOREAN
     CATEGORY -->|English| ENGLISH
 ```
+
+> [!NOTE]
+> 한자키 분기는 언어 분기 **직전**(POPUP_SPEC §9.2)에 있어 영문 모드에서도 동작한다. 불일치 선택에서 이모지로 폴백하는 것은 HANJA_WORD_SPEC Q8(a) — 사전에 정확히 있는 한글 선택만 한자 팝업이다.
 
 ### 2.4 한국어 키 처리 (`process_korean_key`)
 
@@ -337,6 +392,16 @@ pub struct EngineConfig {
 | `Colemak` | 2 | `en_colemak` | Colemak |
 | `ColemakDh` | 3 | `en_colemak_dh` | Colemak-DH (인체공학 개선) |
 | `Workman` | 4 | `en_workman` | Workman |
+
+#### HanjaOutputFormat
+
+`config.engine.korean.hanja_output_format` — 한자 팝업 확정 문자열 서식(단음절·단어 공통, `select_hanja` 한 곳에서 조립). 괄호는 반각 `(` `)`.
+
+| 값 | repr | 출력 | 설명 |
+|----|------|------|------|
+| `Hanja` (기본) | 0 | `漢字` | 종전 동작 |
+| `HangulHanja` | 1 | `한자(漢字)` | 한글 뒤 괄호 한자 |
+| `HanjaHangul` | 2 | `漢字(한자)` | 한자 뒤 괄호 한글 |
 
 ### 3.3 설정 관리 메서드
 
@@ -719,6 +784,8 @@ pub struct HanjaEntry {
 | 메서드 | 설명 |
 |--------|------|
 | `search("가")` | 발음으로 전체 검색 |
+| `contains("대한민국")` | 키 존재 여부 (Vec 복제 없음 — 대상 탐색용) |
+| `display_meaning(entry)` | 표시용 뜻 — 다음절 항목은 글자별 뜻 합성(`나라 국 · 집 가`) |
 | `search_last_syllable("대한민국")` | 마지막 음절("국")로 검색 |
 | `entry_count()` | 총 항목 수 |
 | `key_count()` | 고유 발음 키 수 |
@@ -727,14 +794,30 @@ pub struct HanjaEntry {
 
 ```
 1. 한자 키 (설정: hanja_keys) → start_hanja_conversion()
-2. preedit의 마지막 음절 추출
-3. hanja_dict.search(음절) → 후보 리스트
-4. hanja_mode = true, hanja_candidates 저장
+2. resolve_hanja_target() 로 대상 결정 (HANJA_WORD_SPEC §2.2~§2.4)
+   - 조합 중: pool = 최근 확정 음절 버퍼 + preedit (단어 모드는 preedit 만)의
+     최장 사전 접미(2~18자). 버퍼 글자를 포함하면 RecentWord(확정 접두 N>0, 접두 검증 필수,
+     hanja_word_replace_capable 일 때만), preedit 안이면 WordBuffer(앞 preedit = 커밋 접두).
+     일치 없으면 종전(마지막 음절 — Syllable, 단어 모드는 접두 보존).
+   - idle: 앱 선택 영역(selection_span — 오프셋 초과·a≥b 는 거부, 클램프 금지)이 앞뒤 공백
+     제외 전부 완성 음절·18자 이하·사전 정확 일치면 Selection(공백은 커밋 접두/접미).
+3. hanja_dict.search(target) → 후보 리스트 (즐겨찾기 우선 stable sort)
+4. hanja_mode = true, 대상 필드 저장, ShowHanja(뜻은 display_meaning)
 5. InputResult::hanja_candidates() 반환
 6. (프론트엔드가 팝업 표시)
-7. select_hanja(index) → 한자 문자열 commit
-8. cancel_hanja() → 모드 해제
+7. select_hanja(index) → 커밋 접두 + 서식(target, 한자) + 커밋 접미
+   - RecentWord: 교체 페이로드 HanjaReplacement{delete_chars, preedit_chars, text} 를 남기고
+     commit_buffer 에는 넣지 않는다 → preedit_updated() (호스트가 take_hanja_replacement 로
+     드레인해 AutoTypefixApply(delete_chars, text, "") 로 발행)
+   - 그 외: commit_buffer 에 push → committed()
+8. 취소(Escape·미지원 키) → hanja_cancel_text()(= 진입 시 preedit 전체, Selection 은 "") 재커밋
+   → cancel_hanja() → 모드 해제
+9. 팝업 중 한자키 재타 → 대상① target 접미 축소(사전에 있는 더 짧은 접미, 최종 1자). push(`press_key` 팝업 분기)·pull(`start_hanja_conversion` 재호출 — Qt·GTK4·GTK3 X11·XIM) 두 경로 모두. 한 키가 두 경로를 다 타지 않으므로 이중 축소는 없다
 ```
+
+**불변식**: 다음절 일치 없음 ∧ 서식 `Hanja` ∧ preedit 1자 ⇒ `InputResult`·`commit_buffer`·`get_hanja_target()` 이 종전과 바이트 동일. `hanja_word_replace_capable` 기본 false 라 IMM32·`unim-capi`(`unim_engine_set_hanja_word_replace_capable` 로만 켤 수 있음)는 버퍼 포함 접미를 채택하지 않는다.
+
+**비밀번호 게이트**: `set_content_purpose` 차단 분기 **첫 줄**(`flush_preedit` 앞)에서 버퍼·surrounding 3필드를 비우고, 팝업이 열려 있으면 재커밋 없이 닫는다(`HidePopup` 대기). pull 경로(`GetHanjaCandidates`)는 `resolve_hanja_target` 첫머리에서 차단. 로그에는 target 길이만 남긴다.
 
 > [!IMPORTANT]
 > `HanjaDictionary`는 `Arc<>`로 래핑되어 **여러 InputEngine 인스턴스 간 공유**됩니다.

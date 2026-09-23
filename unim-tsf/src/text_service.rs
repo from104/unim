@@ -61,9 +61,11 @@ pub struct UnimTextService {
     pub(crate) rev_window: Mutex<Option<RevWindow>>,
     /// client-side preedit 오버레이 창 (터미널·레거시 앱 폴백 전용, lazy 생성).
     /// composition 미지원 앱에서 조합 중 음절을 앱 버퍼 대신 이 창에 그린다.
-    pub(crate) preedit_window: Mutex<Option<PreeditWindow>>,
+    /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유 (한자 단어 마우스 확정 교체).
+    pub(crate) preedit_window: Arc<Mutex<Option<PreeditWindow>>>,
     /// AutoTypeFix 오케스트레이션 상태 (키스트로크 버퍼·undo·blacklist).
-    pub(crate) atf_state: Mutex<AutoTypeFixState>,
+    /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유 (교체 후 버퍼 폐기).
+    pub(crate) atf_state: Arc<Mutex<AutoTypeFixState>>,
     /// 랭귀지바 버튼 (ActivateEx 에서 AddItem, Deactivate 에서 RemoveItem).
     /// ITfLangBarItem 으로 보관해 RemoveItem 시 재사용.
     pub(crate) langbar_item: Mutex<Option<ITfLangBarItem>>,
@@ -77,9 +79,11 @@ pub struct UnimTextService {
     /// `OnCompositionTerminated` 가 키 입력 직후 즉시 발생하면(=앱이 composition
     /// 을 유지 못 함) set 된다. 이후 키 입력은 composition 없이 backspace+reinsert
     /// 폴백 경로(key_handler)를 탄다.
-    pub(crate) composition_unsupported: AtomicBool,
-    /// 폴백 경로에서 문서에 떠있는 미확정(preedit) 글자 수.
-    pub(crate) fallback_pending: AtomicUsize,
+    ///
+    /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유 (한자 단어 마우스 확정 교체).
+    pub(crate) composition_unsupported: Arc<AtomicBool>,
+    /// 폴백 경로에서 문서에 떠있는 미확정(preedit) 글자 수. (RevWndContext 와 공유)
+    pub(crate) fallback_pending: Arc<AtomicUsize>,
     /// 마지막 OnKeyDown 시각. OnCompositionTerminated 가 "키 직후 즉시 종료
     /// (wezterm)" 인지 "한참 뒤 종료(포커스 이탈)" 인지 구분하는 데 쓴다.
     pub(crate) last_key_instant: Mutex<Option<Instant>>,
@@ -184,7 +188,10 @@ impl UnimTextService {
         let config_mtime = Config::default_config_path()
             .and_then(|p| std::fs::metadata(p).ok())
             .and_then(|m| m.modified().ok());
-        let engine = InputEngine::new(&config);
+        let mut engine = InputEngine::new(&config);
+        // 한자 단어 교체 페이로드를 드레인하는 호스트(key_handler::apply_hanja_replacement) —
+        // 엔진 생성 직후마다 켠다(재생성 시 false 로 돌아간다, HANJA_WORD_SPEC §2.2.2-4).
+        engine.set_hanja_word_replace_capable(true);
         // 초기 한/영 모드 (기본 카테고리 기준)
         let is_korean = engine.input_category() == InputCategory::Korean;
         Self {
@@ -200,13 +207,13 @@ impl UnimTextService {
             popup_ipc: Arc::new(Mutex::new(PopupClient::new())),
             last_context: Arc::new(Mutex::new(None)),
             rev_window: Mutex::new(None),
-            preedit_window: Mutex::new(None),
-            atf_state: Mutex::new(AutoTypeFixState::new()),
+            preedit_window: Arc::new(Mutex::new(None)),
+            atf_state: Arc::new(Mutex::new(AutoTypeFixState::new())),
             langbar_item: Mutex::new(None),
             langbar_btn: Mutex::new(None),
             langbar_state: Mutex::new(Some(LangBarState::new(is_korean))),
-            composition_unsupported: AtomicBool::new(false),
-            fallback_pending: AtomicUsize::new(0),
+            composition_unsupported: Arc::new(AtomicBool::new(false)),
+            fallback_pending: Arc::new(AtomicUsize::new(0)),
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
@@ -460,7 +467,9 @@ impl UnimTextService {
         }
 
         if let Ok(new_config) = Config::load_from_path(&path) {
-            let new_engine = InputEngine::new(&new_config);
+            let mut new_engine = InputEngine::new(&new_config);
+            // 초기 생성과 동일 — 빠지면 리로드 뒤 단어 변환이 조용히 꺼진다(PLAN §1 #28).
+            new_engine.set_hanja_word_replace_capable(true);
             // engine → config → composition → popup → atf 순(다른 경로와 동일).
             let mut engine_guard = self.engine.lock().unwrap();
             let mut config_guard = self.config.lock().unwrap();
@@ -815,6 +824,10 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                 comp_sink,
                 tid,
                 suppress_cuas_learn: Arc::clone(&self.suppress_cuas_learn),
+                composition_unsupported: Arc::clone(&self.composition_unsupported),
+                preedit_window: Arc::clone(&self.preedit_window),
+                fallback_pending: Arc::clone(&self.fallback_pending),
+                atf_state: Arc::clone(&self.atf_state),
             });
             match RevWindow::create(ctx) {
                 Some(w) => {
@@ -1597,6 +1610,29 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         // 재시작도 함께 폐기해 Phase2b 를 no-op 화한다(terminate 된 텍스트는 문서에 보존).
         let _ = crate::synth_input::discard_pending_restart();
 
+        // 한자 팝업 대기 중 조합이 종료됨 (HANJA_WORD_SPEC §2.2.3·§2.7) — 즉시/비즉시 공통.
+        // 조합 텍스트는 종료로 이미 문서에 평문으로 남았으므로 재커밋하지 않는다. 한자 모드를
+        // 살려 두면 이후 확정이 죽은 조합을 기준으로 교체 범위를 잡아 캐럿 앞 음절을 잘못
+        // 지우고, 팝업도 죽은 조합 위에 남는다. cancel_hanja 는 엔진 preedit 도 비우므로
+        // (문서에 이미 있는 글자의 재진입 중복 차단) 아래 즉시 분기의 pending 은 0 이 된다.
+        // 락 순서: engine 해제 후 popup_ipc(중첩 없음).
+        let hanja_dropped = {
+            let mut engine = self.engine.lock().unwrap();
+            if engine.is_hanja_mode() {
+                engine.cancel_hanja();
+                true
+            } else {
+                false
+            }
+        };
+        if hanja_dropped {
+            self.popup_ipc.lock().unwrap().hide();
+            self.end_ui_elements();
+            crate::register::dbg_log(
+                "OnCompositionTerminated: 한자 팝업 대기 중 종료 → 한자 모드 취소",
+            );
+        }
+
         // immediate(<200ms) 분기만 폴백 진입 처리. 엔진 preedit 버퍼는 보존해
         // 다음 키에서 누적 텍스트로 자연 재진입(start_composition)한다.
         // 정상 종료(포커스 이탈) 정리(engine.reset()/popup hide/atf reset)는
@@ -1714,6 +1750,9 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         }
         let known_cuas =
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
+        // 한자 팝업 정리(아래)는 **떠나는** 컨텍스트가 오버레이였는지로 판정한다 — 새 포커스
+        // 값으로 덮어쓰기 전에 캡처.
+        let prev_comp_unsupported = self.composition_unsupported.load(Ordering::SeqCst);
         self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
         self.fallback_pending.store(0, Ordering::SeqCst);
         // sink 비대칭 카운터도 포커스 전환마다 리셋(앱마다 OnTestKeyDown 발화 여부 재감지).
@@ -1784,6 +1823,9 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         } else {
             unim::config::ContentPurpose::Normal
         };
+        // 한자 팝업 중 포커스 이탈 정리 결과 — 엔진 락 밖에서 문서에 적용한다.
+        let mut hanja_overlay_recommit: Option<String> = None;
+        let mut hanja_materialize = false;
         {
             let mut engine = self.engine.lock().unwrap();
             // commit_unit 설정 존중: Syllable→off / Word→on(known_cuas 비협조앱은 off) / Smart→화이트리스트(winword/wmux).
@@ -1855,6 +1897,25 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             //   이라 조합 살아있는(=비밀번호 아님, Normal→Normal) 케이스에서 flush 없음.
             let preserve_live_compose =
                 diag_same_proc && diag_dt_since_key_ms < 250 && engine.is_composing();
+            // ── 한자 팝업 중 포커스 이탈 (HANJA_WORD_SPEC §2.7) — 아래 두 분기 공통 ──
+            //   종전엔 bare engine.reset() 이 한자 상태를 버렸고, 스킵 분기는 한자 모드가
+            //   남아 (popup_ipc.hide() 는 실행되므로) 다음 키가 팝업 dispatch 로 샜다.
+            //   - 정상 앱: 조합 텍스트는 앱이 OnCompositionTerminated 로 문서에 남기므로
+            //     재커밋하지 않는다(중복 삽입 방지). 단 cancel_hanja 는 엔진 preedit 까지
+            //     비우므로, 조합이 아직 살아 있으면(전이 포커스) 문서 텍스트를 keep 으로
+            //     확정해 둔다 — 안 하면 다음 키의 update_composition 이 "국" 을 덮어쓴다.
+            //   - 오버레이 앱(떠나는 컨텍스트가 composition 미지원): preedit 이 창에만
+            //     있으므로 스킵 분기가 아니면 옛 컨텍스트에 삽입을 시도한다.
+            if engine.is_hanja_mode() {
+                let t = engine.hanja_cancel_text();
+                engine.cancel_hanja();
+                if !preserve_live_compose && prev_comp_unsupported && !t.is_empty() {
+                    hanja_overlay_recommit = Some(t);
+                } else {
+                    hanja_materialize = !prev_comp_unsupported;
+                    crate::register::dbg_log("hanja popup dropped on focus change");
+                }
+            }
             if preserve_live_compose {
                 crate::register::dbg_log(
                     "word-gate: 전이 포커스 engine.reset() 스킵(조합 보존)",
@@ -1870,6 +1931,34 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             }
             // 비밀번호 진입→임시 영문 / 벗어남→직전 한/영 복구 (코어 상태머신, 멱등).
             engine.set_content_purpose(content_purpose);
+        }
+        // 한자 팝업 정리의 문서 반영 — 락 순서 composition → last_context(다른 경로와 동일),
+        // 보관 컨텍스트(아래에서 무효화되기 전의 옛 컨텍스트)로 시도한다. 평문은 로그 금지.
+        if hanja_overlay_recommit.is_some() || hanja_materialize {
+            let tid = self.client_id();
+            let mut comp_mgr = self.composition_mgr.lock().unwrap();
+            let ctx_guard = self.last_context.lock().unwrap();
+            match (ctx_guard.as_ref(), hanja_overlay_recommit.as_deref()) {
+                (Some(ctx), Some(t)) => {
+                    comp_mgr.insert_text(ctx, tid, t);
+                    crate::register::dbg_log(&format!(
+                        "hanja popup: focus change → overlay recommit len={}",
+                        t.chars().count()
+                    ));
+                }
+                (Some(ctx), None) if comp_mgr.is_active() => {
+                    comp_mgr.end_composition_keep_text(ctx, tid);
+                    crate::register::dbg_log(
+                        "hanja popup: focus change → live composition kept as text",
+                    );
+                }
+                (Some(_), None) => {}
+                (None, Some(t)) => crate::register::dbg_log(&format!(
+                    "hanja popup: focus change → no context, recommit dropped len={}",
+                    t.chars().count()
+                )),
+                (None, None) => {}
+            }
         }
         // Phase 4 — 포커스 전환 시 보유 영문 누적 폐기(이전 문서 보유분이 새 컨텍스트로 새지
         // 않게). 조합 객체는 보통 OnCompositionTerminated 가 이미 정리하므로 누적만 비운다.
@@ -2079,6 +2168,11 @@ struct RevWndContext {
     tid: u32,
     /// b1 Phase2 — 신규 조합 즉시-terminate 학습 억제 플래그(text_service 와 공유).
     suppress_cuas_learn: Arc<AtomicBool>,
+    /// 한자 단어 마우스 확정 교체(apply_hanja_replacement)용 — text_service 와 공유.
+    composition_unsupported: Arc<AtomicBool>,
+    preedit_window: Arc<Mutex<Option<PreeditWindow>>>,
+    fallback_pending: Arc<AtomicUsize>,
+    atf_state: Arc<Mutex<AutoTypeFixState>>,
 }
 
 /// 역채널 message-only 창 핸들 래퍼. Drop 시 창 파괴 + Box 회수.
@@ -2432,6 +2526,11 @@ fn rev_drain_and_apply(ctx: &RevWndContext) {
         // last_context 는 별도 락(컨텍스트만) — 위 락 이후 취득.
         let ctx_guard = ctx.last_context.lock().unwrap();
         let context_ref = ctx_guard.as_ref();
+        // 한자 단어 교체용 오버레이·ATF 상태 — 기존 락 순서 **뒤**에 취득(OnKeyDown 도
+        // composition → popup → preedit_window → atf_state 순이라 역순 경로 없음).
+        let composition_unsupported = ctx.composition_unsupported.load(Ordering::SeqCst);
+        let mut preedit_win = ctx.preedit_window.lock().unwrap();
+        let mut atf_state = ctx.atf_state.lock().unwrap();
 
         key_handler::apply_reverse_event(
             &mut engine,
@@ -2444,6 +2543,10 @@ fn rev_drain_and_apply(ctx: &RevWndContext) {
             &env,
             last_owner,
             last_seq,
+            composition_unsupported,
+            &mut preedit_win,
+            &ctx.fallback_pending,
+            &mut atf_state,
         );
         // 락은 루프 끝에서 자동 해제 (다음 이벤트 위해 재취득 — 엔진 락 짧게 유지).
     }

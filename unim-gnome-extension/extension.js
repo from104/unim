@@ -291,6 +291,12 @@ export default class UnimExtension extends Extension {
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
                         unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                        // 한자 단어 교체 잔상 방지: 남은 preedit(조합 중인 음절)이 있으면
+                        // BS 를 보내기 전에 먼저 지운다 — 안 지우면 아래 backspace 로 실제
+                        // 문서 텍스트를 지우는 동안 화면엔 옛 조합 음절이 겹쳐 보인다.
+                        if (this._inputMethod._preeditText?.length) {
+                            this._inputMethod.clearPreedit();
+                        }
                         // self-feedback 차단: vkbd가 보낼 backspace가 IM filter로 재진입할 때
                         // unim 엔진을 거치지 않고 곧바로 앱에 전달되도록 사전 등록
                         this._inputMethod.expectSelfBackspaces(deleteChars);

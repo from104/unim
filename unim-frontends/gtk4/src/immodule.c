@@ -1057,8 +1057,14 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
                unim_is_sensitive(unim) ? "***" : (result.preedit ? result.preedit : "(null)"),
                unim_is_sensitive(unim) ? "***" : (result.commit ? result.commit : "(null)"));
 
-    /* 선택 영역 삭제 처리 */
-    if (result.consumed) {
+    /* 선택 영역 삭제 처리
+     * commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·한/영 전환 등)는
+     * 아무것도 넣지 않으므로 선택을 지우지 않는다 — 그 상태로 지우면 취소해도
+     * 원문이 사라지거나, 불일치 선택 + 한자키(소비, 팝업 없음)가 조용히 텍스트를
+     * 지운다(HANJA_WORD_SPEC.md §4.5). */
+    if (result.consumed &&
+        ((result.commit && result.commit[0]) ||
+         (result.preedit && result.preedit[0]))) {
         /* 최신 주변 텍스트 획득 요청 */
         gboolean handled = FALSE;
         g_signal_emit_by_name(context, "retrieve-surrounding", &handled);

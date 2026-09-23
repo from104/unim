@@ -194,6 +194,7 @@ typedef struct {
 | `unim_engine_set_input_category` | 입력 모드 변경 |
 | `unim_engine_get_input_category` | 현재 입력 모드 조회 |
 | `unim_engine_set_korean_layout` | 한국어 레이아웃 즉시 변경 |
+| `unim_engine_set_hanja_word_replace_capable` | 한자 단어 교체 호스트 능력 플래그(기본 false — 교체 페이로드 드레인 API 가 없으므로 C 소비자는 켜지 않는다) |
 | `unim_engine_set_english_layout` | 영어 레이아웃 즉시 변경 |
 | `unim_engine_reset` | 전체 상태 리셋 |
 | `unim_engine_clear_commit` | commit 버퍼 비우기 |

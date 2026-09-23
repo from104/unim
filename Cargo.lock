@@ -6058,6 +6058,7 @@ dependencies = [
 name = "unim-test-dbus"
 version = "0.4.4"
 dependencies = [
+ "futures-util",
  "tokio",
  "unim-dbus",
 ]

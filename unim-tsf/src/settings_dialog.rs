@@ -16,13 +16,16 @@ use std::sync::OnceLock;
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::{GetStockObject, HBRUSH, WHITE_BRUSH};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, GetStockObject, MonitorFromWindow, HBRUSH, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, WHITE_BRUSH,
+};
 use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use unim::config::{
-    CommitUnit, Config, InputCategory, ModeSharingMode,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -66,6 +69,7 @@ const ID_CMB_ENG_LAYOUT: u32 = 4002;
 const ID_CMB_DEFAULT_CAT: u32 = 4003;
 const ID_CMB_MODE_SHARING: u32 = 4004;
 const ID_CMB_COMMIT_UNIT: u32 = 4005;
+const ID_CMB_HANJA_OUTPUT_FORMAT: u32 = 4006;
 
 const ID_CHK_BIDIR_COMBINE: u32 = 5001;
 const ID_TRK_CHORD_MS: u32 = 5002;
@@ -137,7 +141,14 @@ const ID_UD_BTN_DELETE: u32 = 9106;
 // ─── 다이얼로그 크기 ─────────────────────────────────────────────────────────
 
 const DLG_W: i32 = 500;
-const DLG_H: i32 = 760;
+// U9: 자판 그룹에 "한자 출력 형식" 행이 추가되어 일반 탭이 28px 더 필요해졌다.
+// 고정 픽셀 크기라 DPI 인식이 없고(별도 DPI awareness 설정 없음) 부모 중앙 배치 후
+// 작업 영역 clamp(아래 `clamp_to_work_area`)만 거치므로, 870 처럼 크게 올리면
+// 900px 안팎의 작업 영역(1600x900/1440x900 100%, 1080p 125%)에서 OK/취소/적용 버튼이
+// 작업 영역 밖으로 밀려날 수 있다. 신규 행 1개분(+28)만 흡수하도록 760+28=788 로 제한한다.
+// 세벌식 390/391(룰셋 4개, +108px)은 이 행 추가 이전부터 있던 별개의 페이지 오버플로우이며
+// 이 단위(U9) 범위 밖이다 — open_issues 참조.
+const DLG_H: i32 = 788;
 
 /// 탭 컨트롤 영역 (상단)
 const TAB_X: i32 = 8;
@@ -663,7 +674,7 @@ unsafe fn build_page_general(page: HWND, config: &Config) -> i32 {
     let full_w = PAGE_W - lm * 2;
 
     // ── 자판 그룹 ─────────────────────────────────────────────────────────────
-    create_groupbox(page, " 자판 ", lm - 4, y - 4, full_w + 8, row_h * 3 + gap * 4, );
+    create_groupbox(page, " 자판 ", lm - 4, y - 4, full_w + 8, row_h * 4 + gap * 5, );
     y += 6;
 
     // 한국어 자판
@@ -692,6 +703,16 @@ unsafe fn build_page_general(page: HWND, config: &Config) -> i32 {
         .unwrap_or(0);
     create_combobox(page, ID_CMB_COMMIT_UNIT, lm + lbl_w + 4, y, cmb_w, 200,
         &cu_items, cu_sel);
+    y += row_h + gap;
+
+    // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — 자판 그룹 4번째 행.
+    create_static(page, "한자 출력 형식:", lm, y, lbl_w, row_h);
+    let hof_items: Vec<&str> = HanjaOutputFormat::all().iter().map(|f| f.display_name()).collect();
+    let hof_sel = HanjaOutputFormat::all().iter()
+        .position(|&f| f == config.engine.korean.hanja_output_format)
+        .unwrap_or(0);
+    create_combobox(page, ID_CMB_HANJA_OUTPUT_FORMAT, lm + lbl_w + 4, y, cmb_w, 200,
+        &hof_items, hof_sel);
     y += row_h + gap * 2;
 
     // ── 규칙 세트 (동적 — 자판 콤보 변경 시 재구성) ───────────────────────────
@@ -1253,6 +1274,15 @@ unsafe fn collect_general(state: &mut DlgState) {
         }
     }
 
+    // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — 콤보 인덱스 = HanjaOutputFormat::all() 순서.
+    if let Some(h) = get_ctrl(pg, ID_CMB_HANJA_OUTPUT_FORMAT) {
+        let idx = combobox_get_sel(h);
+        let all = HanjaOutputFormat::all();
+        if idx < all.len() {
+            state.config.engine.korean.hanja_output_format = all[idx];
+        }
+    }
+
     // 규칙 세트
     collect_rule_sets(state);
 
@@ -1666,6 +1696,27 @@ unsafe extern "system" fn settings_wnd_proc(
     }
 }
 
+/// 다이얼로그 좌표(cx, cy)를 해당 모니터의 작업 영역(작업 표시줄 제외) 안으로 clamp 한다.
+/// DPI awareness 를 별도로 설정하지 않으므로 DLG_W/DLG_H 는 항상 논리 픽셀 기준이며,
+/// 부모 중앙 배치만으로는 작업 표시줄이나 화면 경계를 벗어날 수 있어 캡션·버튼이
+/// 가려지는 것을 막기 위해 호출한다.
+unsafe fn clamp_to_work_area(hwnd_dlg: HWND, cx: i32, cy: i32) -> (i32, i32) {
+    let hmon = MonitorFromWindow(hwnd_dlg, MONITOR_DEFAULTTONEAREST);
+    let mut mi = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if GetMonitorInfoW(hmon, &mut mi).as_bool() {
+        let work = mi.rcWork;
+        let max_x = (work.right - DLG_W).max(work.left);
+        let max_y = (work.bottom - DLG_H).max(work.top);
+        let cx = cx.clamp(work.left, max_x);
+        let cy = cy.clamp(work.top, max_y);
+        return (cx, cy);
+    }
+    (cx, cy)
+}
+
 // ─── 공개 진입점 ─────────────────────────────────────────────────────────────
 
 /// 설정 다이얼로그를 모달로 표시한다.
@@ -1730,6 +1781,7 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             if GetWindowRect(hwnd_parent, &mut pr).is_ok() {
                 let cx = (pr.left + pr.right) / 2 - DLG_W / 2;
                 let cy = (pr.top + pr.bottom) / 2 - DLG_H / 2;
+                let (cx, cy) = clamp_to_work_area(hwnd_dlg, cx, cy);
                 let _ = SetWindowPos(hwnd_dlg, None, cx, cy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
         }

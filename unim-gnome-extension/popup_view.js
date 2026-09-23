@@ -96,6 +96,8 @@ export class PopupView {
 
         // 헤더 라벨 — 한자=hanja-target, 특수/이모지=popup-header (kind 별 toggle)
         this._header = new St.Label({ text: '' });
+        // 한자 단어 대상은 최대 18자라 좁은 팝업 폭에서 넘칠 수 있다 — 말줄임 처리.
+        this._header.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
 
         // 그리드 — GridLayout 으로 셀·헤더 배치. style_class 는 kind 별 toggle.
         // _body 의 x_expand cascade 를 받아 grid 도 container 폭만큼 차지.

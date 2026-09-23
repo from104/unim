@@ -7,7 +7,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{Config, InputCategory};
-use unim::input_engine::InputEngine;
+use unim::input_engine::{HanjaReplacement, InputEngine};
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::auto_typefix::{self, AutoTypeFixState};
@@ -138,7 +138,9 @@ pub fn test_key_down(
         if modifiers.control || modifiers.alt || modifiers.super_key {
             return false;
         }
-        return is_popup_key(keycode);
+        // 한자키 재타도 소비해야 OnKeyDown 이 불려 엔진이 대상을 접미 축소한다
+        // (HANJA_WORD_SPEC Q7(a)). 사용자 설정 hanja_keys 라 고정 목록에 넣을 수 없다.
+        return is_popup_key(keycode) || engine.is_hanja_key(keycode);
     }
 
     // 한/영 전환 키는 소비 — RightAlt 같은 수정자 토글키도 포함하되, 단축키 조합
@@ -420,14 +422,17 @@ pub fn handle_key_down(
     //
     // 갭 2 수정: TSF ReadOnly EditSession 으로 선택 영역 텍스트를 읽어
     // engine.set_surrounding_text() 설정 후 typefix_convert() 를 호출한다.
-    // 선택 읽기 실패(비선택 상태, 앱 거부 등) 시 기존처럼 set_surrounding 없이 호출(fallback).
+    // 선택 읽기 실패(비선택 상태, 앱 거부 등) 시 surrounding 을 비운다(fail-closed) —
+    // 엔진은 컨텍스트 공용이고 reset() 이 surrounding 을 보존하므로, 이전 한자키(대상②)
+    // 등이 남긴 stale 선택을 typefix_convert 가 변환해 캐럿 앞 엉뚱한 글자를 지우지 않게.
+    // (typefix_convert 는 선택 구간 필수라 빈 값이면 None — 종전 비선택 동작과 동일.)
     if modifiers.control && modifiers.shift && keycode == KeyCode::Space {
-        // 선택 영역 읽기 시도
-        if let Some(sel) = composition::read_selection_text(context, tid) {
+        match composition::read_selection_text(context, tid) {
             // 선택 영역이 실제로 존재하는 경우만 (cursor != anchor)
-            if sel.cursor != sel.anchor {
+            Some(sel) if sel.cursor != sel.anchor => {
                 engine.set_surrounding_text(sel.surrounding_text, sel.cursor, sel.anchor);
             }
+            _ => engine.set_surrounding_text(String::new(), 0, 0),
         }
         // surrounding 설정 여부에 무관하게 typefix_convert 호출
         let mut schedule_flush = false;
@@ -552,9 +557,51 @@ pub fn handle_key_down(
         auto_typefix::observe_backspace(atf_state, &config.engine.auto_typefix);
     }
 
+    // ── 한자 단어: 한자키 직전 surrounding 갱신 (HANJA_WORD_SPEC §4.4, Q9) ──
+    //
+    // 조합 중이든 idle 이든 실제 문서의 커서 앞 텍스트를 읽어 넣는다. 이 컨텍스트는 한 번
+    // 이라도 surrounding 을 받으면(surrounding_seen) 이후 빈 값이 "검증 실패" 라, 조합 중에
+    // 빈 값을 넣으면 확정 접두가 있는 대상① 이 늘 단음절로 퇴화한다. 읽기 실패는 빈 값 →
+    // 안전한 쪽(단음절)으로 떨어진다.
+    // - 조합(조합 range 가 selection)이 떠 있으면 선택을 무시하고 선택 끝을 커서로 삼는다
+    //   (조합 중 선택 무시 §2.4.4 — selection 은 조합 range 이지 사용자 선택이 아니다).
+    // - `surrounding_includes_preedit` 는 조합 텍스트가 실제로 문서 안에 있을 때만 켠다.
+    //   오버레이 앱은 preedit 이 창에만 있어 `prefix+pre` 절을 열면 클릭 드리프트(문서의
+    //   기존 "…대한민국" 뒤 클릭 + 오버레이 "국")가 검증을 뚫는다(§2.2.3).
+    // 비번 필드(atf_active=false)에서는 문서 텍스트를 읽지 않는다(엔진도 차단).
+    let hanja_key_read = atf_active && engine.is_hanja_key(keycode);
+    if hanja_key_read {
+        let doc_composition = comp_mgr.is_active() && !composition_unsupported;
+        let collapse = engine.is_composing() || comp_mgr.is_active();
+        engine.set_surrounding_includes_preedit(doc_composition);
+        match composition::read_hanja_surrounding(context, tid, collapse) {
+            Some(s) => {
+                crate::register::dbg_log(&format!(
+                    "hanja surrounding: len={} cursor={} anchor={} collapse={collapse} in_doc={doc_composition}",
+                    s.surrounding_text.chars().count(),
+                    s.cursor,
+                    s.anchor
+                ));
+                engine.set_surrounding_text(s.surrounding_text, s.cursor, s.anchor);
+            }
+            None => {
+                crate::register::dbg_log(
+                    "hanja surrounding: 읽기 실패 → 빈 값(확정 접두 대상① 단음절 퇴화)",
+                );
+                engine.set_surrounding_text(String::new(), 0, 0);
+            }
+        }
+    }
+
     let was_composing = engine.is_composing();
     let prev_mode = engine.input_category();
     let result = engine.press_key(keycode, modifiers, config);
+    // 한자키가 읽어 넣은 문서 평문·선택은 대상 해석(press_key) 직후 비운다 — 팝업 확정은
+    // surrounding 을 쓰지 않고 Q7(a) 재타는 다시 읽는다. 공용 엔진에 남기면 다른 앱·
+    // 수동 typefix 가 stale 선택을 쓰게 된다. 빈 값이라도 surrounding_seen 은 유지된다.
+    if hanja_key_read {
+        engine.set_surrounding_text(String::new(), 0, 0);
+    }
 
     crate::register::dbg_log_ev!(
         &format!(
@@ -585,6 +632,30 @@ pub fn handle_key_down(
     // 캐럿 rect(조합 range 스크린 좌표)를 함께 넘겨 팝업을 캐럿 하단에 앵커링(돋보기 추종).
     let caret_rect = get_composition_screen_rect(context, tid);
     drain_popup_actions(engine, popup, caret_rect);
+
+    // ── 한자 단어 대상① 확정 — 교체 페이로드 (HANJA_WORD_SPEC §4.4) ──
+    // 확정 접두가 있는 대상① 확정은 commit_buffer 가 아니라 페이로드로 나온다(preedit ""
+    // 갱신만 보고). 아래 commit/preedit 처리로 내려가면 조합 음절만 지워지고 접두가 남으므로
+    // 여기서 교체하고 끝낸다(ATF 오케스트레이션도 건너뛴다 — 버퍼는 교체 함수가 폐기).
+    if let Some(rep) = engine.take_hanja_replacement() {
+        let schedule_flush = apply_hanja_replacement(
+            engine,
+            comp_mgr,
+            context,
+            tid,
+            comp_sink,
+            composition_unsupported,
+            preedit_win,
+            fallback_pending,
+            atf_state,
+            &rep,
+        );
+        return KeyDownOutcome {
+            eaten: true,
+            schedule_flush,
+            ..Default::default()
+        };
+    }
 
     // ── 단어별 preedit caret 정책 힌트 ──
     // 코어 word 모드(winword.exe 포커스 게이트 = engine.is_word_mode())를 조합 dispatch
@@ -913,6 +984,79 @@ pub fn handle_key_down(
     KeyDownOutcome { eaten: result.consumed, schedule_flush, atf_fallback }
 }
 
+/// 한자 단어 대상① 교체 페이로드를 문서에 적용한다 (키보드·마우스 확정 공용,
+/// HANJA_WORD_SPEC §4.4).
+///
+/// 역방향 AutoTypeFix 와 같은 레시피: 조합("국")을 지우지 않고 확정 텍스트로 materialize
+/// (`end_composition_keep_text`) 한 뒤 `확정 접두 + 조합` 전체 span 을 `replace_surrounding`
+/// 으로 통째 교체한다 — clear SetText 가 시각적으로 무효인 CUAS/xterm.js 앱에서도 조합
+/// 자모가 잔류하지 않는다. 오버레이 조합 앱은 preedit 이 문서에 없으므로 span 은 확정
+/// 접두만이고 오버레이 창을 비운다. 교체는 항상 preedit "" 라 `PhaseSplit`/`SynthHeadTail`
+/// 은 발생하지 않는다(exhaustive arm 만 존재 — 수동 typefix 블록과 동일).
+///
+/// 끝에 ATF 상태를 비운다(§2.6 — 교체로 키스트로크 버퍼·undo 기준 텍스트가 문서와 어긋나므로
+/// 소비 후 폐기; undo 를 남기면 Ctrl+Z 가 교정 글자 수만큼 한자 텍스트를 지운다).
+/// 반환: b1 Phase2 플러시 예약 필요 여부(`KeyDownOutcome.schedule_flush`).
+#[allow(clippy::too_many_arguments)]
+fn apply_hanja_replacement(
+    engine: &mut InputEngine,
+    comp_mgr: &mut CompositionManager,
+    context: &ITfContext,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+    composition_unsupported: bool,
+    preedit_win: &mut Option<PreeditWindow>,
+    fallback_pending: &AtomicUsize,
+    atf_state: &mut AutoTypeFixState,
+    rep: &HanjaReplacement,
+) -> bool {
+    let mut span = rep.delete_chars;
+    let in_doc = comp_mgr.is_active();
+    // fail-closed: 정상 앱인데 조합이 사라졌다 = 팝업 대기 중 앱이 조합을 종료했다. 종료된
+    // 조합 텍스트는 평문으로 문서에 남아 있어 delete_chars 만 지우면 캐럿 앞 조합 음절을
+    // 접두로 오인해 지운다("대大韓民國"). 문서를 건드리지 않고 버린다(§2.2.3 — 잘못 지우는
+    // 것이 최악). 1차 방어는 OnCompositionTerminated 의 한자 모드 취소다.
+    if !in_doc && !composition_unsupported && rep.preedit_chars > 0 {
+        atf_state.reset_on_focus();
+        crate::register::dbg_log(&format!(
+            "hanja replace: composition gone → dropped (delete={} preedit={})",
+            rep.delete_chars, rep.preedit_chars
+        ));
+        return false;
+    }
+    if in_doc {
+        comp_mgr.end_composition_keep_text(context, tid);
+        span += rep.preedit_chars;
+    } else if composition_unsupported {
+        // 오버레이 폴백: 조합 음절은 창에만 있다 — 폴백 경로의 빈 preedit 처리와 동일.
+        if let Some(win) = preedit_win.as_mut() {
+            win.hide();
+        }
+        fallback_pending.store(0, Ordering::SeqCst);
+    }
+    let outcome = comp_mgr.replace_surrounding(context, tid, span, &rep.text, "", comp_sink);
+    let mut schedule_flush = false;
+    match outcome {
+        ReplaceOutcome::Normal => {}
+        ReplaceOutcome::PhaseSplit => schedule_flush = true, // native(형식상 안전망)
+        ReplaceOutcome::SynthBatch => engine.remove_preedit(),
+        ReplaceOutcome::SynthHeadTail => {
+            // preedit="" 경로라 미발생(방어적). 엔진 preedit 클리어 + 슬롯 폐기.
+            let _ = crate::synth_input::discard_pending_tail();
+            engine.remove_preedit();
+        }
+    }
+    atf_state.reset_on_focus();
+    // 사용자 입력 평문은 남기지 않는다 — 글자 수만.
+    crate::register::dbg_log(&format!(
+        "hanja replace: delete={} preedit={} in_doc={in_doc} span={span} text_len={} outcome={outcome:?}",
+        rep.delete_chars,
+        rep.preedit_chars,
+        rep.text.chars().count()
+    ));
+    schedule_flush
+}
+
 /// b1 Phase2 — 보류 삽입(PendingInsert)을 TSF 로 삽입한다 (타이머 발화 / race-flush
 /// 공용). 1회성: take_pending_insert() 가 None 이면 즉시 반환(중복 호출 무해).
 ///
@@ -1138,6 +1282,12 @@ pub fn apply_reverse_event(
     env: &RevEnvelope,
     last_owner: u64,
     last_seq: u64,
+    // 한자 단어 교체(apply_hanja_replacement)용 오버레이·ATF 상태 — 호출부가 기존 락
+    // (engine → config → composition → popup → last_context) 뒤에 취득해 넘긴다.
+    composition_unsupported: bool,
+    preedit_win: &mut Option<PreeditWindow>,
+    fallback_pending: &AtomicUsize,
+    atf_state: &mut AutoTypeFixState,
 ) {
     use unim::keycode::{KeyCode, ModifierState};
 
@@ -1216,6 +1366,34 @@ pub fn apply_reverse_event(
     // 재렌더 시에도 캐럿 앵커 유지(페이지/탭/확장 전환 후 위치 고정) — context 있으면 rect 계산.
     let caret_rect = context.and_then(|ctx| get_composition_screen_rect(ctx, tid));
     drain_popup_actions(engine, popup, caret_rect);
+
+    // 한자 단어 대상① 마우스 확정 — 교체 페이로드(키보드 경로와 같은 공용 함수). 교체는
+    // preedit "" 라 PhaseSplit/SynthHeadTail 이 없어 schedule_flush 는 로그만 남긴다.
+    // 이어지는 commit_str 블록은 페이로드 확정 시 commit_buffer 가 비어 no-op.
+    if let Some(rep) = engine.take_hanja_replacement() {
+        match context {
+            Some(ctx) => {
+                let schedule_flush = apply_hanja_replacement(
+                    engine,
+                    comp_mgr,
+                    ctx,
+                    tid,
+                    comp_sink,
+                    composition_unsupported,
+                    preedit_win,
+                    fallback_pending,
+                    atf_state,
+                    &rep,
+                );
+                crate::register::dbg_log(&format!(
+                    "popup_rev: hanja replacement applied (schedule_flush={schedule_flush})"
+                ));
+            }
+            None => {
+                crate::register::dbg_log("popup_rev: no context — hanja replacement dropped");
+            }
+        }
+    }
 
     // 마우스 확정 텍스트(commit_buffer)가 있으면 보관 컨텍스트로 비조합 문서 삽입.
     let commit = if !engine.commit_str().is_empty() {

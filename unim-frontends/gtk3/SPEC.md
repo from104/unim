@@ -347,6 +347,13 @@ GTK set_surrounding(text, len, cursor_index) 호출
 > GTK3에서는 `set_surrounding`이 커서 위치만 제공합니다.
 > 선택 영역 정보는 `retrieve-surrounding` 시그널 후 위젯이 업데이트합니다.
 
+> [!NOTE]
+> **한자 단어 확정 — 선택 영역(대상②) 미지원**(`HANJA_WORD_SPEC.md` §2.10):
+> `selection_index`가 항상 `cursor_index`와 같아(anchor 미전달) 엔진이 선택
+> 존재 여부를 판정할 수 없다. idle 상태에서 한자키를 누르면 종전과 동일하게
+> 이모지 팝업으로 간다. GTK4(§7.2)는 `set_surrounding_with_selection`으로
+> anchor 를 별도 전달해 대상②를 지원한다.
+
 ---
 
 ## 8. DBus 통신 (`unim_dbus_client`)

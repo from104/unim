@@ -245,6 +245,18 @@ UnimInputCategory unim_engine_get_input_category(const UnimEngine *engine);
 bool unim_engine_set_korean_layout(UnimEngine *engine, const char *layout);
 
 /**
+ * Set the host capability flag for Hanja word replacement (HANJA_WORD_SPEC §2.2.2).
+ *
+ * Default is false. This C API exposes no function to drain the replacement
+ * payload, so consumers should leave it off: with false, the Hanja target stays
+ * the previous single syllable and output is byte-identical to earlier releases.
+ *
+ * @param engine Engine handle (must not be NULL).
+ * @param capable Whether the host can replace already-committed text.
+ */
+void unim_engine_set_hanja_word_replace_capable(UnimEngine *engine, bool capable);
+
+/**
  * Set the English layout profile of the engine immediately.
  *
  * @param layout Null-terminated UTF-8 profile name. See `unim_config_set_english_layout`.

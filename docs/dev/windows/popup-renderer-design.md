@@ -414,12 +414,19 @@ windows = { version = "0.62", features = [
 한자 compact 리스트 (rows = N≤9, cols=1):
 - 행 포맷: `[row_header] [한자(+★)] [meaning]` — `m` 을 보조색으로 같은 행에 렌더 (H9 해소).
 - 행 폭 = max(GetTextExtentPoint32 측정치) 기반, 논리 280px 최소 / 560px 최대 클램프.
+- 행 내부 한자 열 폭도 실측(구: 고정 90px) — `max(90px, "한자 ★" 측정폭 + 8px)`.
+  다글자 한자 단어 후보(한자 단어 변환, HANJA_WORD_SPEC.md §2.5.4)가 뜻 열과
+  겹치는 것을 막는다. 뜻 열 시작 = 한자 열 우측 + 6px.
 
 격자 모드:
 - 좌측 행 레이블 열(1~9) + 상단 열 레이블 행(col_headers **9개 전부** — popup 폭 고정 정책).
 - 이모지(`tab_labels` 비어있지 않음): 좌측에 9개 세로 탭 컬럼 추가, `active_tab_index`
   강조 (Linux GridLayout col 0 attach 와 동일 배치 철학).
 - 한자 expanded: 셀에 한자(+★)만, 뜻은 헤더가 담당 (view_model 정책 그대로).
+  셀 폭은 고정 유지(popup 폭 고정 정책 — 페이지마다 폭이 요동하면 안 된다) +
+  셀 텍스트 `DT_END_ELLIPSIS` 말줄임(다글자 한자 단어가 셀을 넘으면 말줄임,
+  전체 한자는 헤더가 담당, HANJA_WORD_SPEC.md §2.5.4). 헤더도 같은 이유로
+  `DT_END_ELLIPSIS`.
 
 색상 (Catppuccin Mocha, POPUP_SPEC §5.1 — COLORREF 는 0x00BBGGRR 주의):
 

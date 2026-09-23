@@ -710,6 +710,69 @@ fn handle_focus_in(
         .unwrap_or(false)
 }
 
+/// 입력 필드 목적 반영 (`SetContentType` / `SetContentTypeWithReply` 공용).
+///
+/// 반환값: 비밀번호/PIN 진입으로 열려 있던 팝업을 **재커밋 없이** 닫았으면 true
+/// (HANJA_WORD_SPEC §2.8). 워커에는 시그널 발행 수단이 없으므로 호출부가 응답으로
+/// 돌려주고 `service.rs` 가 `HidePopup` 을 발행한다.
+fn apply_content_type(
+    contexts: &mut HashMap<u32, InputEngine>,
+    keystroke_buffers: &mut HashMap<u32, KeystrokeBuffer>,
+    undo_states: &mut HashMap<u32, UndoState>,
+    recent_corrections: &mut HashMap<u32, Vec<RecentCorrection>>,
+    context_id: u32,
+    purpose: u32,
+) -> bool {
+    let Some(engine) = contexts.get_mut(&context_id) else {
+        return false;
+    };
+    let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
+    engine.set_content_purpose(content_purpose);
+    let mut popup_closed = false;
+    // 비밀번호/PIN 진입: 직전 타이핑이 남긴 per-context ATF 상태를 즉시
+    // 폐기한다(FocusIn 초기화 선례). 관찰 게이트와 함께 이중 방어 —
+    // 비번 진입 직전의 버퍼·되돌리기 원문·최근 교정이 잔류하지 않게 한다.
+    if content_purpose.should_block_hangul() {
+        keystroke_buffers.remove(&context_id);
+        undo_states.remove(&context_id);
+        recent_corrections.remove(&context_id);
+        // 엔진 차단 분기가 팝업(한자·특수문자·이모지)을 취소했으면 HidePopup 을
+        // 적재한다 — 여기서 드레인해 응답으로 돌려준다(다음 ProcessKeyEvent 로 새지 않게).
+        popup_closed = engine.take_popup_action().is_some();
+    }
+    unim_log!(
+        "ENGINE_WORKER",
+        "[Engine Worker] SetContentType: context_id={}, purpose={:?}, popup_closed={}",
+        context_id,
+        content_purpose,
+        popup_closed
+    );
+    popup_closed
+}
+
+/// 데몬용 엔진 생성 — `InputEngine::new` 의 유일한 진입점(테스트 제외).
+///
+/// 데몬은 한자 단어 교체 페이로드(`take_hanja_replacement`)를 `AutoTypefixApply` 로
+/// 내보내는 호스트라 `hanja_word_replace_capable` 을 켠다(HANJA_WORD_SPEC §2.2.2 4).
+/// 생성 경로 하나라도 이 헬퍼를 거치지 않으면 그 경로 뒤 컨텍스트에서 확정 접두 단어
+/// 변환이 조용히 꺼진다(단음절로 퇴화) — 새 생성 지점도 반드시 이 헬퍼를 쓴다.
+///
+/// 단, IBus 호환 컨텍스트(`ibus-` 접두 window_id)는 끈다. 그 응답 소비자
+/// (`ibus_compat::ibus_context::emit_engine_response`)는 commit·preedit 만 내보내고
+/// `auto_typefix` 를 버리므로, 켜 두면 교체 확정 시 preedit 만 지워지고 한자는 삽입되지
+/// 않는다(데이터 유실). 끄면 단음절 확정(`commit`)으로 퇴화한다 — `word_gate_verdict`
+/// 의 프런트 제외 접두와 같은 기준.
+fn new_daemon_engine(config: &Config, window_id: &str) -> InputEngine {
+    let mut engine = InputEngine::new(config);
+    engine.set_hanja_word_replace_capable(host_emits_hanja_replacement(window_id));
+    engine
+}
+
+/// 이 컨텍스트의 프런트가 한자 단어 교체 페이로드(`AutoTypefixApply`)를 소비하는가.
+fn host_emits_hanja_replacement(window_id: &str) -> bool {
+    !window_id.starts_with("ibus-")
+}
+
 /// 포커스 아웃 / Reset 공통 처리: 팝업을 커밋 텍스트로 변환하고 엔진을 초기화한다.
 ///
 /// `preserve_mode=true` (FocusOut / Reset의 PerApp·Context-local 모드 유지) 시
@@ -719,12 +782,14 @@ fn handle_focus_in(
 /// [`context_desired_word_mode`] 로 산출). `InputEngine::new` 는 commit_unit=Word/Smart 면
 /// accumulate_word 를 무조건 켜므로(engine.rs), 여기서 재판정하지 않으면 터미널·XIM·모아치기
 /// 강등이 다음 FocusIn 까지 무력화된다(마우스 클릭 유발 Reset 등).
+/// `window_id` 는 재생성 엔진의 교체 능력 판정용([`new_daemon_engine`]).
 /// 반환값: 커밋할 텍스트(preedit/팝업 타겟) 또는 None.
 fn reset_engine_and_capture_commit(
     engine: &mut InputEngine,
     config: &Config,
     preserve_mode: bool,
     desired_word: bool,
+    window_id: &str,
 ) -> Option<String> {
     let mut commit_text = String::new();
 
@@ -735,7 +800,9 @@ fn reset_engine_and_capture_commit(
     }
 
     if engine.is_hanja_mode() {
-        let t = engine.get_hanja_target().to_string();
+        // 팝업 진입 당시 preedit 전체(단어 모드·다음절 preedit 포함, 대상② 는 "").
+        // 종전 `get_hanja_target()` 은 target 만 돌려줘 preedit 2자 이상에서 앞부분이 빠졌다.
+        let t = engine.hanja_cancel_text();
         engine.cancel_hanja();
         if !t.is_empty() {
             commit_text.push_str(&t);
@@ -754,7 +821,7 @@ fn reset_engine_and_capture_commit(
     }
 
     let current_mode = engine.input_category();
-    *engine = InputEngine::new(config);
+    *engine = new_daemon_engine(config, window_id);
     if preserve_mode {
         engine.set_input_category(current_mode);
     }
@@ -986,6 +1053,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 전까지 옛 키가 살아있는 live-reload 갭이 있었다(F4). set_switch_keys 로
                 // ATF 핫키와 동일하게 즉시 재적용해 갭을 해소한다.
                 engine.set_switch_keys(&config);
+                // 한자 출력 형식 재적용(비파괴 — 캐시 필드만 바꾼다, 조합 유지).
+                engine.set_hanja_output_format(&config);
 
                 if !korean_changed {
                     continue;
@@ -1056,7 +1125,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 window_id,
                 response,
             } => {
-                let mut engine = InputEngine::new(&config);
+                let mut engine = new_daemon_engine(&config, &window_id);
 
                 // PerApp 모드에서는 앱별 저장된 모드 적용
                 if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
@@ -1154,6 +1223,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // Global 모드 변경 시 다른 context 들에 전파할 새 mode (engine 빌림이
                 // 끝난 후 blocking 없이 iter_mut 으로 적용).
                 let mut global_mode_propagate: Option<unim::config::InputCategory> = None;
+                // 한자 단어 교체 프레임 여부 — engine 빌림 해제 후 ATF Global 동기화 게이트에
+                // 쓰므로 빌림 블록 밖에 둔다(HANJA_WORD_SPEC §4.1 상호배제).
+                let mut hanja_replaced = false;
                 // ATF 토글 단축키: press_key 가 매칭해 pending 에 적재한 대상 플래그를
                 // engine 빌림 안에서 드레인해 여기 보관하고, config.auto_typefix 불변 대여가
                 // 끝난 뒤(borrow 해제 후) 반전·persist·통지한다(Risk 4 — 대여 충돌 회피).
@@ -1332,6 +1404,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // 팝업 동작 감지
                     let popup_action = engine.take_popup_action();
+                    // 한자 단어 교체 페이로드(대상① 확정 접두 > 0 확정 프레임에서만 Some).
+                    // 소비 후 ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기한다(§4.1).
+                    let hanja_repl = engine.take_hanja_replacement();
+                    hanja_replaced = hanja_repl.is_some();
+                    if hanja_replaced {
+                        keystroke_buffers.remove(&context_id);
+                    }
 
                     // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
                     let mut fix_has_replay = false;
@@ -1341,6 +1420,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     )
                         && mode_changed.is_none()
                         && popup_action.is_none()
+                        && hanja_repl.is_none()
                     {
                         let buf = keystroke_buffers
                             .entry(context_id)
@@ -1597,15 +1677,24 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                         let last_syllable = engine.preedit_str().to_string();
                                         // replay에서 발생한 commit은 무시 (시그널의 commit_text에 이미 포함)
                                         engine.clear_commit();
+                                        // 한자 단어 버퍼 시드(HANJA_WORD_SPEC §4.1): reset 으로 비워진
+                                        // 최근 확정 음절 버퍼를 교정된 접두("대한민")로 채워, 곧바로
+                                        // 한자키를 누르면 target 이 "대한민"+preedit"국" 이 되게 한다.
+                                        // 반드시 replay·clear_commit **뒤** — replay 중 commit 델타가
+                                        // 래퍼로 시드 위에 추가 push 되면 검증 없는 과다 삭제가 된다.
+                                        engine.recent_clear();
+                                        for c in fix.commit_text.chars() {
+                                            engine.recent_push_char(c);
+                                        }
                                         (fix.commit_text.clone(), last_syllable)
                                     };
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] AutoTypeFix replay(word={}): preedit='{}', commit_text='{}'",
+                                        "[Engine Worker] AutoTypeFix replay(word={}): preedit={}자, commit_text={}자",
                                         fix.replace_composition,
-                                        replay_preedit,
-                                        replay_commit
+                                        replay_preedit.chars().count(),
+                                        replay_commit.chars().count()
                                     );
 
                                     // preedit은 시그널 경유로 프론트엔드가 처리
@@ -1700,6 +1789,20 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         }
                         None
                     };
+
+                    // 한자 단어 교체: 기존 교체 채널(`auto_typefix` → AutoTypefixApply)에
+                    // 실어 보낸다. 아래 역방향 분기(`!fix_has_replay`)가 응답을 preedit ""·
+                    // commit 없음으로 만들어 프런트가 조합 음절을 먼저 지운다(§2.6·§4.1).
+                    if let Some(r) = hanja_repl {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] 한자 단어 교체: delete={}, text={}자",
+                            r.delete_chars,
+                            r.text.chars().count()
+                        );
+                        auto_typefix_result = Some((r.delete_chars, r.text, String::new()));
+                        fix_has_replay = false;
+                    }
 
                     // AutoTypeFix 트리거 시:
                     // 순방향 (영→한, replay_keys 있음): commit 억제 + delete_chars-1
@@ -1839,6 +1942,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                 // AutoTypeFix 모드 전환 시 Global 동기화 (contexts borrow 해제 후)
                 if resp.auto_typefix.is_some()
+                    && !hanja_replaced
                     && config.engine.mode_sharing == unim::config::ModeSharingMode::Global
                 {
                     let new_mode = config.engine.default_category;
@@ -1908,14 +2012,24 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 재생성 후 재적용할 word 게이트 (engine 빌림 전에 산출 — 이중 빌림 회피).
                 let desired_word =
                     context_desired_word_mode(&config, &context_windows, context_id);
+                let window_id = context_windows
+                    .get(&context_id)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let commit = contexts.get_mut(&context_id).and_then(|engine| {
-                    reset_engine_and_capture_commit(engine, &config, preserve_mode, desired_word)
+                    reset_engine_and_capture_commit(
+                        engine,
+                        &config,
+                        preserve_mode,
+                        desired_word,
+                        window_id,
+                    )
                 });
                 unim_log!(
                     "ENGINE_WORKER",
-                    "[Engine Worker] FocusOut: context_id={}, commit={:?}",
+                    "[Engine Worker] FocusOut: context_id={}, commit={}자",
                     context_id,
-                    commit
+                    commit.as_ref().map_or(0, |c| c.chars().count())
                 );
                 let _ = response.send(commit);
             }
@@ -1929,8 +2043,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 모아치기 강등이 무력화되지 않도록 — engine 빌림 전에 desired 산출).
                 let desired_word =
                     context_desired_word_mode(&config, &context_windows, context_id);
+                let window_id = context_windows
+                    .get(&context_id)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let commit = contexts.get_mut(&context_id).and_then(|engine| {
-                    reset_engine_and_capture_commit(engine, &config, true, desired_word)
+                    reset_engine_and_capture_commit(engine, &config, true, desired_word, window_id)
                 });
                 let _ = response.send(commit);
             }
@@ -2019,12 +2137,26 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // GNOME extension 자체 context 로 들어와도 popup 은 GTK4_IM 등 다른
                 // context 에 살아있을 수 있다).
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let result = if let Some(engine) = contexts.get_mut(&target_id) {
-                    engine.select_hanja(index)
+                let outcome = if let Some(engine) = contexts.get_mut(&target_id) {
+                    match engine.select_hanja(index) {
+                        Some(text) => match engine.take_hanja_replacement() {
+                            // 대상①(확정 접두 > 0): CommitText 대신 교체 채널. 소비 후
+                            // ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기(§4.1).
+                            Some(r) => {
+                                keystroke_buffers.remove(&target_id);
+                                crate::service::SelectHanjaOutcome::Replace {
+                                    delete_chars: r.delete_chars,
+                                    text: r.text,
+                                }
+                            }
+                            None => crate::service::SelectHanjaOutcome::Commit(text),
+                        },
+                        None => crate::service::SelectHanjaOutcome::None,
+                    }
                 } else {
-                    None
+                    crate::service::SelectHanjaOutcome::None
                 };
-                let _ = response.send(result);
+                let _ = response.send(outcome);
             }
 
             EngineRequest::CancelHanja {
@@ -2032,14 +2164,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let target = if let Some(engine) = contexts.get_mut(&target_id) {
-                    // cancel 전에 hanja_target(원래 한글)을 저장하여 즉시 커밋할 수 있도록 반환
-                    let t = engine.get_hanja_target().to_string();
-                    let result = if !t.is_empty() { Some(t) } else { None };
-                    engine.cancel_hanja();
-                    result
-                } else {
-                    None
+                let target = match contexts.get_mut(&target_id) {
+                    // cancel 전에 팝업 진입 당시 preedit 전체를 저장해 즉시 커밋할 수 있도록
+                    // 반환한다(단어 모드·다음절 preedit 포함 — 종전 `get_hanja_target()` 은
+                    // 앞 preedit 을 흘렸다). 대상②(선택 영역)는 "" — 커밋 없이 팝업만 닫는다.
+                    // 한자 모드였으면 빈 문자열이라도 Some 으로 돌려 HidePopup 을 보장한다.
+                    Some(engine) => {
+                        let was_active = engine.is_hanja_mode();
+                        let t = engine.hanja_cancel_text();
+                        engine.cancel_hanja();
+                        was_active.then_some(t)
+                    }
+                    None => None,
                 };
                 let _ = response.send(target);
             }
@@ -2247,24 +2383,30 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 purpose,
             } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
-                    let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
-                    engine.set_content_purpose(content_purpose);
-                    // 비밀번호/PIN 진입: 직전 타이핑이 남긴 per-context ATF 상태를 즉시
-                    // 폐기한다(FocusIn 초기화 선례). 관찰 게이트와 함께 이중 방어 —
-                    // 비번 진입 직전의 버퍼·되돌리기 원문·최근 교정이 잔류하지 않게 한다.
-                    if content_purpose.should_block_hangul() {
-                        keystroke_buffers.remove(&context_id);
-                        undo_states.remove(&context_id);
-                        recent_corrections.remove(&context_id);
-                    }
-                    unim_log!(
-                        "ENGINE_WORKER",
-                        "[Engine Worker] SetContentType: context_id={}, purpose={:?}",
-                        context_id,
-                        content_purpose
-                    );
-                }
+                apply_content_type(
+                    &mut contexts,
+                    &mut keystroke_buffers,
+                    &mut undo_states,
+                    &mut recent_corrections,
+                    context_id,
+                    purpose,
+                );
+            }
+
+            EngineRequest::SetContentTypeWithReply {
+                context_id,
+                purpose,
+                response,
+            } => {
+                let popup_closed = apply_content_type(
+                    &mut contexts,
+                    &mut keystroke_buffers,
+                    &mut undo_states,
+                    &mut recent_corrections,
+                    context_id,
+                    purpose,
+                );
+                let _ = response.send(popup_closed);
             }
 
             EngineRequest::SetSurroundingText {
@@ -3208,4 +3350,144 @@ mod tests {
     // `~/.config/unim/typefix-blacklist.yaml`을 덮어써 기존 엔트리를 파괴하기 때문이다.
     // 로직은 `rollback_threshold_met` + `find_retrigger_layouts` + `observe_rollback_event`의
     // 순수 함수 검증으로 충분히 커버된다.
+
+    // === 한자 단어 배선 (HANJA_WORD_SPEC §2.7·§2.8·§4.1) ===
+
+    /// 두벌식 "대한민국" 11키 (e o g k s a l s r n r).
+    const DAEHANMINGUK: [KeyCode; 11] = [
+        KeyCode::E,
+        KeyCode::O,
+        KeyCode::G,
+        KeyCode::K,
+        KeyCode::S,
+        KeyCode::A,
+        KeyCode::L,
+        KeyCode::S,
+        KeyCode::R,
+        KeyCode::N,
+        KeyCode::R,
+    ];
+
+    /// 음절 모드로 "대한민국" 을 치고 확정분("대한민")을 데몬처럼 배출한 뒤 한자키(F9).
+    fn daemon_engine_in_word_popup(config: &Config) -> InputEngine {
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(config, "gtk4-test");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, config);
+        }
+        assert_eq!(drain_commit(&mut e).as_deref(), Some("대한민"));
+        assert_eq!(e.preedit_str(), "국");
+        e.press_key(KeyCode::F9, m, config);
+        e.take_popup_action();
+        e
+    }
+
+    /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과
+    /// 마우스 확정(`select_hanja`) 교체 페이로드(delete=3)가 나온다.
+    #[test]
+    fn new_daemon_engine_enables_hanja_word_replacement() {
+        let config = Config::default();
+        let mut e = daemon_engine_in_word_popup(&config);
+        assert!(e.is_hanja_mode());
+        assert_eq!(e.get_hanja_target(), "대한민국");
+        assert_eq!(e.hanja_committed_chars(), 3);
+
+        let text = e.select_hanja(0).expect("후보 0 확정");
+        let r = e.take_hanja_replacement().expect("대상① 교체 페이로드");
+        assert_eq!(r.delete_chars, 3);
+        assert_eq!(r.text, text);
+        // 교체 채널로 나가므로 commit_buffer 에는 싣지 않는다(이중 삽입 방지).
+        assert_eq!(drain_commit(&mut e), None);
+    }
+
+    /// FocusOut/Reset 재생성 전 캡처는 팝업 진입 당시 preedit("국")만 되돌린다 —
+    /// target("대한민국")을 재커밋하면 이미 앱에 있는 "대한민" 이 중복된다(§2.7 원칙).
+    #[test]
+    fn reset_capture_recommits_only_preedit_for_word_target() {
+        let config = Config::default();
+        let mut e = daemon_engine_in_word_popup(&config);
+        let captured = reset_engine_and_capture_commit(&mut e, &config, false, false, "gtk4-test");
+        assert_eq!(captured.as_deref(), Some("국"));
+        assert!(!e.is_hanja_mode());
+    }
+
+    /// 재생성 경로 뒤에도 교체 능력이 유지된다(헬퍼 누락 회귀 방지).
+    #[test]
+    fn reset_engine_keeps_word_replace_capability() {
+        let config = Config::default();
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        let _ = reset_engine_and_capture_commit(&mut e, &config, false, false, "gtk4-test");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        let _ = drain_commit(&mut e);
+        e.press_key(KeyCode::F9, m, &config);
+        assert_eq!(e.get_hanja_target(), "대한민국");
+    }
+
+    /// IBus 호환 컨텍스트는 교체 채널(auto_typefix)을 소비하지 않으므로 능력을 끈다 —
+    /// target 은 preedit("국")만, 교체 페이로드 없음(단음절 commit 으로 확정).
+    #[test]
+    fn ibus_context_engine_disables_hanja_word_replacement() {
+        let config = Config::default();
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(&config, "ibus-firefox-3");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        assert_eq!(drain_commit(&mut e).as_deref(), Some("대한민"));
+        e.press_key(KeyCode::F9, m, &config);
+        assert!(e.is_hanja_mode());
+        assert_eq!(e.get_hanja_target(), "국");
+        assert!(e.take_hanja_replacement().is_none());
+        // 재생성 경로(FocusOut/Reset)도 같은 판정을 따른다.
+        let _ = reset_engine_and_capture_commit(&mut e, &config, false, false, "ibus-ctx-3");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        let _ = drain_commit(&mut e);
+        e.press_key(KeyCode::F9, m, &config);
+        assert_eq!(e.get_hanja_target(), "국");
+    }
+
+    /// 팝업 중 비밀번호 목적 도착 → 팝업을 재커밋 없이 닫고 true(서비스가 HidePopup 발행).
+    /// 이미 비번이면 멱등(false), 없는 컨텍스트도 false.
+    #[test]
+    fn apply_content_type_password_closes_popup_without_recommit() {
+        let config = Config::default();
+        let mut contexts = HashMap::new();
+        contexts.insert(7, daemon_engine_in_word_popup(&config));
+        let mut kb = HashMap::new();
+        let mut undo = HashMap::new();
+        let mut recent = HashMap::new();
+        let pw = ContentPurpose::Password as u32;
+
+        assert!(apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 7, pw));
+        let e = contexts.get_mut(&7).unwrap();
+        assert!(!e.is_hanja_mode());
+        assert_eq!(drain_commit(e), None, "비번 필드에 원문 재커밋 금지");
+        assert_eq!(e.preedit_str(), "");
+        assert!(e.take_popup_action().is_none(), "HidePopup 은 응답으로 이미 드레인");
+
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 7, pw));
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 99, pw));
+    }
+
+    /// 팝업이 없을 때 비번 진입은 false — HidePopup 을 공연히 보내지 않는다.
+    #[test]
+    fn apply_content_type_without_popup_returns_false() {
+        let config = Config::default();
+        let mut contexts = HashMap::new();
+        contexts.insert(1, new_daemon_engine(&config, "gtk4-test"));
+        let mut kb = HashMap::new();
+        let mut undo = HashMap::new();
+        let mut recent = HashMap::new();
+        let pw = ContentPurpose::Password as u32;
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 1, pw));
+    }
 }

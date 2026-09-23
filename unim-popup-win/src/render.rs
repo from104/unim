@@ -372,7 +372,9 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
     let mut hr = header_rect;
     hr.left += pad;
     hr.right -= pad;
-    draw_text(hdc, &rs.header_text, &hr, pal.text, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
+    // 헤더 target 이 8~18자(공백 포함)면 팝업 폭을 넘을 수 있어 말줄임 처리한다
+    // (HANJA_WORD_SPEC.md §2.5.4).
+    draw_text(hdc, &rs.header_text, &hr, pal.text, DT_VCENTER | DT_SINGLELINE | DT_LEFT | DT_END_ELLIPSIS);
     SelectObject(hdc, old);
     let _ = DeleteObject(font_header.into());
 
@@ -502,7 +504,10 @@ unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32,
         let star = if cell.f & cell_flags::BOOKMARKED != 0 { " ★" } else { "" };
         let main = format!("{}{star}", cell.t);
         let hanja_left = pad + s(ROW_LABEL_W, scale) + s(4, scale);
-        let hanja_rect = RECT { left: hanja_left, top: y, right: hanja_left + s(90, scale), bottom: y + row_h };
+        // 한자 열 폭 = 실측 폭(다글자 후보가 뜻 열과 겹치지 않도록, HANJA_WORD_SPEC.md
+        // §2.5.4) — 고정 90px 을 최솟값으로 두고 "한자 ★" 실측폭 + 여유 8px 중 큰 쪽.
+        let hanja_w = s(90, scale).max(text_width(hdc, &format!("{} ★", cell.t), font_main) + s(8, scale));
+        let hanja_rect = RECT { left: hanja_left, top: y, right: hanja_left + hanja_w, bottom: y + row_h };
         let star_color = if selected { pal.on_sel_text } else { pal.star };
         // 한자+★ 를 한 번에 그리되 ★ 색은 별도 처리가 어렵다 → 본문색으로 일괄,
         // 단 미선택 시 ★ 강조를 위해 별색 그리기.
@@ -511,13 +516,13 @@ unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32,
         } else {
             draw_text(hdc, &cell.t, &hanja_rect, text_color, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
             let tw = text_width(hdc, &cell.t, font_main);
-            let star_rect = RECT { left: hanja_left + tw + s(2, scale), top: y, right: hanja_left + s(90, scale), bottom: y + row_h };
+            let star_rect = RECT { left: hanja_left + tw + s(2, scale), top: y, right: hanja_left + hanja_w, bottom: y + row_h };
             draw_text(hdc, "★", &star_rect, star_color, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
         }
         SelectObject(hdc, old);
         // 뜻풀이 (인라인, 보조색).
         let old = SelectObject(hdc, font_mean.into());
-        let mean_left = hanja_left + s(96, scale);
+        let mean_left = hanja_left + hanja_w + s(6, scale);
         let mean_rect = RECT { left: mean_left, top: y, right: w - pad, bottom: y + row_h };
         draw_text(hdc, &cell.m, &mean_rect, mean_color, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
         SelectObject(hdc, old);
@@ -664,7 +669,10 @@ unsafe fn paint_grid(
                             on_selected: selected,
                         });
                     } else {
-                        draw_text(hdc, &main, &cr, text_color, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+                        // 셀 폭은 고정 유지(페이지 전환 시 폭 요동 방지, popup-renderer-design.md
+                        // §5.4 "popup 폭 고정 정책") — 넘치는 한자는 셀 텍스트에서 말줄임하고
+                        // 전체 한자는 헤더가 담당한다(HANJA_WORD_SPEC.md §2.5.4).
+                        draw_text(hdc, &main, &cr, text_color, DT_VCENTER | DT_SINGLELINE | DT_CENTER | DT_END_ELLIPSIS);
                     }
                 }
                 _ => {

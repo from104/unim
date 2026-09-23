@@ -289,6 +289,19 @@ pub unsafe extern "C" fn unim_engine_set_korean_layout(
     true
 }
 
+/// 한자 단어 교체 호스트 능력 플래그를 설정합니다 (HANJA_WORD_SPEC §2.2.2 4).
+///
+/// 기본값은 `false` — 이 C API 는 교체 페이로드를 드레인하는 함수를 노출하지 않으므로
+/// 소비자는 켜지 말 것. `false` 면 한자 대상이 종전 단음절(preedit 내부 일치 포함)로
+/// 제한되어 기존 소비자와 바이트 동일하다.
+#[no_mangle]
+pub extern "C" fn unim_engine_set_hanja_word_replace_capable(
+    engine: &mut InputEngine,
+    capable: bool,
+) {
+    engine.set_hanja_word_replace_capable(capable);
+}
+
 /// 엔진의 영어 레이아웃을 즉시 변경합니다.
 #[no_mangle]
 pub unsafe extern "C" fn unim_engine_set_english_layout(

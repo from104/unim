@@ -89,6 +89,61 @@ impl CommitUnit {
     }
 }
 
+/// 한자 출력 형식 — 한자 팝업에서 확정할 때 삽입하는 문자열의 서식.
+///
+/// 단음절 변환과 한자 단어 변환 모두 동일하게 적용된다.
+/// - `Hanja` (기본): 한자만 삽입 — 종전 동작, 무회귀.
+/// - `HangulHanja`: 한글 뒤 괄호로 한자를 병기 — `대한민국(大韓民國)`.
+/// - `HanjaHangul`: 한자 뒤 괄호로 한글을 병기 — `大韓民國(대한민국)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(C)]
+pub enum HanjaOutputFormat {
+    /// 한자만 삽입한다 (기본, 종전 동작과 바이트 동일).
+    #[default]
+    Hanja,
+    /// 한글 뒤 괄호로 한자를 병기한다 — `한글(漢字)`.
+    HangulHanja,
+    /// 한자 뒤 괄호로 한글을 병기한다 — `漢字(한글)`.
+    HanjaHangul,
+}
+
+impl HanjaOutputFormat {
+    /// 병기 시 여는/닫는 괄호. 반각 고정(전각 전환 옵션이 생기면 이 상수만 교체).
+    pub const OPEN: &'static str = "(";
+    pub const CLOSE: &'static str = ")";
+
+    /// 표시용 레이블을 반환합니다. 코어 폴백 라벨이며, UI 는 i18n 로케일 문자열을 쓴다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            HanjaOutputFormat::Hanja => "한자만",
+            HanjaOutputFormat::HangulHanja => "한글(한자)",
+            HanjaOutputFormat::HanjaHangul => "한자(한글)",
+        }
+    }
+
+    /// 사용 가능한 모든 출력 형식을 반환합니다.
+    pub fn all() -> &'static [HanjaOutputFormat] {
+        &[
+            HanjaOutputFormat::Hanja,
+            HanjaOutputFormat::HangulHanja,
+            HanjaOutputFormat::HanjaHangul,
+        ]
+    }
+
+    /// 한글·한자 표제어로부터 이 형식의 확정 문자열을 조립합니다.
+    pub fn render(&self, hangul: &str, hanja: &str) -> String {
+        match self {
+            HanjaOutputFormat::Hanja => hanja.to_string(),
+            HanjaOutputFormat::HangulHanja => {
+                format!("{hangul}{}{hanja}{}", Self::OPEN, Self::CLOSE)
+            }
+            HanjaOutputFormat::HanjaHangul => {
+                format!("{hanja}{}{hangul}{}", Self::OPEN, Self::CLOSE)
+            }
+        }
+    }
+}
+
 /// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
 ///
 /// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
@@ -663,6 +718,14 @@ pub struct KoreanConfig {
     #[serde(default)]
     pub commit_unit: CommitUnit,
 
+    /// 한자 출력 형식 — 한자 팝업 확정 문자열의 서식 (기본 `Hanja`, 한자만).
+    ///
+    /// 단음절 변환과 한자 단어 변환에 공통 적용된다. 구 config.yaml 에는 필드가
+    /// 없으므로 `KoreanConfigCompat` 브리지를 거쳐 기본값 `Hanja`(종전 동작)로
+    /// 채워진다.
+    #[serde(default)]
+    pub hanja_output_format: HanjaOutputFormat,
+
     /// 단어 모드(단어 단위 조합) 대상 앱 목록 — 프로세스 실행 파일명 정확일치.
     ///
     /// `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 앱만 단어 모드로
@@ -683,6 +746,7 @@ impl Default for KoreanConfig {
             bidirectional_combine: None,
             chord_window_ms: None,
             commit_unit: CommitUnit::default(),
+            hanja_output_format: HanjaOutputFormat::default(),
             word_mode_apps: default_word_mode_apps(),
         }
     }
@@ -811,6 +875,10 @@ struct KoreanConfigCompat {
     /// `Some(_)` = 명시 설정(브리지보다 우선).
     #[serde(default)]
     commit_unit: Option<CommitUnit>,
+    /// 한자 출력 형식. 구 config.yaml 에는 필드 자체가 없으므로 `#[serde(default)]`
+    /// 로 `Hanja`(종전 동작)를 채운다.
+    #[serde(default)]
+    hanja_output_format: HanjaOutputFormat,
     /// 단어 모드 앱 목록 (정확일치). 미지정 → 기본값(winword.exe).
     #[serde(default = "default_word_mode_apps")]
     word_mode_apps: Vec<String>,
@@ -828,6 +896,7 @@ impl Default for KoreanConfigCompat {
             bidirectional_combine: None,
             chord_window_ms: None,
             commit_unit: None,
+            hanja_output_format: HanjaOutputFormat::default(),
             word_mode_apps: default_word_mode_apps(),
         }
     }
@@ -867,6 +936,7 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             bidirectional_combine: c.bidirectional_combine,
             chord_window_ms: c.chord_window_ms,
             commit_unit,
+            hanja_output_format: c.hanja_output_format,
             word_mode_apps,
         }
     }
@@ -1681,6 +1751,42 @@ commit_unit: Syllable
         for u in CommitUnit::all() {
             assert!(!u.display_name().is_empty());
         }
+    }
+
+    // ─────────────────────────────────────────────
+    // hanja_output_format (한자 단어 입력 U1) — 기본값 + Compat 브리지 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 필드 없는 구 config.yaml → 기본값 `Hanja`(종전 동작, 무회귀).
+    #[test]
+    fn hanja_output_format_legacy_missing_field_uses_default_hanja() {
+        let yaml = r#"
+engine:
+  default_category: English
+  korean:
+    layout: ko_2bulstd
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.engine.korean.hanja_output_format,
+            HanjaOutputFormat::Hanja
+        );
+    }
+
+    /// 명시 `hanja_output_format: HanjaHangul` 이 `KoreanConfigCompat` 브리지를
+    /// 거쳐 살아남는다(`KoreanConfig` 는 `#[serde(from = "KoreanConfigCompat")]`).
+    #[test]
+    fn hanja_output_format_parses_via_compat_bridge() {
+        let yaml = r#"
+engine:
+  korean:
+    hanja_output_format: HanjaHangul
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.engine.korean.hanja_output_format,
+            HanjaOutputFormat::HanjaHangul
+        );
     }
 
     // ─────────────────────────────────────────────

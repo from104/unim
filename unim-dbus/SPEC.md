@@ -251,17 +251,17 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `FocusOut` | — | `s` | 포커스 상실 → 조합 커밋 텍스트 반환 |
 | `Reset` | — | — | 입력 상태 초기화 |
 | `Destroy` | — | — | 컨텍스트 파괴 |
-| `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]) |
-| `SelectHanja` | `index: u` | `s` | 한자 선택 → 선택된 한자 반환 |
-| `CancelHanja` | — | — | 한자 모드 취소 |
-| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
+| `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]). target 은 다음절 어절일 수 있다(최근 확정 음절+preedit·단어 모드 preedit·선택 영역 — [`HANJA_WORD_SPEC`](../docs/dev/specs/HANJA_WORD_SPEC.md) §2) |
+| `SelectHanja` | `index: u` | `s` | 한자 선택 → 출력 형식(`hanja_output_format`) 적용 문자열 반환(시그니처 불변). 확정 접두가 있으면(대상①) `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")` 가 popup-owner path 로 발행되고 `HidePopup` 이 이어진다 — 워커 내부 결과 `SelectHanjaOutcome{None, Commit, Replace}` |
+| `CancelHanja` | — | `s` | 한자 모드 취소 — 팝업 진입 때 내려간 preedit 부분만 `CommitText` 로 되돌린다(확정 접두는 앱에 이미 있으므로 제외, 선택 영역 대상은 커밋 없음). 한자 모드였으면 커밋이 없어도 `HidePopup` 발행 |
+| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. 비밀번호/PIN 진입 시 열린 팝업(한자·특수문자·이모지)은 **재커밋 없이** 닫고 `HidePopup` 만 호출 컨텍스트 자신의 path 로 발행한다(워커 `SetContentTypeWithReply` 응답 채널, HANJA_WORD_SPEC §2.8). ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
 | `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
 | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 | `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
 | `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
-| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건) |
+| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건). 한자 선택 변환(대상②) 감지·확정 접두 정합성 검증에도 쓴다 — Wayland 는 `done` 마다, Qt 는 `update()` 마다(변경 시, 빈 텍스트 포함), TSF 는 idle 한자키 시점에 전송 |
 | `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
 | `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
 | `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
@@ -282,7 +282,7 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
 | `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
 | `DeleteSurroundingText` | `offset: i, n_chars: u` | 커서 기준 삭제 요청 (SmartBackspace 결과 반영용) |
-| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로 |
+| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로. 한자 단어 교체에도 사용 — 그때 `delete_chars`=확정 접두 글자 수, `preedit_text=""`(키보드 확정은 `ProcessKeyEvent` 응답 뒤, 마우스 확정은 `SelectHanja` 에서 발행). 교체 프레임에서는 ATF 검사·Global 모드 전파를 건너뛰고 키스트로크 버퍼를 폐기한다 |
 
 ### 6.3 ProcessKeyEvent 상세
 
@@ -321,7 +321,7 @@ FocusOut()
   → 1. EngineRequest::FocusOut 전송
   → 2. 엔진 워커:
        조합 중이면 preedit → commit 변환
-       엔진 리셋 (InputEngine::new)
+       엔진 리셋 (new_daemon_engine — §7.6)
        비-Global 모드에서는 입력 모드 복원
   → 3. 커밋 텍스트를 RPC 반환값으로만 돌려준다.
        (CommitText 시그널은 context-scoped가 아니어서
@@ -409,7 +409,9 @@ FocusOut 요청 수신
   → preedit이 비어있지 않으면:
     1. current_mode 저장
     2. preedit 텍스트를 commit_text로 변환
-    3. engine = InputEngine::new(&config) (전체 리셋)
+       (한자 팝업 중이면 `hanja_cancel_text()` = 팝업 진입 당시 preedit 전체 —
+        확정 접두·선택 영역은 앱에 이미 있으므로 제외)
+    3. engine = new_daemon_engine(&config, window_id) (전체 리셋)
     4. 비-Global 모드 → set_input_category(current_mode) (모드 복원)
     5. commit_text 반환
 ```
@@ -417,6 +419,18 @@ FocusOut 요청 수신
 > [!NOTE]
 > `flush_preedit`이 private이므로, 엔진 전체를 `InputEngine::new()`로 다시 생성합니다.
 > 이때 입력 모드가 기본값으로 초기화되므로, 비-Global 모드에서는 명시적으로 복원합니다.
+>
+> 엔진 생성은 전부 `new_daemon_engine(config, window_id)` 를 거친다(테스트 제외) —
+> `InputEngine::new` + `set_hanja_word_replace_capable(!window_id.starts_with("ibus-"))`.
+> 데몬은 한자 단어 교체 페이로드를 `AutoTypefixApply` 로 내보내는 호스트이므로, 생성 경로
+> 하나라도 헬퍼를 건너뛰면 그 경로 뒤 컨텍스트에서 확정 접두 단어 변환이 조용히 단음절로
+> 퇴화한다. 예외는 IBus 호환 컨텍스트(`ibus-` 접두) — 그 응답 소비자(`emit_engine_response`)가
+> commit·preedit 만 내보내고 `auto_typefix` 를 버리므로 능력을 끄고 단음절 확정으로 둔다
+> (켜 두면 교체 확정 시 preedit 만 지워지고 한자가 삽입되지 않는다). FocusOut/Reset 재생성은
+> `context_windows` 의 현재 window_id 로 같은 판정을 한다. AutoTypeFix 순방향 교정은 `reset()` 뒤
+> 마지막 음절만 replay 하므로, replay·`clear_commit()` **뒤**에 교정된 접두(`commit_text`)로
+> 최근 확정 음절 버퍼를 시드한다(`recent_clear` + `recent_push_char`) — 교정 직후 한자키의
+> target 이 "대한민"+"국" 이 되게 한다(HANJA_WORD_SPEC §4.1).
 
 ---
 

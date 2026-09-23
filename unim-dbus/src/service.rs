@@ -21,6 +21,20 @@ use unim::unim_log;
 
 // PopupAction은 unim::input_engine에서 정의됨 (re-export)
 
+/// `SelectHanja` 의 워커 내부 결과 — 확정 채널을 구분한다(HANJA_WORD_SPEC §4.1).
+///
+/// DBus 반환 시그니처(`(u)->s`)는 불변이며, 어느 경우든 서식 적용 문자열을 돌려준다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectHanjaOutcome {
+    /// 한자 모드 아님 / 범위 밖 인덱스.
+    None,
+    /// 일반 커밋(`CommitText`) — 단음절·단어 모드·선택 영역 대상.
+    Commit(String),
+    /// 교체(`AutoTypefixApply`) — 대상①(확정 접두 > 0). `delete_chars` 만큼 앞을 지우고
+    /// `text` 를 커밋한다.
+    Replace { delete_chars: u32, text: String },
+}
+
 /// 엔진에 보내는 요청
 #[derive(Debug)]
 pub enum EngineRequest {
@@ -67,7 +81,7 @@ pub enum EngineRequest {
     SelectHanja {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<Option<String>>,
+        response: oneshot::Sender<SelectHanjaOutcome>,
     },
     /// 한자 모드 취소 (남은 preedit을 반환)
     CancelHanja {
@@ -113,8 +127,16 @@ pub enum EngineRequest {
         width: i32,
         height: i32,
     },
-    /// 입력 필드 목적 설정 (비밀번호/PIN 등)
+    /// 입력 필드 목적 설정 (비밀번호/PIN 등) — 응답 없음(IBus 호환 경로 등).
     SetContentType { context_id: u32, purpose: u32 },
+    /// 입력 필드 목적 설정 + 응답: 비밀번호/PIN 진입으로 열린 팝업을 재커밋 없이
+    /// 닫았으면 true — `set_content_type` 이 받아 `HidePopup` 을 발행한다
+    /// (HANJA_WORD_SPEC §2.8, 워커에는 시그널 발행 수단이 없다).
+    SetContentTypeWithReply {
+        context_id: u32,
+        purpose: u32,
+        response: oneshot::Sender<bool>,
+    },
     /// Surrounding text 설정
     SetSurroundingText {
         context_id: u32,
@@ -1863,6 +1885,69 @@ impl InputContextHandler {
         }
     }
 
+    /// `AutoTypefixApply` 와 `HidePopup` 시그널을 popup-owner path 로 redirect 발행.
+    ///
+    /// 한자 단어 교체(대상① 확정 접두 > 0)의 마우스 확정 경로 — `redirect_commit_and_hide`
+    /// 와 같은 path 선택 규칙으로, `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")`
+    /// 를 보내 프런트가 앞의 확정 접두를 지우고 한자를 커밋하게 한다(HANJA_WORD_SPEC §4.1).
+    /// preedit_text 가 "" 라 조합 음절도 함께 비워진다.
+    async fn redirect_replace_and_hide(&self, delete_chars: u32, text: &str) {
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.path.clone());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_replace_and_hide: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return;
+            }
+        };
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "AutoTypefixApply",
+                &(delete_chars, text.to_string(), String::new()),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_and_hide AutoTypefixApply 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_and_hide HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+    }
+
     /// PopupRender 시그널 발행 헬퍼 — engine view_model 페이로드를 unpack 하여 emit.
     /// frontend (GNOME / gui-gtk) 가 본 시그널로 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더.
     async fn emit_popup_render(signal_ctx: &SignalContext<'_>, rs: &PopupRenderPayload) {
@@ -1894,9 +1979,9 @@ impl InputContextHandler {
         .ok();
         unim_log!(
             "DBUS",
-            "[DBus] PopupRender: kind={}, target='{}', cells={}, page={}/{}",
+            "[DBus] PopupRender: kind={}, target={}자, cells={}, page={}/{}",
             rs.kind,
-            rs.target,
+            rs.target.chars().count(),
             rs.cells.len(),
             rs.current_page + 1,
             rs.total_pages
@@ -1974,8 +2059,8 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowHanjaPopup 시그널 발행: target='{}', count={}, top_row='{}'",
-                        target,
+                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row='{}'",
+                        target.chars().count(),
                         candidates.len(),
                         top_row
                     );
@@ -2123,8 +2208,8 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] HanjaCandidatesReordered: target='{}', count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
-                        target,
+                        "[DBus] HanjaCandidatesReordered: target={}자, count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
+                        target.chars().count(),
                         candidates.len(),
                         new_cursor,
                         page,
@@ -2154,12 +2239,13 @@ impl InputContextHandler {
 
         // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
         if let Some((delete_chars, commit_text, preedit_text)) = &response.auto_typefix {
+            // 한자 단어 교체도 이 채널을 탄다 — 입력 평문 대신 글자 수만 남긴다(§2.8).
             unim_log!(
                 "DBUS",
-                "[DBus] AutoTypeFix 시그널: delete={}, commit='{}', preedit='{}'",
+                "[DBus] AutoTypeFix 시그널: delete={}, commit={}자, preedit={}자",
                 delete_chars,
-                commit_text,
-                preedit_text
+                commit_text.chars().count(),
+                preedit_text.chars().count()
             );
             Self::auto_typefix_apply(&signal_ctx, *delete_chars, commit_text, preedit_text)
                 .await
@@ -2357,9 +2443,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] FocusOut: context_id={}, commit='{}'",
+            "[DBus] FocusOut: context_id={}, commit={}자",
             self.id,
-            commit
+            commit.chars().count()
         );
         Ok(commit)
     }
@@ -2393,9 +2479,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] Reset: context_id={}, commit='{}'",
+            "[DBus] Reset: context_id={}, commit={}자",
             self.id,
-            commit
+            commit.chars().count()
         );
         Ok(())
     }
@@ -2704,19 +2790,37 @@ impl InputContextHandler {
     }
 
     /// 입력 필드 목적 설정 (비밀번호/PIN 필드 감지용)
-    async fn set_content_type(&self, purpose: u32) -> zbus::fdo::Result<()> {
-        self.engine_tx
-            .send(EngineRequest::SetContentType {
+    ///
+    /// 비밀번호/PIN 진입으로 엔진이 열린 팝업을 닫았으면(응답 true) `HidePopup` 만 발행한다
+    /// — 재커밋 없음(비번 필드에 원문 재삽입 금지, HANJA_WORD_SPEC §2.8). 이것이 없으면
+    /// 후보 창이 비번 필드 위에 다음 팝업 RPC 때까지 남는다. 프런트 호출 시그니처는 불변.
+    async fn set_content_type(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        purpose: u32,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+        let sent = self
+            .engine_tx
+            .send(EngineRequest::SetContentTypeWithReply {
                 context_id: self.id,
                 purpose,
+                response: response_tx,
             })
             .await
-            .ok();
+            .is_ok();
+        let popup_closed = sent && response_rx.await.unwrap_or(false);
+        if popup_closed {
+            // 팝업을 닫은 엔진은 이 컨텍스트 소유이므로 전역 last_active 가 아닌 자기 path 에
+            // HidePopup 만 발행(Reset 선례) — CommitText 없음.
+            Self::hide_popup(&signal_ctx).await.ok();
+        }
         unim_log!(
             "DBUS",
-            "[DBus] SetContentType: context_id={}, purpose={}",
+            "[DBus] SetContentType: context_id={}, purpose={}, popup_closed={}",
             self.id,
-            purpose
+            purpose,
+            popup_closed
         );
         Ok(())
     }
@@ -2847,8 +2951,8 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] GetHanjaCandidates: target='{}', count={}, top_row='{}'",
-            response.target,
+            "[DBus] GetHanjaCandidates: target={}자, count={}, top_row='{}'",
+            response.target.chars().count(),
             response.candidates.len(),
             response.top_row
         );
@@ -2899,21 +3003,37 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let hanja = response_rx
+        let outcome = response_rx
             .await
-            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
-            .unwrap_or_default();
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        // CommitText / HidePopup 을 popup-owner path 로 redirect 발행 — GNOME extension 자체
-        // context 에서 RPC 가 들어와도 commit 은 GTK4_IM 등 실제 입력 대상 path 로 보낸다.
-        // last_active path 가 없으면 self.path 로 fallback (기존 동일 path 동작 보존).
-        self.redirect_commit_and_hide(&hanja).await;
+        // CommitText(또는 AutoTypefixApply) / HidePopup 을 popup-owner path 로 redirect 발행 —
+        // GNOME extension 자체 context 에서 RPC 가 들어와도 commit 은 GTK4_IM 등 실제 입력
+        // 대상 path 로 보낸다. last_active path 가 없으면 self.path 로 fallback.
+        let (hanja, delete_chars) = match outcome {
+            SelectHanjaOutcome::Commit(text) => {
+                self.redirect_commit_and_hide(&text).await;
+                (text, 0)
+            }
+            // 대상①(확정 접두 > 0): 접두 삭제 + 커밋을 교체 채널로 (§4.1).
+            SelectHanjaOutcome::Replace { delete_chars, text } => {
+                self.redirect_replace_and_hide(delete_chars, &text).await;
+                (text, delete_chars)
+            }
+            // 한자 모드 아님 / 범위 밖 — 종전처럼 빈 문자열로 CommitText 생략·HidePopup 만.
+            SelectHanjaOutcome::None => {
+                self.redirect_commit_and_hide("").await;
+                (String::new(), 0)
+            }
+        };
 
+        // 선택 텍스트 평문은 남기지 않는다(비번 조각 보호, §2.8) — 글자 수만.
         unim_log!(
             "DBUS",
-            "[DBus] SelectHanja: index={}, result='{}'",
+            "[DBus] SelectHanja: index={}, result={}자, delete={}",
             index,
-            hanja
+            hanja.chars().count(),
+            delete_chars
         );
 
         Ok(hanja)
@@ -3161,10 +3281,9 @@ impl InputContextHandler {
         let commit_text = if let Ok(Some(preedit)) = response_rx.await {
             // CommitText 를 popup-owner path 로 redirect (select_hanja 와 동일 사유).
             // HidePopup 도 함께 발행 — popup 외부 마우스 클릭 cancel 후 GTK4_IM 모듈이
-            // popup 을 닫게 한다.
-            if !preedit.is_empty() {
-                self.redirect_commit_and_hide(&preedit).await;
-            }
+            // popup 을 닫게 한다. 한자 모드였으면 빈 문자열(대상② — 선택 영역은 앱에
+            // 그대로 있다)이어도 HidePopup 은 발행한다(빈 텍스트면 CommitText 생략).
+            self.redirect_commit_and_hide(&preedit).await;
             preedit
         } else {
             String::new()
@@ -3172,9 +3291,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] CancelHanja: context_id={}, commit='{}'",
+            "[DBus] CancelHanja: context_id={}, commit={}자",
             self.id,
-            commit_text
+            commit_text.chars().count()
         );
         Ok(commit_text)
     }

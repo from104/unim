@@ -6,8 +6,14 @@
 
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
-use super::types::{AtfHotkey, AtfToggleKind, AutoEnglishTrigger, InputResult, PopupAction};
-use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
+use super::types::{
+    AtfHotkey, AtfToggleKind, AutoEnglishTrigger, HanjaReplacement, HanjaSource, InputResult,
+    PopupAction,
+};
+use crate::config::{
+    CommitUnit, Config, ContentPurpose, EnglishLayout, HanjaOutputFormat, InputCategory,
+    KoreanLayout,
+};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -119,8 +125,42 @@ pub struct InputEngine {
     pub(super) hanja_candidates: Vec<crate::hanja::HanjaEntry>,
     /// 한자 선택 모드 활성화 여부
     pub(super) hanja_mode: bool,
-    /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
+    /// 한자 변환 대상 = 사전 키 = 팝업 헤더 = 즐겨찾기 키 (어절 가능 — "대한민국").
     pub(super) hanja_target: String,
+    /// 최근 확정 음절 버퍼 — 이 컨텍스트가 앱에 커밋한 텍스트 끝의 한글 완성 음절열
+    /// (≤ `RECENT_SYLLABLE_CAP`). preedit 은 포함하지 않는다(HANJA_WORD_SPEC §2.2.1).
+    pub(super) recent_syllables: String,
+    /// `press_key` 래퍼가 키 진입 시 저장한 `commit_buffer.len()` — 이후 커밋 델타를
+    /// `recent_absorb_commit_delta` 가 버퍼에 흡수하는 기준점.
+    pub(super) recent_mark: usize,
+    /// 현재 한자 팝업 대상의 출처. 팝업 밖에서는 `Syllable`(기본).
+    pub(super) hanja_source: HanjaSource,
+    /// 확정 접두 길이 — target 중 이미 앱에 확정돼 확정 시 지워야 하는 글자 수.
+    /// `RecentWord` 만 > 0.
+    pub(super) hanja_committed_chars: u32,
+    /// 취소·포커스 이탈 시 재커밋할 텍스트 = 팝업 진입 당시 preedit 전체(대상② 는 "").
+    pub(super) hanja_recommit: String,
+    /// 확정 문자열 앞에 그대로 붙일 문자열 (단어 모드 비일치 접두 / 대상② 앞 공백).
+    pub(super) hanja_commit_prefix: String,
+    /// 확정 문자열 뒤에 그대로 붙일 문자열 (대상② 뒤 공백).
+    pub(super) hanja_commit_suffix: String,
+    /// 대상① 교체 페이로드(out-of-band). 호스트가 `take_hanja_replacement()` 로 드레인.
+    pub(super) pending_hanja_replacement: Option<HanjaReplacement>,
+    /// 한자 확정 출력 형식 — `config.engine.korean.hanja_output_format` 캐시.
+    pub(super) hanja_output_format: HanjaOutputFormat,
+    /// 호스트 능력 플래그: 교체 페이로드를 드레인하는 호스트(Linux 데몬·TSF)만 true.
+    /// false(기본)면 버퍼 글자를 포함하는 접미(대상① `RecentWord`)를 채택하지 않아
+    /// IMM32·`unim-capi` 소비자는 종전 단음절과 바이트 동일. `reset()`·재구성에서 보존.
+    pub(super) hanja_word_replace_capable: bool,
+    /// surrounding text 가 preedit(조합 텍스트)을 포함하는 호스트(TSF)만 true.
+    /// 접두 정합성 검증의 `prefix+pre` 절을 이 플래그로 게이트한다. `reset()` 에서 보존.
+    pub(super) surrounding_includes_preedit: bool,
+    /// 이 컨텍스트가 `set_surrounding_text` 를 한 번이라도 받았는지(빈 값 포함).
+    ///
+    /// true 인 컨텍스트에서는 surrounding 이 비어 있어도 접두 검증을 **실패**로 본다
+    /// (Wayland 미수신 마커 `("",0,0)` — HANJA_WORD_SPEC Q9(b)). 앱·포커스 컨텍스트
+    /// 속성이라 `reset()` 에서 보존하고, 엔진 재생성(`new`)에서만 false 로 시작한다.
+    pub(super) surrounding_seen: bool,
     /// 특수문자 모드 활성화 여부
     pub(super) special_char_mode: bool,
     /// 현재 특수문자 후보 목록
@@ -260,6 +300,18 @@ impl InputEngine {
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),
+            recent_syllables: String::new(),
+            recent_mark: 0,
+            hanja_source: HanjaSource::Syllable,
+            hanja_committed_chars: 0,
+            hanja_recommit: String::new(),
+            hanja_commit_prefix: String::new(),
+            hanja_commit_suffix: String::new(),
+            pending_hanja_replacement: None,
+            hanja_output_format: config.engine.korean.hanja_output_format,
+            hanja_word_replace_capable: false,
+            surrounding_includes_preedit: false,
+            surrounding_seen: false,
             special_char_mode: false,
             special_char_candidates: Vec::new(),
             special_char_target: String::new(),
@@ -605,6 +657,15 @@ impl InputEngine {
         self.pending_atf_toggle.take()
     }
 
+    /// 한자 단어 교체 페이로드를 드레인한다(1회성 — `take`).
+    ///
+    /// 대상①(`RecentWord`, 확정 접두 > 0) 확정 프레임에서만 `Some` 이다. 호스트
+    /// (Linux `engine_worker` / Windows `key_handler`)가 팝업 액션 드레인 직후 호출해
+    /// 교체 채널로 내보낸다. `take_atf_toggle` 과 같은 out-of-band 채널.
+    pub fn take_hanja_replacement(&mut self) -> Option<HanjaReplacement> {
+        self.pending_hanja_replacement.take()
+    }
+
     /// ATF 토글 핫키 3목록을 config 에서 재파싱해 반영한다 (hot-reload 재적용).
     ///
     /// GUI/CLI 로 핫키를 편집한 뒤 `engine_worker` 의 reload 루프가 살아있는 컨텍스트에
@@ -623,6 +684,23 @@ impl InputEngine {
             &config.engine.auto_typefix.toggle_reverse_keys,
             "ATF 토글 단축키(역방향)",
         );
+    }
+
+    /// 한자 출력 형식 캐시를 config 에서 반영한다 (비파괴 hot-reload — 조합 유지).
+    pub fn set_hanja_output_format(&mut self, config: &Config) {
+        self.hanja_output_format = config.engine.korean.hanja_output_format;
+    }
+
+    /// 호스트 능력 플래그 설정 — 교체 페이로드(`take_hanja_replacement`)를 드레인하는
+    /// 호스트만 true 로 켠다(HANJA_WORD_SPEC §2.2.2 4). 기본 false.
+    pub fn set_hanja_word_replace_capable(&mut self, capable: bool) {
+        self.hanja_word_replace_capable = capable;
+    }
+
+    /// surrounding text 가 조합 텍스트를 포함하는 호스트(TSF)가 true 로 켠다
+    /// (HANJA_WORD_SPEC §2.2.3). 기본 false.
+    pub fn set_surrounding_includes_preedit(&mut self, includes: bool) {
+        self.surrounding_includes_preedit = includes;
     }
 
     /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
@@ -671,6 +749,8 @@ impl InputEngine {
     pub fn set_input_category(&mut self, category: InputCategory) {
         if self.input_category != category {
             self.flush_preedit();
+            // 한/영 전환은 최근 확정 음절 문맥을 끊는다(HANJA_WORD_SPEC §2.2.1).
+            self.recent_clear();
             self.input_category = category;
             // 상태 파일 업데이트
             self.update_status_file();
@@ -756,8 +836,13 @@ impl InputEngine {
     /// - config 파생 캐시(키맵·`key_meta`·영문 키맵·한자사전 Arc·레이아웃·toggle/hanja
     ///   키·auto_english·라벨) — 재생성 없이 그대로 유효(동일 config 기준).
     /// - `input_category` — 호출부가 필요 시 별도 `set_input_category` 로 지정.
-    /// - `content_purpose`/`surrounding_*`/`saved_category` — 앱·포커스 컨텍스트(조합
-    ///   상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - `content_purpose`/`surrounding_*`(`surrounding_seen` 포함)/`saved_category` —
+    ///   앱·포커스 컨텍스트(조합 상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - 호스트 능력 플래그(`hanja_word_replace_capable`·`surrounding_includes_preedit`)
+    ///   ·`hanja_output_format` — 호스트/config 속성.
+    ///
+    /// 한자 단어 상태(최근 확정 음절 버퍼·`hanja_source` 등 대상 필드·교체 페이로드)는
+    /// 비운다 — 리셋은 버퍼 리셋 조건이다(HANJA_WORD_SPEC §2.2.1).
     /// - `accumulate_word`(단어 누적 플래그) — `korean_context.clear()` 가 버퍼만 비우고
     ///   플래그는 유지. config 기반 재동기화가 필요한 호출부는 리셋 후 `set_word_mode`
     ///   로 명시 지정한다(예: `auto_typefix`).
@@ -777,6 +862,10 @@ impl InputEngine {
         self.special_char_target.clear();
         self.popup_state = None;
         self.popup_pending_action = None;
+        self.reset_hanja_word_fields();
+        self.recent_clear();
+        self.recent_mark = 0;
+        self.pending_hanja_replacement = None;
 
         // 고정키 래치 마스킹 잔류도 비운다 — 조합 리셋 시점의 미소비 마스크가
         // 이후 무관한 첫 키의 수정자를 잘못 지우지 않게 한다.
@@ -846,6 +935,9 @@ impl InputEngine {
         let Some(entries) = self.chord_buffer.force_flush() else {
             return (None, self.preedit_cache.clone());
         };
+        // 최근 확정 음절 버퍼 기준점: 이 flush 가 새로 커밋한 부분만 흡수한다(호스트가
+        // 이미 드레인한 이전 커밋이 남아 있어도 이중 push 하지 않도록).
+        self.recent_mark = self.recent_mark.min(self.commit_buffer.len());
         if !preview_was_injected {
             self.apply_chord_entries(entries);
         } else {
@@ -855,8 +947,12 @@ impl InputEngine {
         let commit = if self.commit_buffer.is_empty() {
             None
         } else {
+            // 타이머 경로는 press_key 래퍼를 거치지 않으므로 여기서 최근 확정 음절
+            // 버퍼를 채운다(비밀번호 차단 중이면 recent_push_char 가 스스로 비운다).
+            self.recent_absorb_commit_delta();
             Some(std::mem::take(&mut self.commit_buffer))
         };
+        self.recent_mark = 0;
         (commit, self.preedit_cache.clone())
     }
 
@@ -948,6 +1044,9 @@ impl InputEngine {
         self.commit_unit = config.engine.korean.commit_unit;
         // 단어 모드 앱 목록도 재동기화 (config.yaml/CLI 편집 → maybe_reload_config 반영).
         self.word_mode_apps = config.engine.korean.word_mode_apps.clone();
+        // 한자 출력 형식 캐시 재동기화 + 최근 확정 음절 버퍼 폐기(자판이 바뀌면 문맥 무의미).
+        self.hanja_output_format = config.engine.korean.hanja_output_format;
+        self.recent_clear();
 
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);

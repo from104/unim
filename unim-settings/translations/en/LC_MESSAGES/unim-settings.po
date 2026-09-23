@@ -178,6 +178,12 @@ msgstr "Korean Commit Unit"
 msgid "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위). 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에서는 안전을 위해 항상 음절 단위로 동작합니다."
 msgstr "Choose whether to commit Korean composition per syllable or gather it per word. Smart selects automatically per app (MS Word and similar use word units). In terminals (ghostty, GNOME Terminal, etc.), XIM, and ibus-compatible paths, it always commits per syllable for safety."
 
+msgid "한자 출력 형식"
+msgstr "Hanja Output Format"
+
+msgid "漢字 · 한자(漢字) · 漢字(한자) — 한자 팝업에서 확정할 때 넣는 형식"
+msgstr "漢字 · 한자(漢字) · 漢字(한자) — text inserted when you confirm a hanja candidate"
+
 msgid "단어 모드 앱"
 msgstr "Word-mode Apps"
 
@@ -241,8 +247,8 @@ msgstr "e.g. Korean, RightAlt"
 msgid "한자 변환 키"
 msgstr "Hanja Conversion Key"
 
-msgid "한글을 한자로 변환할 때 사용할 키입니다."
-msgstr "The key used to convert Hangul to Hanja."
+msgid "조합 중이면 어절/음절 한자 변환, 한글 단어를 선택한 뒤 누르면 그 단어 변환, 그 외에는 이모지 팝업을 여는 키입니다."
+msgstr "The key that converts the word/syllable being typed, converts a selected Hangul word, and otherwise opens the emoji popup."
 
 msgid "예: Hanja, F9"
 msgstr "e.g. Hanja, F9"

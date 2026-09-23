@@ -274,6 +274,26 @@ N+1번째 BS 통과 시점에 실행합니다. preedit 문자열(`P`)이 동봉�
 | `autofix_context_path` | 시그널 수신 시점의 컨텍스트 경로 |
 | `autofix_commit_guard` | commit/preedit_draw 재진입 차단 플래그 |
 
+#### 4.4.5 마우스 확정 시 preedit 잔상 (미구현 — 한자 단어 입력 v1)
+
+한자 팝업을 **마우스로 클릭**해 확정하면(`PopupEvent::CommitText`, §7.3) 텍스트는
+`last_focused_ic_info` 로 재구성한 임시 `InputContext` 를 통해 `server.commit()` 으로
+커밋되지만, 그 앞에 남아 있던 preedit(예: "대한민국" 입력 도중 확정된 나머지 preedit)은
+지워지지 않고 화면에 잔상으로 남는다. **키보드로 확정하면 정상**(엔진이 응답
+`preedit=""` 을 함께 돌려주므로 `commit_then_preedit()` 경로가 비운다) — 잔상은
+마우스 클릭 확정 경로에서만 생긴다.
+
+선클리어를 시도하지 않은 이유: `xim` 크레이트(`third_party/xim`)의 `InputContext` 는
+`preedit_started`/`prev_preedit_length` 필드가 `pub(super)`(크레이트 내부 전용)라
+`unim-xim` 쪽에서 재구성한 임시 `InputContext` 로는 이 값을 세팅할 수 없다. 그
+결과 `server.preedit_draw(&mut ic, "")` 를 호출해도 크레이트 내부에서
+`ic.preedit_started == false` 로 보고 **아무 메시지도 보내지 않는 no-op** 이 된다
+— ON-THE-SPOT(`PREEDIT_CALLBACKS`) IC 도, NOTHING/POSITION IC(PeWindow 자체 렌더링,
+§6.1)도 이 경로로는 지울 수 없다. 진짜 해결은 실제로 포커스된 `UserInputContext`
+(콜백 인자로만 오고, `PopupEvent` 핸들러에는 없음)를 통하거나 `third_party/xim` 에
+공개 setter 를 추가해야 하므로 범위 밖이다(계획 §4 XIM 행 "비용이 크면 포기하고
+SPEC 비고 정정" 지침에 따름).
+
 ### 4.5 일반 키 처리 (ProcessKey)
 
 한자 팝업이 닫혀있고 한자 키가 아닌 경우:
@@ -287,6 +307,58 @@ N+1번째 BS 통과 시점에 실행합니다. preedit 문자열(`P`)이 동봉�
   → result == false: 키가 엔진에 의해 처리되지 않음
       → return Ok(false) → 앱에 키 바이패스
 ```
+
+### 4.6 스팟 점프 Reset (한자 단어 입력 대상① — XIM 은 대상② 미지원)
+
+XIM 은 `SetICValues` 로 앱이 자기 캐럿(조합 스팟) 위치를 보고할 때마다
+`handle_set_ic_values` 가 불린다(대개 커밋마다, xterm 은 커서 이동마다). XIM 은
+surrounding 개념이 없어 한자 단어 입력의 접두 검증(§2.2.3, 다른 프런트 대상①이
+쓰는 안전장치)을 건너뛰므로, 사용자가 마우스로 캐럿을 옮긴 뒤 한자키를 누르면
+엔진이 엉뚱한 자리의 글자를 지울 수 있다(오삭제). 이를 줄이기 위해 "IM 자신이
+유발하지 않은 스팟 갱신" 을 사용자 클릭으로 간주하고, idle(로컬 preedit 없음)
+상태면 `DbusRequest::Reset` 을 1회 보낸다.
+
+**판정 기준**
+
+- `UnimHandler::mark_spot_update_expected()` 를 commit/preedit_draw 로 우리가 스스로
+  화면을 바꾼 직후마다 호출해 `spot_update_expected = true` 로 세운다. 호출 지점:
+  `commit_then_preedit()`(일반 키 확정), AutoTypeFix N+1 BS 의 마지막 commit/preedit
+  (`handle_forward_event`), `clear_preedit()`(IC 리셋·focus-out 캐럿 커밋),
+  `PopupEvent::CommitText`(팝업 마우스 클릭 확정).
+- `handle_set_ic_values` 가 스팟 보고를 받으면 그 1회로 플래그를 소비한다
+  (`spot_was_expected`). idle 이고 `!spot_was_expected` 면 사용자 캐럿 이동으로 보고
+  `Reset` 을 보낸다.
+- 보조 판정: 직전에 관찰한 스팟(`last_ime_spot` — 판정 결과와 무관하게 매 보고마다
+  갱신한다. 점프를 잡은 뒤 기준점을 옛 자리에 남겨두면 캐럿이 옮겨간 자리에서
+  커밋할 때마다 "줄이 다르다" 로 보여 Reset 이 끝없이 반복된다) 대비 y 가
+  다르거나(줄 이동) x 가 작아지면(같은 줄에서 후퇴) `spot_was_expected` 여부와
+  무관하게 무조건 Reset. 앱은 커밋마다 스팟을 전진 보고하므로(폰트 폭은 IM 이
+  모른다) 후퇴는 우리 커밋이 낼 수 없는 신호다 — 그래서 거리 임계가 아니라
+  방향성만 본다("같은 줄 1~2자 왼쪽 클릭" 처럼 짧은 후퇴는 거리로는 못 잡는다).
+- `spot_reset_sent` 로 idle 구간당 1회만 보낸다. 다음 commit/preedit_draw(=새 idle
+  구간의 시작)에서 `mark_spot_update_expected()` 가 함께 해제한다.
+
+**비용과 오탐/미탐 방향**
+
+`DbusRequest::Reset` 은 `reset_engine_and_capture_commit`(엔진 재생성 = 사전
+≈6.45MB 재파싱 + chord 강제 flush)이라 값싸지 않다. 오탐(스크롤·expose 로 인한
+스팟 재보고)의 비용은 재파싱 1회 + 단음절 퇴화(안전 방향)이고, 미탐은 곧
+오삭제이므로 판정은 보수적으로(=쉽게 Reset 이 걸리는 쪽으로) 둔다. 재파싱 비용이
+실측에서 문제가 되면 엔진 `recent_clear` 만 하는 경량 RPC(`ClearRecentSyllables`)로
+교체하는 안이 v1.1 후보다(신규 RPC 는 이번 v1 범위 밖).
+
+**확정 후 Reset 은 무해하다**: N+1 BS 완료 시점에 preedit 이 비어 있으면 종전대로
+`DbusRequest::Reset` 을 보낸다(§4.4, `handle_forward_event` 의 AutoTypeFix 완료 분기).
+한자 단어 교체가 이 경로를 타도 부작용이 없다 — 그 시점 엔진은 이미 확정을 마쳐
+한자 모드가 아니고 preedit·commit_buffer 가 비어 있으며 교체 페이로드도 drain 된
+뒤라, `reset_engine_and_capture_commit` 의 캡처가 전부 `None` → 커밋 메아리 없이
+엔진만 재생성된다(모드는 보존). 버퍼가 비는 것은 "확정 후 리셋" 과 같은 결과다.
+유일한 경합(N+1 BS 완료 전에 다음 자모가 들어오는 창)은 종전 AutoTypeFix 역방향과
+동일하므로 새 위험이 아니다 — 회피 장치를 두지 않는다(한자 단어 스펙 §4.3).
+
+**대상② 미지원**: XIM 은 선택 영역(anchor)을 전달할 프로토콜 경로가 없어
+`SetSurroundingText` 류를 보내지 못한다. 선택 상태에서 한자키를 누르면 종전대로
+idle 동작(이모지 팝업)을 유지한다(GTK3 와 동일한 제약, 계획 §4 표).
 
 ---
 

@@ -329,6 +329,9 @@ export component SettingsWindow inherits Window {
     // 한글 확정 단위 (음절/단어/스마트) — config korean.commit_unit.
     in-out property <[string]> commit-unit-options;
     in-out property <int> commit-unit-index;
+    // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — config korean.hanja_output_format.
+    in-out property <[string]> hanja-output-format-options;
+    in-out property <int> hanja-output-format-index;
     in-out property <[string]> category-options;
     in-out property <int> category-index;
     in-out property <[string]> mode-sharing-options;
@@ -695,6 +698,17 @@ export component SettingsWindow inherits Window {
                             }
                         }
                         SettingRow {
+                            title: @tr("한자 출력 형식");
+                            description: @tr("漢字 · 한자(漢字) · 漢字(한자) — 한자 팝업에서 확정할 때 넣는 형식");
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.hanja-output-format-options;
+                                current-index <=> root.hanja-output-format-index;
+                                accessible-label: @tr("한자 출력 형식");
+                                selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
                             title: @tr("단어 모드 앱");
                             description: @tr("스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(정확일치 — Windows: 실행 파일명 예 winword.exe, Linux: 앱 ID 예 soffice). 기본값: winword.exe. Linux에서는 터미널·XIM에는 적용되지 않습니다.");
                             LineEdit {
@@ -807,7 +821,7 @@ export component SettingsWindow inherits Window {
                         }
                         SettingRow {
                             title: @tr("한자 변환 키");
-                            description: @tr("한글을 한자로 변환할 때 사용할 키입니다.");
+                            description: @tr("조합 중이면 어절/음절 한자 변환, 한글 단어를 선택한 뒤 누르면 그 단어 변환, 그 외에는 이모지 팝업을 여는 키입니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.hanja-keys;

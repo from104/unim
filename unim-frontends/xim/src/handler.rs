@@ -146,6 +146,29 @@ pub struct UnimHandler {
     /// `proxy.reset().await` → 데몬 → 시그널로 돌아오느라 왕복이 길어서
     /// (실측 로그에서 1초 가까이) 시한을 두면 늦은 메아리를 놓친다.
     pending_skip_commit: Option<String>,
+    /// 한자 단어 입력 — XIM 스팟 점프 Reset([Q9](a), 계획 §4 XIM 행 (b)).
+    ///
+    /// XIM 은 surrounding 개념이 없어 §2.2.3 접두 검증을 건너뛰므로, 마우스
+    /// 클릭으로 캐럿이 옮겨간 뒤 한자키를 누르면 엉뚱한 자리의 글자를
+    /// 지운다(오삭제). 앱이 캐럿 이동마다 `SetICValues` 로 스팟 위치를
+    /// 보고하는 걸 이용해, "IM 자신이 유발하지 않은 스팟 갱신" 을 사용자
+    /// 클릭으로 간주하고 idle 이면 엔진을 `Reset` 한다(리셋은 값싸지 않으므로
+    /// 판정은 보수적으로 — 오탐은 재파싱 1회 비용, 미탐은 오삭제).
+    ///
+    /// 우리가 스스로 commit/preedit_draw 를 보낸 직후에는 그로 인한 스팟
+    /// 보고가 뒤따를 것을 안다 — 그 1회는 "기대된 갱신" 으로 소비하고
+    /// Reset 을 걸지 않는다.
+    spot_update_expected: bool,
+    /// 위 판정으로 이번 idle 구간에 이미 Reset 을 보냈으면 true.
+    /// 다음 commit/preedit_draw(=새 idle 구간의 시작)에서 해제한다 —
+    /// "idle 구간당 1회" 디바운스.
+    spot_reset_sent: bool,
+    /// 직전에 관찰한 절대 스팟 좌표(화면 기준 `(x, y)`) — 판정 결과와
+    /// 무관하게 매 보고마다 갱신한다. 보조 판정 — 다음 갱신이 이 좌표보다 y 가
+    /// 다르거나 x 가 작아지면(같은 줄에서 왼쪽으로 후퇴) `expect` 여부와
+    /// 무관하게 무조건 Reset. 앱은 커밋마다 스팟을 전진 보고하므로, 후퇴는
+    /// 커밋이 유발할 수 없는 신호다.
+    last_ime_spot: Option<(i32, i32)>,
 }
 
 impl UnimHandler {
@@ -188,7 +211,18 @@ impl UnimHandler {
             replayed_key: None,
             autofix_commit_guard: false,
             pending_skip_commit: None,
+            spot_update_expected: false,
+            spot_reset_sent: false,
+            last_ime_spot: None,
         })
+    }
+
+    /// 스팟 점프 Reset 판정의 기준점 갱신 — commit/preedit_draw 로 우리가
+    /// 스스로 화면을 바꾼 직후 호출한다. 뒤따르는 스팟 보고 1회는 "기대된
+    /// 갱신" 으로 소비되고, idle 구간 디바운스도 새로 연다.
+    fn mark_spot_update_expected(&mut self) {
+        self.spot_update_expected = true;
+        self.spot_reset_sent = false;
     }
 
     /// `CommitText` 시그널이 방금 동기 반환한 커밋의 메아리인지 판정하고 소비한다.
@@ -421,6 +455,11 @@ impl UnimHandler {
             }
         }
 
+        // clear_preedit 은 handle_reset_ic(캐럿 위치에 동기 커밋 동반)·
+        // handle_unset_focus(focus-out 직전 캐럿 위치 커밋 동반) 뒤에서
+        // 불린다 — 뒤따를 스팟 보고를 "기대된 갱신" 으로 미리 표시해 둔다.
+        self.mark_spot_update_expected();
+
         Ok(())
     }
 
@@ -488,6 +527,12 @@ impl UnimHandler {
         if has_commit {
             server.commit(&user_ic.ic, commit_text)?;
             server.conn().flush().ok();
+        }
+
+        // 커밋·preedit 어느 쪽이든 화면을 바꿨으면 뒤따를 스팟 보고 1회를
+        // "기대된 갱신" 으로 미리 표시해 둔다(XIM 스팟 점프 Reset, U5 (b)).
+        if has_commit || has_preedit {
+            self.mark_spot_update_expected();
         }
 
         Ok(())
@@ -590,11 +635,16 @@ impl UnimHandler {
                 if let Some((cw, im_id, ic_id)) = self.last_focused_ic_info {
                     let ic = InputContext::new(cw, im_id, ic_id, String::new());
                     match server.commit(&ic, &text) {
-                        Ok(()) => unim_log!(
-                            "XIM_HANDLER",
-                            "CommitText (Standalone): '{}' → server.commit OK",
-                            text
-                        ),
+                        Ok(()) => {
+                            unim_log!(
+                                "XIM_HANDLER",
+                                "CommitText (Standalone): '{}' → server.commit OK",
+                                text
+                            );
+                            // 팝업 마우스 클릭 확정도 캐럿을 옮긴다 — 뒤따를
+                            // 스팟 보고 1회를 기대된 갱신으로 표시(U5 (b)).
+                            self.mark_spot_update_expected();
+                        }
                         Err(e) => unim_log!(
                             "XIM_HANDLER",
                             "CommitText (Standalone): '{}' → server.commit 실패: {:?}",
@@ -996,6 +1046,53 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 width: 0,
                 height: 20,
             });
+
+            // XIM 스팟 점프 Reset ([Q9](a), 계획 §4 XIM 행 (b)) — 이번 보고로
+            // 소비(좌표를 못 얻었어도 "기대" 상태는 소비해야 다음 진짜 보고에
+            // 잘못 넘어가지 않는다).
+            let spot_was_expected = self.spot_update_expected;
+            self.spot_update_expected = false;
+
+            // idle = 로컬 preedit 없음. 조합 중에는 캐럿이 원래 자주 움직이므로
+            // 이 판정 자체를 걸지 않는다(§2.2.3 이 대신 접두 검증을 맡는 대상은
+            // 아니지만, XIM 은 대상② 미지원이라 여기서는 idle 게이트만 본다).
+            let idle = user_ic.user_data.preedit_cache.is_empty();
+            if idle {
+                // 보조 판정: 직전 IM 유발 스팟 대비 y 가 다르거나(줄 이동)
+                // x 가 작아지면(같은 줄에서 후퇴) expect 여부와 무관하게 의심.
+                // 앱은 커밋마다 스팟을 전진 보고하므로 후퇴는 커밋이 낼 수 없는
+                // 신호다 — 거리 임계 대신 이 방향성만 쓴다(폰트 폭을 IM 이
+                // 모르므로 거리로는 "같은 줄 짧은 후퇴 클릭" 을 못 잡는다).
+                let jumped = self
+                    .last_ime_spot
+                    .is_some_and(|(px, py)| cursor_y != py || cursor_x < px);
+
+                if (!spot_was_expected || jumped) && !self.spot_reset_sent {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "스팟 점프 Reset: expected={}, jumped={}, spot=({},{})",
+                        spot_was_expected,
+                        jumped,
+                        cursor_x,
+                        cursor_y
+                    );
+                    let _ = self.dbus_tx.blocking_send(DbusRequest::Reset {
+                        context_path: user_ic.user_data.context_path.clone(),
+                    });
+                    self.spot_reset_sent = true;
+                }
+
+                // 판정 결과와 무관하게 이번에 본 스팟을 다음 판정의 기준점으로
+                // 삼는다. 점프를 잡은 뒤(=캐럿이 사용자가 클릭한 자리로 옮겨간
+                // 뒤)에도 옛 기준점을 남겨두면 그 자리에서 커밋할 때마다
+                // "줄이 다르다" 로 보여 Reset(사전 재파싱)이 끝없이 반복된다.
+                self.last_ime_spot = Some((cursor_x, cursor_y));
+            }
+        } else {
+            // 좌표를 못 얻어 보고를 건너뛴 경우(죽은 창)에도 "기대" 상태는
+            // 소비한다 — 남겨두면 다음의 진짜 사용자 클릭 보고가 기대된 갱신으로
+            // 오인돼 미탐(=오삭제)이 된다.
+            self.spot_update_expected = false;
         }
 
         // spot_location 변경 시 preedit 윈도우 재생성
@@ -1099,6 +1196,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         }
 
                         self.autofix_commit_guard = false;
+
+                        // 위 commit/preedit 이 유발할 스팟 보고를 "기대된 갱신"
+                        // 으로 미리 표시한다(XIM 스팟 점프 Reset, U5 (b)).
+                        self.mark_spot_update_expected();
 
                         if !has_preedit {
                             if let Some(path) = self.autofix_context_path.take() {

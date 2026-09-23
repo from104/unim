@@ -1,0 +1,50 @@
+[
+  {
+    "name": "hanja-word-syllable",
+    "desc": "대상①(음절 확정 모드) — 조합 중 최근 확정 음절 버퍼+preedit 최장 사전 접미 다음절 변환 (HANJA_WORD_SPEC.md §2.2·§2.6, 교체 채널 AutoTypefixApply)",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s", "r", "n", "r"],
+        "expect": { "committed": "대한민", "preedit": "국" } },
+      { "key": "F9" },
+      { "key": "1",
+        "expect": { "committed": "大韓民國", "preedit": "", "rendered": "大韓民國" } }
+    ]
+  },
+  {
+    "name": "hanja-word-selection",
+    "desc": "대상②(앱 선택 영역) — 사전 정확 일치 한글 선택을 일반 CommitText로 확정, 위젯이 선택을 치환 (HANJA_WORD_SPEC.md §2.4·§2.10). GTK3·XIM은 v1 미지원(§1.3) — known_fail로 표기",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "known_fail": {
+      "gtk3": "대상② 미지원 — GtkIMContext vtable에 anchor 전달 경로가 없다(anchor=cursor 고정, gtk3/src/immodule.c:1220-1222). HANJA_WORD_SPEC.md §1.3",
+      "gtk3-xim": "대상② 미지원 — 동일 바이너리(gtk3), 위와 동일 사유",
+      "xim": "대상② 미지원 — surrounding text 프로토콜 자체가 없다. HANJA_WORD_SPEC.md §1.3"
+    },
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s", "r", "n", "r"] },
+      { "key": "space", "expect": { "committed": "대한민국 ", "preedit": "" } },
+      { "key": "Left" },
+      { "key": "shift+Home" },
+      { "key": "F9" },
+      { "key": "1",
+        "expect": { "committed": "大韓民國 ", "preedit": "", "rendered": "大韓民國 " } }
+    ]
+  },
+  {
+    "name": "selection-kept-on-consumed-key",
+    "desc": "래퍼 게이트 회귀 — 선택된 채 빈 커밋만 내는 키(한/영 전환·한자키 불일치 선택)를 눌러도 GTK4/Qt가 선택을 지우지 않는가 (HANJA_WORD_SPEC.md §4.5, Q4 채택)",
+    "korean": false,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["a", "b", "c"], "expect": { "committed": "abc", "preedit": "" } },
+      { "key": "shift+Home" },
+      { "key": "Hangul", "expect": { "committed": "abc", "rendered": "abc" } },
+      { "key": "F9", "expect": { "committed": "abc", "rendered": "abc" } },
+      { "key": "Escape", "expect": { "committed": "abc", "rendered": "abc" } }
+    ]
+  }
+]

@@ -14,7 +14,8 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    CommitUnit, Config, InputCategory, ModeSharingMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode,
+    AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
     AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
@@ -608,6 +609,43 @@ fn build_keymap_group(
         |cfg, v| cfg.engine.hanja_keys = v,
         "hanja_keys",
     ));
+
+    // 한자 출력 형식 (漢字 / 한글(한자) / 한자(한글)) — 수치 아님이라 ComboRow (commit_row 선례)
+    let hanja_fmt_row = adw::ComboRow::builder()
+        .title(t!("row_hanja_output_format"))
+        .subtitle(t!("row_hanja_output_format_subtitle"))
+        .build();
+    hanja_fmt_row.set_tooltip_text(Some(t!("row_hanja_output_format_tooltip").as_ref()));
+    let hanja_fmt_list = gtk4::StringList::new(&[
+        t!("hanja_output_format_hanja").as_ref(),
+        t!("hanja_output_format_hangul_hanja").as_ref(),
+        t!("hanja_output_format_hanja_hangul").as_ref(),
+    ]);
+    hanja_fmt_row.set_model(Some(&hanja_fmt_list));
+    {
+        let s = state.borrow();
+        hanja_fmt_row.set_selected(match s.config.engine.korean.hanja_output_format {
+            HanjaOutputFormat::Hanja => 0,
+            HanjaOutputFormat::HangulHanja => 1,
+            HanjaOutputFormat::HanjaHangul => 2,
+        });
+    }
+    {
+        let state_c = state.clone();
+        hanja_fmt_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.korean.hanja_output_format = match row.selected() {
+                0 => HanjaOutputFormat::Hanja,
+                1 => HanjaOutputFormat::HangulHanja,
+                _ => HanjaOutputFormat::HanjaHangul,
+            };
+            save_and_notify(&s.config, "hanja_output_format");
+        });
+    }
+    group.add(&hanja_fmt_row);
 
     // 단축키 설정 row 는 제거됨 — 한자 키 idle 상태가 단일 진입점.
     // 이모지 팝업은 항상 활성 — 별도 토글 없음.

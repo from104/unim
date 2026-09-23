@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
-    normalize_korean_layout_name, CommitUnit, Config as UnimConfig, InputCategory, KoreanConfig,
-    ModeSharingMode,
+    normalize_korean_layout_name, CommitUnit, Config as UnimConfig, HanjaOutputFormat,
+    InputCategory, KoreanConfig, ModeSharingMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -76,6 +76,14 @@ fn commit_unit_display_name_localized(unit: CommitUnit) -> String {
         CommitUnit::Syllable => t!("commit_unit_syllable").to_string(),
         CommitUnit::Word => t!("commit_unit_word").to_string(),
         CommitUnit::Smart => t!("commit_unit_smart").to_string(),
+    }
+}
+
+fn hanja_output_format_display_name_localized(fmt: HanjaOutputFormat) -> String {
+    match fmt {
+        HanjaOutputFormat::Hanja => t!("hanja_output_format_hanja").to_string(),
+        HanjaOutputFormat::HangulHanja => t!("hanja_output_format_hangul_hanja").to_string(),
+        HanjaOutputFormat::HanjaHangul => t!("hanja_output_format_hanja_hangul").to_string(),
     }
 }
 
@@ -615,6 +623,12 @@ enum ConfigKey {
     /// 조합 확정 단위 (syllable, word, smart). 단어 단위는 터미널·XIM 비대상, 스마트는 word-mode-apps 목록 앱만 단어 조합.
     #[value(name = "commit-unit", help = h("help_ck_commit_unit"))]
     CommitUnit,
+    /// 한자 출력 형식 (hanja, hangul-hanja, hanja-hangul). 단음절·단어 변환 공통.
+    #[value(
+        name = "hanja-output-format",
+        help = h("help_ck_hanja_output_format")
+    )]
+    HanjaOutputFormat,
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
     #[value(name = "word-mode-apps", help = h("help_ck_word_mode_apps"))]
     WordModeApps,
@@ -888,6 +902,12 @@ fn config_show() {
         t!("commit_unit_label"),
         commit_unit_display_name_localized(config.engine.korean.commit_unit),
         t!("commit_unit_note")
+    );
+    println!(
+        "{}: {} {}",
+        t!("hanja_output_format_label"),
+        hanja_output_format_display_name_localized(config.engine.korean.hanja_output_format),
+        t!("hanja_output_format_note")
     );
     println!(
         "{}: {}",
@@ -1719,6 +1739,29 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!(
                     "commit_unit_changed",
                     unit = commit_unit_display_name_localized(unit)
+                )
+            );
+        }
+        ConfigKey::HanjaOutputFormat => {
+            let fmt = match value.to_lowercase().as_str() {
+                "hanja" | "한자" => HanjaOutputFormat::Hanja,
+                "hangul-hanja" | "한글한자" => HanjaOutputFormat::HangulHanja,
+                "hanja-hangul" | "한자한글" => HanjaOutputFormat::HanjaHangul,
+                _ => {
+                    return Err(t!(
+                        "error_invalid_hanja_output_format",
+                        value = value,
+                        allowed = "hanja, hangul-hanja, hanja-hangul"
+                    )
+                    .to_string());
+                }
+            };
+            config.engine.korean.hanja_output_format = fmt;
+            println!(
+                "{}",
+                t!(
+                    "hanja_output_format_changed",
+                    fmt = hanja_output_format_display_name_localized(fmt)
                 )
             );
         }

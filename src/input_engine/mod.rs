@@ -11,6 +11,7 @@ mod candidates;
 mod chord_buffer;
 pub mod chord_compose;
 mod engine;
+mod hanja_word;
 mod popup_dispatch;
 mod press_key;
 mod surrounding;
@@ -18,7 +19,10 @@ mod types;
 
 pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
-pub use types::{AtfHotkey, AtfToggleKind, InputResult, PageDirection, PopupAction};
+pub use types::{
+    AtfHotkey, AtfToggleKind, HanjaReplacement, HanjaSource, InputResult, PageDirection,
+    PopupAction, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP,
+};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
@@ -43,6 +47,8 @@ mod tests_chord_compose;
 mod tests_toggle;
 #[cfg(test)]
 mod tests_atf_hotkey;
+#[cfg(test)]
+mod tests_hanja_word;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///

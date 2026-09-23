@@ -217,6 +217,43 @@ pub enum PopupAction {
     },
 }
 
+/// 한자 단어 교체 페이로드 (HANJA_WORD_SPEC §2.6·§4.1).
+///
+/// 대상①(`HanjaSource::RecentWord`) 확정에서 이미 앱에 확정된 접두를 지우고 한자를
+/// 넣어야 할 때만 엔진이 남긴다. `InputResult`(`repr(C)` ABI)를 건드리지 않는
+/// out-of-band 채널이며(`pending_atf_toggle` 선례), 호스트가
+/// `InputEngine::take_hanja_replacement()` 로 드레인해 교체 채널
+/// (`AutoTypefixApply(delete_chars, text, "")`)로 내보낸다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HanjaReplacement {
+    /// 앱에서 지울 확정 접두 글자 수 (완성 음절 — UTF-8 3바이트 확정).
+    pub delete_chars: u32,
+    /// 팝업 진입 당시 preedit 글자 수. 조합 텍스트가 문서 안에 있는 호스트(TSF)가
+    /// 교체 범위를 `delete_chars + preedit_chars` 로 잡을 때 쓴다.
+    pub preedit_chars: u32,
+    /// 넣을 텍스트 (출력 형식 적용 완료).
+    pub text: String,
+}
+
+/// 한자 변환 대상의 출처 (HANJA_WORD_SPEC §1.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HanjaSource {
+    /// preedit 마지막 음절 (종전 동작).
+    #[default]
+    Syllable,
+    /// 대상① 음절 확정 모드 — 최근 확정 음절 버퍼 + preedit 의 최장 사전 접미.
+    RecentWord,
+    /// 대상① 단어 확정 모드 / preedit 내부 일치 — 접미 앞 preedit 은 커밋 접두로 보존.
+    WordBuffer,
+    /// 대상② 앱 선택 영역.
+    Selection,
+}
+
+/// 사전 최장 키 길이(글자) — 대상 탐색·선택 판정 상한.
+pub const HANJA_MAX_KEY_CHARS: usize = 18;
+/// 최근 확정 음절 버퍼 상한(글자) — 사전 최장 키 − preedit 1자.
+pub const RECENT_SYLLABLE_CAP: usize = 17;
+
 /// 입력 처리 결과
 ///
 /// 키 입력 처리 후의 상태 변화를 나타냅니다.
