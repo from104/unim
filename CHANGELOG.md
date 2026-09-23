@@ -4,6 +4,20 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [Unreleased]
+
+### Added
+
+- Hanja conversion of the word just typed (e.g. 대한민국) and of a Hangul word selected in the app, in one step (selection conversion on GTK4, Qt, GNOME, Wayland and Windows)
+- Hanja output format setting — choose 漢字, 한자(漢字) or 漢字(한자) ([Settings] › [Hanja Output Format], `unim-cli config set hanja-output-format`)
+- Per-character meanings shown for multi-syllable hanja candidates
+
+### Fixed
+
+- Fixed syllables composed before the target being lost when cancelling the hanja popup or converting only the last syllable in word commit mode
+- Fixed the selection being erased when pressing the hanja key or the Korean/English toggle with text selected on GTK4 and Qt apps
+- Windows: fixed the next keystroke being handled as popup navigation after focus briefly moved away while the hanja popup was open
+
 ## [0.4.4] 2026-09-21
 
 ### Fixed

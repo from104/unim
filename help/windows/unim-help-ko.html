@@ -486,6 +486,30 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <blockquote>
 <p><strong>왜 flash가 등록(★ ON) 때는 없고 해제(★ OFF) 때만 있나?</strong> 등록은 cursor가 자연스럽게 1페이지 상단으로 따라가므로 시각 단서가 충분. 반면 해제는 다른 페이지로 점프할 때 사용자가 화면 변화를 놓치기 쉬워 flash로 위치를 찍어 준다.</p>
 </blockquote>
+<h5 id="user-guide--단어-한자-변환">단어 한자 변환</h5>
+<p>"대한민국"처럼 여러 음절로 된 단어도 한 번에 한자로 바꿀 수 있다.</p>
+<ol>
+<li>단어를 끝까지 입력한다 (예: <code>대한민국</code> — 마지막 글자 "국"이 아직 조합 중이어야 한다).</li>
+<li><strong>한자 키</strong>를 누른다. 사전에 있는 단어면 단어 전체가 후보로 뜬다 (<code>大韓民國</code> 등).</li>
+<li>숫자 또는 화살표+Enter로 확정한다.</li>
+</ol>
+<blockquote>
+<p><strong>조사를 붙이기 전에 눌러야 한다.</strong> "대한민국은"처럼 조사를 이미 붙였다면 한자 키는 그 순간 조합 중인 꼬리 부분(사전에 있으면 "국은"처럼 여러 글자, 없으면 마지막 음절)만 바꾼다. 단어를 다 쓴 다음, 조사를 붙이기 <strong>전</strong>에 한자 키를 누른다.</p>
+<p><strong>팝업이 뜬 채로 한자 키를 다시 누르면 대상이 앞 글자부터 줄어 사전에 있는 더 짧은 단어로 바뀐다.</strong> 예: <code>대한민국</code> → <code>민국</code> → <code>국</code>.</p>
+<p>마우스로 커서를 다른 자리로 옮긴 뒤 바로 이어서 타이핑하면, 이미 입력해 둔 다른 단어가 헤더에 잘못 뜰 수 있다. 이때는 <strong>Esc</strong>로 팝업만 닫으면 된다 — 이미 입력된 글자는 건드리지 않는다.</p>
+</blockquote>
+<h5 id="user-guide--선택한-단어-한자-변환">선택한 단어 한자 변환</h5>
+<p>이미 입력해 둔 한글 단어를 선택(마우스·Shift+방향키)해서도 한자로 바꿀 수 있다.</p>
+<ol>
+<li>앱에서 한글 단어를 선택한다(마우스 또는 Shift+방향키).</li>
+<li><strong>한자 키</strong>를 누른다.</li>
+<li>숫자 또는 화살표+Enter로 확정 — 선택 영역이 그대로 한자로 바뀐다.</li>
+</ol>
+<p>선택한 문자열이 사전에 없거나 한글이 아니면 평소처럼 <strong>이모지 팝업</strong>이 뜬다 — 이모지를 확정하면 선택이 그 이모지로 바뀐다(<strong>Esc</strong>를 누르면 선택은 그대로 남는다).</p>
+<h5 id="user-guide--한자-출력-형식">한자 출력 형식</h5>
+<p>확정할 때 들어가는 문자열 형식을 바꿀 수 있다 — [설정] › [한자 출력 형식]에서 <strong>漢字</strong> / <strong>한자(漢字)</strong> / <strong>漢字(한자)</strong> 중 고른다. 단어 변환과 한 글자 변환 모두 같은 형식을 쓴다.</p>
+<h5 id="user-guide--단어-즐겨찾기">단어 즐겨찾기</h5>
+<p>단어 후보도 음절 후보와 똑같이 <strong>Space</strong> 키로 ☆/★를 토글해 즐겨찾기에 등록할 수 있다. 다만 즐겨찾기는 <strong>같은 단어의 팝업에서만</strong> 재사용된다 — "대한민국"에서 등록한 순서는 "대한민국" 팝업에만 적용되고 다른 단어 팝업에는 영향이 없다.</p>
 <h4 id="user-guide--43-특수문자-입력">4.3 특수문자 입력</h4>
 <p>한글 모드에서 자음(초성) 키 → 한자 키. 초성에 따라 카테고리가 달라진다.</p>
 <div class="tablewrap"><table><thead><tr><th>초성</th><th>카테고리</th><th>예시</th></tr></thead><tbody>
@@ -588,6 +612,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <pre><code class="language-yaml"># %APPDATA%\unim\config.yaml — 직접 편집해도 되고, 잠시 뒤 자동 반영된다
 korean:
   commit_unit: Smart          # Syllable / Word / Smart — 대문자로 시작
+  hanja_output_format: Hanja  # Hanja / HangulHanja / HanjaHangul — 대문자로 시작
   word_mode_apps:
     - winword.exe
 </code></pre>
@@ -623,6 +648,7 @@ korean:
 <div class="tablewrap"><table><thead><tr><th>그룹</th><th>항목</th><th>비고</th></tr></thead><tbody>
 <tr><td><strong>자판 옵션</strong></td><td>한글 자판 / 영문 자판</td><td><code>ko_2bulstd</code>(두벌식 표준) 등 — §7.1 참고. 자판별 동적 옵션(예: 세벌식 390의 순아래받침)도 이 그룹에 나타난다</td></tr>
 <tr><td></td><td>한글 확정 단위</td><td><code>음절</code>/<code>단어</code>/<code>스마트</code> — <a href="#user-guide--46-단어-단위-입력-조합-확정-단위">4.6</a> 참고</td></tr>
+<tr><td></td><td>한자 출력 형식</td><td><code>漢字</code>/<code>한자(漢字)</code>/<code>漢字(한자)</code> — 한 글자 변환과 단어 변환에 모두 적용, <a href="#user-guide--42-한자-변환-hanja">4.2</a> 참고</td></tr>
 <tr><td><strong>입력 모드</strong></td><td>시작 입력 모드</td><td>데몬 시작 시 한글/영문 중 어느 쪽으로 켤지</td></tr>
 <tr><td></td><td>모드 공유</td><td><code>전역 공유</code>(기본) / <code>앱별 독립</code> — <a href="#user-guide--41-한영-모드-전환">4.1</a> 참고</td></tr>
 <tr><td></td><td>앱별 규칙</td><td>특정 앱(창 식별자·클라이언트 이름 부분 일치)에서 항상 지정 모드로 시작하도록 규칙 추가. 「모드 공유=앱별 독립」일 때 효과가 크다</td></tr>
@@ -635,7 +661,7 @@ korean:
 </blockquote>
 <blockquote>
 <p><strong>조합키 자동반복 억제(접근성)</strong>: 키를 계속 누르고 있으면 운영체제가 같은 키를 빠르게 반복 입력하는데(자동 반복), 이 옵션을 켜면 입력기가 그 반복을 무시한다. 손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능이며, 리눅스판과 <strong>같은 방식으로 동작</strong>한다. 억제 대상은 <strong>한/영 토글 키와 한글 모드의 문자 키</strong>이며, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둔다. 기본값은 꺼짐이다.</p>
-<p><strong>이모지 입력</strong>은 별도 스위치가 없다 — 한자 팝업과 같은 경로로 항상 켜져 있다. 조합 중이 아닌 상태에서 <strong>한자 키(또는 F9)</strong> 를 누르면 이모지 팝업이 뜬다. 즉 같은 키가 상황에 따라 <strong>한자 · 특수문자 · 이모지</strong> 세 용도로 자동 전환된다.</p>
+<p><strong>이모지 입력</strong>은 별도 스위치가 없다 — 한자 팝업과 같은 경로로 항상 켜져 있다. 조합 중이 아닌 상태에서 <strong>한자 키(또는 F9)</strong> 를 누르면 이모지 팝업이 뜬다(단, 사전에 있는 한글 단어를 선택한 상태라면 선택 단어 한자 변환이 우선한다 — <a href="#user-guide--42-한자-변환-hanja">4.2</a> 참고). 즉 같은 키가 상황에 따라 <strong>한자 · 특수문자 · 이모지</strong> 세 용도로 자동 전환된다.</p>
 </blockquote>
 <h4 id="user-guide--52-페이지-2--오타-교정">5.2 페이지 2 — 오타 교정</h4>
 <!-- screenshot: settings-typefix -->
@@ -1074,11 +1100,12 @@ $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/m
 <h3 id="faq--q28-한자특수문자이모지-팝업이-안-뜹니다">Q28. 한자·특수문자·이모지 팝업이 안 뜹니다.</h3>
 <p><strong>🪟 Windows</strong> — Windows에서 팝업은 <code>unim-popup-win.exe</code> 라는 <strong>별도 프로그램</strong>이 그린다. 이게 떠 있지 않으면 팝업만 안 나오고 한글 입력 자체는 멀쩡한, 딱 이 증상이 된다.</p>
 <ol>
-<li><strong>키를 먼저 확인</strong> — <code>한자</code> 키(또는 <code>F9</code>)는 상황에 따라 세 갈래로 갈린다.
+<li><strong>키를 먼저 확인</strong> — <code>한자</code> 키(또는 <code>F9</code>)는 상황에 따라 갈린다.
 <ul>
-<li>한글을 조합한 상태 → <strong>한자</strong> 후보</li>
+<li>한글을 조합한 상태(방금 친 한 글자 또는 단어) → <strong>한자</strong> 후보</li>
+<li>이미 입력해 둔 한글 단어(사전에 있는 것)를 마우스 또는 Shift+방향키로 선택한 상태 → 그 단어 <strong>한자</strong> 후보</li>
 <li>초성 하나만(예 <code>ㅁ</code>) 조합한 상태 → <strong>특수문자</strong></li>
-<li>아무것도 조합하지 않은 상태 → <strong>이모지</strong></li>
+<li>아무것도 조합하지 않고 선택도 없는 상태 → <strong>이모지</strong></li>
 </ul>
 </li>
 <li><strong>프로그램이 떠 있는지 확인</strong> — 작업 관리자에 <code>unim-popup-win.exe</code> 가 있는지 본다. 없으면 설치 폴더(<code>C:\Program Files\UNIM\</code>)의 <code>unim-popup-win.exe</code> 를 직접 실행한다. 실수로 두 번 실행해도 중복으로 뜨지 않는다(스스로 종료한다).</li>

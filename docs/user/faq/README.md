@@ -656,10 +656,11 @@ Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input me
 
 **🪟 Windows** — On Windows the popup is drawn by a **separate program**, `unim-popup-win.exe`. If that is not running you get exactly this symptom: typing Korean works fine, only the popup is missing.
 
-1. **Check the key first** — the `Hanja` key (or `F9`) branches three ways depending on state:
-   - while composing a syllable → **Hanja** candidates
+1. **Check the key first** — the `Hanja` key (or `F9`) branches depending on state:
+   - while composing (the syllable or word just typed) → **Hanja** candidates
+   - with a Hangul word already typed and selected with the mouse or Shift+arrows, if it is in the dictionary → **Hanja** candidates for that word
    - after composing a single consonant (e.g. `ㅁ`) → **special characters**
-   - while not composing anything → **emoji**
+   - while not composing anything and nothing selected → **emoji**
 2. **Check the program is running** — look for `unim-popup-win.exe` in Task Manager. If it is missing, run `unim-popup-win.exe` from the install folder (`C:\Program Files\UNIM\`) directly. Launching it twice by accident is harmless — the second copy exits on its own.
 3. **Sign out and back in once** — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.
 

@@ -444,6 +444,55 @@ When you toggle, the candidate list reorders and the cursor follows the affected
 
 > **Why is there flash on un-bookmark but not on bookmark?** Bookmarking always lands on page 1 row 1, which is a predictable, eye-catching location — no extra hint needed. Un-bookmarking can jump to *any* page, so the flash is what tells you where the candidate went.
 
+#### Word hanja conversion
+
+Multi-syllable words like "대한민국" can be converted to hanja in one step, just like a single syllable.
+
+1. Type the whole word (e.g. `대한민국` — the last syllable, "국", must still be composing).
+2. Press the **hanja key**. If the word is in the dictionary, the whole word appears as a candidate (`大韓民國`, etc.).
+3. Confirm with a number, or arrow keys + Enter.
+
+> **Press it before adding a particle.** If you already typed "대한민국은" with a particle attached, the hanja key only affects the trailing part still composing at that moment — a multi-character tail if it is in the dictionary (e.g. "국은"), otherwise just the last syllable. Press the hanja key after finishing the word, but **before** adding a particle.
+>
+> **Press the hanja key again while the popup is open to shrink the target from the front to the next shorter word that is in the dictionary.** For example: `대한민국` → `민국` → `국`.
+>
+> If you move the mouse cursor elsewhere and keep typing right away, a different word you typed earlier may show up in the header by mistake. Press **Esc** to close just the popup — the characters you already typed are left untouched.
+
+#### Selected word hanja conversion
+
+A Hangul word you already typed can also be converted after selecting it (mouse or Shift+arrows).
+
+1. Select a Hangul word in the app (mouse or Shift+arrows).
+2. Press the **hanja key**.
+3. Confirm with a number, or arrow keys + Enter — the selection is replaced with the hanja.
+
+<!-- @platform:linux -->
+Supported environments:
+
+| Frontend | Selection conversion |
+|---|---|
+| GTK4 | ✔ |
+| Qt5 / Qt6 | ✔ |
+| GNOME Shell extension | ✔ |
+| Pure Wayland | ✔ |
+| GTK3 | ✘ (word conversion still works; selection falls back to the emoji popup) |
+| XIM | ✘ (word conversion still works; selection falls back to the emoji popup) |
+<!-- @endplatform -->
+
+If the selected text is not in the dictionary or is not Hangul, the **emoji popup** opens as usual — confirming an emoji replaces the selection with it (press **Esc** to leave the selection untouched).
+
+#### Hanja output format
+
+You can change the string format inserted on confirm — go to [Settings] › [Hanja Output Format] and choose **漢字**, **한자(漢字)**, or **漢字(한자)**. The same format applies to both word conversion and single-syllable conversion.
+
+<!-- @platform:linux -->
+From the CLI: `unim-cli config set hanja-output-format hangul-hanja`.
+<!-- @endplatform -->
+
+#### Word bookmarks
+
+Word candidates can be bookmarked the same way syllable candidates are — **Space** toggles ☆/★. Bookmarks are reused **only within the popup for the same word** — starring an order inside the "대한민국" popup only affects that word's popup, not any other word's.
+
 ### 4.3 Special characters
 
 In Korean mode, type a single jamo (consonant) and then press the Hanja key. The category depends on the consonant.
@@ -590,6 +639,8 @@ unim-cli config set commit-unit word
 # Smart + specific apps only (e.g. LibreOffice)
 unim-cli config set commit-unit smart
 unim-cli config set word-mode-apps "winword.exe,soffice"
+
+unim-cli config set hanja-output-format hangul-hanja
 ```
 
 In the settings GUI, pick it from the **Korean commit unit** combo under General → Layout options. `word-mode-apps` is edited via CLI/`config.yaml` (exact match, case-insensitive). Example Linux app ID: LibreOffice is `soffice` — app IDs can be checked in the log when Mode share is set to Per-app.
@@ -603,6 +654,7 @@ With **Smart** (the default), word-unit applies **only in MS Word (`winword.exe`
 # %APPDATA%\unim\config.yaml — safe to edit by hand; it is picked up shortly after saving
 korean:
   commit_unit: Smart          # Syllable / Word / Smart — capitalized
+  hanja_output_format: Hanja  # Hanja / HangulHanja / HanjaHangul — capitalized
   word_mode_apps:
     - winword.exe
 ```
@@ -669,6 +721,7 @@ Four pages (left-hand navigation):
 |------|------|---------|
 | **Layout options** | Korean layout / English layout | e.g. `ko_2bulstd` (Dubeolsik standard) — see §7.1. Layout-specific dynamic options (e.g. Sebeolsik 390's "sun-arae batchim") also appear here |
 |  | Korean commit unit | `Syllable` / `Word` / `Smart` — see [4.6](#46-word-unit-commit-composition-commit-granularity) |
+|  | Hanja output format | `漢字`/`한자(漢字)`/`漢字(한자)` — applies to both single-syllable and word conversion, see [4.2](#42-hanja-conversion) |
 | **Input mode** | Initial mode | Korean or English when the daemon starts |
 |  | Mode share | `Global` (default) / `Per-app` — see [4.1](#41-koreanenglish-mode-toggle) |
 |  | Per-app rules | Add rules so specific apps (matched by window/client-name substring) always start in a given mode. Most useful when Mode share = Per-app |
@@ -688,7 +741,7 @@ Four pages (left-hand navigation):
 <!-- @platform:windows -->
 > **Suppress Composition Key Auto-repeat (accessibility)**: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the input method ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor), and it works **the same way as on Linux**. Suppression applies to the **Korean/English toggle key and character keys in Korean mode**; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off.
 >
-> **Emoji input** has no separate switch — it shares the hanja-popup path and is always on. Press the **Hanja key (or F9)** while *not* composing and the emoji popup appears. The same key thus serves three purposes depending on context: **hanja, special characters, and emoji**.
+> **Emoji input** has no separate switch — it shares the hanja-popup path and is always on. Press the **Hanja key (or F9)** while *not* composing and the emoji popup appears (unless a Hangul word that is in the dictionary is selected, in which case selected-word hanja conversion takes priority — see [4.2](#42-hanja-conversion)). The same key thus serves three purposes depending on context: **hanja, special characters, and emoji**.
 <!-- @endplatform -->
 
 ### 5.2 Page 2 — Type Correction
@@ -913,6 +966,9 @@ unim-cli config set auto-english true
 
 # Korean commit unit (syllable/word/smart) — see 4.6
 unim-cli config set commit-unit word
+
+# Hanja output format — see 4.2
+unim-cli config set hanja-output-format hangul-hanja
 
 # AutoTypeFix toggle hotkeys (comma-separated; modifier combos allowed) — see 4.4
 unim-cli config set auto-typefix-toggle-keys "Shift+F8"

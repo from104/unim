@@ -32,7 +32,8 @@ Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
   layouts, and typo-correction behavior are identical on Linux and Windows.
 - **Hanja, symbols, and emoji from a single key** — one key (the Hanja key or `F9`)
   switches mode automatically and picks a candidate in as few as two extra keystrokes,
-  with no separate character-map app or search box.
+  with no separate character-map app or search box. Hanja conversion works on a whole
+  word too, not just a single syllable.
 - Designed around minimizing keystrokes and letting the software fix mistakes
   instead of the user.
 
@@ -208,9 +209,10 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 
 | 그때의 상태 | 한자키를 누르면 | 예 |
 |------|------|------|
-| 한글을 조합해 글자가 있을 때 | **한자 팝업** | `한` → 漢, 韓, 恨 … |
+| 한글을 조합해 글자가 있을 때(방금 친 한 글자 또는 단어) | **한자 팝업** | `대한민국` → 大韓民國 … |
+| 사전에 있는 한글 단어를 선택한 채(GTK4·Qt·GNOME·Wayland·Windows) | 그 단어 **한자 팝업** | `대한민국` 선택 → 大韓民國 … |
 | 자음만 입력한 상태일 때 | **특수문자 팝업** | `ㅁ` → ＄, ％, ￦, ℃ … |
-| 아무것도 조합하고 있지 않을 때 | **이모지 팝업** | 😀 🎉 🚀 … |
+| 아무것도 조합하고 있지 않을 때(idle, 선택 없음) | **이모지 팝업** | 😀 🎉 🚀 … |
 
 모드를 따로 고르거나 다른 프로그램을 여실 필요가 없습니다.
 
@@ -218,7 +220,7 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 
 한자 팝업은 한 페이지에 후보 9개를 보여 드리고, **숫자 `1`~`9`를 누르면 그 자리에서
 선택과 확정이 동시에 이뤄집니다.** 즉 글자를 친 뒤로는 **한자키 한 번 + 숫자 한 번**,
-추가 입력 두 번이면 한자가 들어갑니다.
+추가 입력 두 번이면 한자가 들어갑니다. `대한민국`처럼 여러 글자로 된 단어도 마찬가지입니다.
 
 - **즐겨찾기(`Space`)를 쓰시면 더 줄어듭니다.** ★를 단 한자는 첫 페이지 위쪽으로 올라오므로,
   자주 쓰시는 글자는 늘 `1`~`3` 근처에 놓입니다. 페이지를 넘길 일이 없어집니다
@@ -396,7 +398,7 @@ X11 세션을 쓰시거나 GNOME으로 우회해 주십시오.
 
 **완료** — Rust 코어(2벌식·3벌식 계열), 3계층 아키텍처(Core → D-Bus → Frontend),
 전 프론트엔드(GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell), 배포 채널(deb·rpm·MSI·설치 스크립트),
-자판 프로필 v1, 자동 오타 교정 + 억제 사전.
+자판 프로필 v1, 자동 오타 교정 + 억제 사전, 한자 단어 변환 v1.
 
 **진행 중** — Windows 쪽 완성도 다듬기, 단독 Wayland 컴포지터 실측,
 Wayland surrounding-text / content-type 활용, 문서 정비.
@@ -405,7 +407,7 @@ Wayland surrounding-text / content-type 활용, 문서 정비.
 그리고 엔진 재설계 — 낱자 provenance 태깅, 문맥 의존 키 해석, 모아치기 stroke replay,
 복벌식, 옛한글.
 
-**구상 단계** — 한자 단어 단위 변환, macOS(InputMethodKit), 모바일, 음성 입력,
+**구상 단계** — macOS(InputMethodKit), 모바일, 음성 입력,
 경량 LLM 기반 단어·문장 예측, 한손 자판(천지인·나랏글).
 
 ## 문서

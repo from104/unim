@@ -478,6 +478,41 @@ export XMODIFIERS="@im=unim"
 <blockquote>
 <p><strong>Why is there flash on un-bookmark but not on bookmark?</strong> Bookmarking always lands on page 1 row 1, which is a predictable, eye-catching location — no extra hint needed. Un-bookmarking can jump to <em>any</em> page, so the flash is what tells you where the candidate went.</p>
 </blockquote>
+<h5 id="user-guide--word-hanja-conversion">Word hanja conversion</h5>
+<p>Multi-syllable words like "대한민국" can be converted to hanja in one step, just like a single syllable.</p>
+<ol>
+<li>Type the whole word (e.g. <code>대한민국</code> — the last syllable, "국", must still be composing).</li>
+<li>Press the <strong>hanja key</strong>. If the word is in the dictionary, the whole word appears as a candidate (<code>大韓民國</code>, etc.).</li>
+<li>Confirm with a number, or arrow keys + Enter.</li>
+</ol>
+<blockquote>
+<p><strong>Press it before adding a particle.</strong> If you already typed "대한민국은" with a particle attached, the hanja key only affects the trailing part still composing at that moment — a multi-character tail if it is in the dictionary (e.g. "국은"), otherwise just the last syllable. Press the hanja key after finishing the word, but <strong>before</strong> adding a particle.</p>
+<p><strong>Press the hanja key again while the popup is open to shrink the target from the front to the next shorter word that is in the dictionary.</strong> For example: <code>대한민국</code> → <code>민국</code> → <code>국</code>.</p>
+<p>If you move the mouse cursor elsewhere and keep typing right away, a different word you typed earlier may show up in the header by mistake. Press <strong>Esc</strong> to close just the popup — the characters you already typed are left untouched.</p>
+</blockquote>
+<h5 id="user-guide--selected-word-hanja-conversion">Selected word hanja conversion</h5>
+<p>A Hangul word you already typed can also be converted after selecting it (mouse or Shift+arrows).</p>
+<ol>
+<li>Select a Hangul word in the app (mouse or Shift+arrows).</li>
+<li>Press the <strong>hanja key</strong>.</li>
+<li>Confirm with a number, or arrow keys + Enter — the selection is replaced with the hanja.</li>
+</ol>
+<p>Supported environments:</p>
+<div class="tablewrap"><table><thead><tr><th>Frontend</th><th>Selection conversion</th></tr></thead><tbody>
+<tr><td>GTK4</td><td>✔</td></tr>
+<tr><td>Qt5 / Qt6</td><td>✔</td></tr>
+<tr><td>GNOME Shell extension</td><td>✔</td></tr>
+<tr><td>Pure Wayland</td><td>✔</td></tr>
+<tr><td>GTK3</td><td>✘ (word conversion still works; selection falls back to the emoji popup)</td></tr>
+<tr><td>XIM</td><td>✘ (word conversion still works; selection falls back to the emoji popup)</td></tr>
+</tbody></table>
+</div>
+<p>If the selected text is not in the dictionary or is not Hangul, the <strong>emoji popup</strong> opens as usual — confirming an emoji replaces the selection with it (press <strong>Esc</strong> to leave the selection untouched).</p>
+<h5 id="user-guide--hanja-output-format">Hanja output format</h5>
+<p>You can change the string format inserted on confirm — go to [Settings] › [Hanja Output Format] and choose <strong>漢字</strong>, <strong>한자(漢字)</strong>, or <strong>漢字(한자)</strong>. The same format applies to both word conversion and single-syllable conversion.</p>
+<p>From the CLI: <code>unim-cli config set hanja-output-format hangul-hanja</code>.</p>
+<h5 id="user-guide--word-bookmarks">Word bookmarks</h5>
+<p>Word candidates can be bookmarked the same way syllable candidates are — <strong>Space</strong> toggles ☆/★. Bookmarks are reused <strong>only within the popup for the same word</strong> — starring an order inside the "대한민국" popup only affects that word's popup, not any other word's.</p>
 <h4 id="user-guide--43-special-characters">4.3 Special characters</h4>
 <p>In Korean mode, type a single jamo (consonant) and then press the Hanja key. The category depends on the consonant.</p>
 <div class="tablewrap"><table><thead><tr><th>Jamo</th><th>Category</th><th>Examples</th></tr></thead><tbody>
@@ -595,6 +630,8 @@ unim-cli config set commit-unit word
 # Smart + specific apps only (e.g. LibreOffice)
 unim-cli config set commit-unit smart
 unim-cli config set word-mode-apps "winword.exe,soffice"
+
+unim-cli config set hanja-output-format hangul-hanja
 </code></pre>
 <p>In the settings GUI, pick it from the <strong>Korean commit unit</strong> combo under General → Layout options. <code>word-mode-apps</code> is edited via CLI/<code>config.yaml</code> (exact match, case-insensitive). Example Linux app ID: LibreOffice is <code>soffice</code> — app IDs can be checked in the log when Mode share is set to Per-app.</p>
 <p><strong>When it doesn't apply (safety net)</strong></p>
@@ -622,6 +659,7 @@ unim-cli config set word-mode-apps "winword.exe,soffice"
 <div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
 <tr><td><strong>Layout options</strong></td><td>Korean layout / English layout</td><td>e.g. <code>ko_2bulstd</code> (Dubeolsik standard) — see §7.1. Layout-specific dynamic options (e.g. Sebeolsik 390's "sun-arae batchim") also appear here</td></tr>
 <tr><td></td><td>Korean commit unit</td><td><code>Syllable</code> / <code>Word</code> / <code>Smart</code> — see <a href="#user-guide--46-word-unit-commit-composition-commit-granularity">4.6</a></td></tr>
+<tr><td></td><td>Hanja output format</td><td><code>漢字</code>/<code>한자(漢字)</code>/<code>漢字(한자)</code> — applies to both single-syllable and word conversion, see <a href="#user-guide--42-hanja-conversion">4.2</a></td></tr>
 <tr><td><strong>Input mode</strong></td><td>Initial mode</td><td>Korean or English when the daemon starts</td></tr>
 <tr><td></td><td>Mode share</td><td><code>Global</code> (default) / <code>Per-app</code> — see <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a></td></tr>
 <tr><td></td><td>Per-app rules</td><td>Add rules so specific apps (matched by window/client-name substring) always start in a given mode. Most useful when Mode share = Per-app</td></tr>
@@ -762,6 +800,9 @@ unim-cli config set auto-english true
 
 # Korean commit unit (syllable/word/smart) — see 4.6
 unim-cli config set commit-unit word
+
+# Hanja output format — see 4.2
+unim-cli config set hanja-output-format hangul-hanja
 
 # AutoTypeFix toggle hotkeys (comma-separated; modifier combos allowed) — see 4.4
 unim-cli config set auto-typefix-toggle-keys "Shift+F8"

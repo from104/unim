@@ -478,6 +478,41 @@ export XMODIFIERS="@im=unim"
 <blockquote>
 <p><strong>왜 flash가 등록(★ ON) 때는 없고 해제(★ OFF) 때만 있나?</strong> 등록은 cursor가 자연스럽게 1페이지 상단으로 따라가므로 시각 단서가 충분. 반면 해제는 다른 페이지로 점프할 때 사용자가 화면 변화를 놓치기 쉬워 flash로 위치를 찍어 준다.</p>
 </blockquote>
+<h5 id="user-guide--단어-한자-변환">단어 한자 변환</h5>
+<p>"대한민국"처럼 여러 음절로 된 단어도 한 번에 한자로 바꿀 수 있다.</p>
+<ol>
+<li>단어를 끝까지 입력한다 (예: <code>대한민국</code> — 마지막 글자 "국"이 아직 조합 중이어야 한다).</li>
+<li><strong>한자 키</strong>를 누른다. 사전에 있는 단어면 단어 전체가 후보로 뜬다 (<code>大韓民國</code> 등).</li>
+<li>숫자 또는 화살표+Enter로 확정한다.</li>
+</ol>
+<blockquote>
+<p><strong>조사를 붙이기 전에 눌러야 한다.</strong> "대한민국은"처럼 조사를 이미 붙였다면 한자 키는 그 순간 조합 중인 꼬리 부분(사전에 있으면 "국은"처럼 여러 글자, 없으면 마지막 음절)만 바꾼다. 단어를 다 쓴 다음, 조사를 붙이기 <strong>전</strong>에 한자 키를 누른다.</p>
+<p><strong>팝업이 뜬 채로 한자 키를 다시 누르면 대상이 앞 글자부터 줄어 사전에 있는 더 짧은 단어로 바뀐다.</strong> 예: <code>대한민국</code> → <code>민국</code> → <code>국</code>.</p>
+<p>마우스로 커서를 다른 자리로 옮긴 뒤 바로 이어서 타이핑하면, 이미 입력해 둔 다른 단어가 헤더에 잘못 뜰 수 있다. 이때는 <strong>Esc</strong>로 팝업만 닫으면 된다 — 이미 입력된 글자는 건드리지 않는다.</p>
+</blockquote>
+<h5 id="user-guide--선택한-단어-한자-변환">선택한 단어 한자 변환</h5>
+<p>이미 입력해 둔 한글 단어를 선택(마우스·Shift+방향키)해서도 한자로 바꿀 수 있다.</p>
+<ol>
+<li>앱에서 한글 단어를 선택한다(마우스 또는 Shift+방향키).</li>
+<li><strong>한자 키</strong>를 누른다.</li>
+<li>숫자 또는 화살표+Enter로 확정 — 선택 영역이 그대로 한자로 바뀐다.</li>
+</ol>
+<p>지원 환경:</p>
+<div class="tablewrap"><table><thead><tr><th>프런트엔드</th><th>선택 변환</th></tr></thead><tbody>
+<tr><td>GTK4</td><td>✔</td></tr>
+<tr><td>Qt5 / Qt6</td><td>✔</td></tr>
+<tr><td>GNOME Shell 확장</td><td>✔</td></tr>
+<tr><td>순수 Wayland</td><td>✔</td></tr>
+<tr><td>GTK3</td><td>✘ (방금 친 단어 변환은 가능, 선택 시 이모지 팝업)</td></tr>
+<tr><td>XIM</td><td>✘ (방금 친 단어 변환은 가능, 선택 시 이모지 팝업)</td></tr>
+</tbody></table>
+</div>
+<p>선택한 문자열이 사전에 없거나 한글이 아니면 평소처럼 <strong>이모지 팝업</strong>이 뜬다 — 이모지를 확정하면 선택이 그 이모지로 바뀐다(<strong>Esc</strong>를 누르면 선택은 그대로 남는다).</p>
+<h5 id="user-guide--한자-출력-형식">한자 출력 형식</h5>
+<p>확정할 때 들어가는 문자열 형식을 바꿀 수 있다 — [설정] › [한자 출력 형식]에서 <strong>漢字</strong> / <strong>한자(漢字)</strong> / <strong>漢字(한자)</strong> 중 고른다. 단어 변환과 한 글자 변환 모두 같은 형식을 쓴다.</p>
+<p>CLI 로는 <code>unim-cli config set hanja-output-format hangul-hanja</code> 처럼 바꾼다.</p>
+<h5 id="user-guide--단어-즐겨찾기">단어 즐겨찾기</h5>
+<p>단어 후보도 음절 후보와 똑같이 <strong>Space</strong> 키로 ☆/★를 토글해 즐겨찾기에 등록할 수 있다. 다만 즐겨찾기는 <strong>같은 단어의 팝업에서만</strong> 재사용된다 — "대한민국"에서 등록한 순서는 "대한민국" 팝업에만 적용되고 다른 단어 팝업에는 영향이 없다.</p>
 <h4 id="user-guide--43-특수문자-입력">4.3 특수문자 입력</h4>
 <p>한글 모드에서 자음(초성) 키 → 한자 키. 초성에 따라 카테고리가 달라진다.</p>
 <div class="tablewrap"><table><thead><tr><th>초성</th><th>카테고리</th><th>예시</th></tr></thead><tbody>
@@ -597,6 +632,8 @@ unim-cli config set commit-unit word
 # 스마트 + 특정 앱만 단어 단위 (예: LibreOffice)
 unim-cli config set commit-unit smart
 unim-cli config set word-mode-apps "winword.exe,soffice"
+
+unim-cli config set hanja-output-format hangul-hanja
 </code></pre>
 <p>설정 GUI 에서는 「일반」 → 「입력 모드」 그룹의 <strong>조합 확정 단위</strong> 콤보에서 고른다. <code>word-mode-apps</code> 는 CLI/<code>config.yaml</code> 로 편집한다(정확일치, 대소문자 무시). 리눅스 앱 ID 예시: LibreOffice <code>soffice</code>, 앱 ID 는 창별 독립 모드에서 로그로 확인할 수 있다.</p>
 <p><strong>적용되지 않는 경우 (안전장치)</strong></p>
@@ -624,6 +661,7 @@ unim-cli config set word-mode-apps "winword.exe,soffice"
 <div class="tablewrap"><table><thead><tr><th>그룹</th><th>항목</th><th>비고</th></tr></thead><tbody>
 <tr><td><strong>자판 옵션</strong></td><td>한글 자판 / 영문 자판</td><td><code>ko_2bulstd</code>(두벌식 표준) 등 — §7.1 참고. 자판별 동적 옵션(예: 세벌식 390의 순아래받침)도 이 그룹에 나타난다</td></tr>
 <tr><td></td><td>한글 확정 단위</td><td><code>음절</code>/<code>단어</code>/<code>스마트</code> — <a href="#user-guide--46-단어-단위-입력-조합-확정-단위">4.6</a> 참고</td></tr>
+<tr><td></td><td>한자 출력 형식</td><td><code>漢字</code>/<code>한자(漢字)</code>/<code>漢字(한자)</code> — 한 글자 변환과 단어 변환에 모두 적용, <a href="#user-guide--42-한자-변환-hanja">4.2</a> 참고</td></tr>
 <tr><td><strong>입력 모드</strong></td><td>시작 입력 모드</td><td>데몬 시작 시 한글/영문 중 어느 쪽으로 켤지</td></tr>
 <tr><td></td><td>모드 공유</td><td><code>전역 공유</code>(기본) / <code>앱별 독립</code> — <a href="#user-guide--41-한영-모드-전환">4.1</a> 참고</td></tr>
 <tr><td></td><td>앱별 규칙</td><td>특정 앱(창 식별자·클라이언트 이름 부분 일치)에서 항상 지정 모드로 시작하도록 규칙 추가. 「모드 공유=앱별 독립」일 때 효과가 크다</td></tr>
@@ -770,6 +808,9 @@ unim-cli config set auto-english true
 
 # 조합 확정 단위 (음절/단어/스마트) — 4.6 참고
 unim-cli config set commit-unit word
+
+# 한자 출력 형식 — 4.2 참고
+unim-cli config set hanja-output-format hangul-hanja
 
 # 자동 오타 교정 토글 단축키 (쉼표 구분, 수정자 조합 가능) — 4.4 참고
 unim-cli config set auto-typefix-toggle-keys "Shift+F8"
