@@ -116,3 +116,6 @@ gnome-smoke-fail.log
 # 배포판 매트릭스 빌드 산출물 (scripts/build-linux-matrix.sh)
 rpms/
 dist/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
