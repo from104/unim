@@ -492,12 +492,13 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                qPrintable(unim_mask(m_contentPurpose, result.preedit)),
                qPrintable(unim_mask(m_contentPurpose, result.commit))));
 
-    /* commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·한/영 전환 등)는
-     * 아무것도 넣지 않으므로 선택을 지우지 않는다(HANJA_WORD_SPEC.md §4.5) — 이전엔
-     * consumed 만으로 게이트해 선택한 채 한/영 전환키를 누르면 선택이 조용히 사라졌다. */
-    if (result.consumed && (!result.commit.isEmpty() || !result.preedit.isEmpty())) {
-        /* 선택 영역 삭제 처리 */
-        if (m_focusObject) {
+    if (result.consumed) {
+        /* 선택 영역 삭제 처리 — commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·
+         * 한/영 전환 등)는 아무것도 넣지 않으므로 선택을 지우지 않는다(HANJA_WORD_SPEC.md
+         * §4.5). 이 조건은 삭제에만 건다 — 소비 판정에 걸면 그런 키가 return false 로
+         * 앱에 새어 팝업 후보 숫자가 입력되고 Esc 가 앱에 닿는다(2026-09 L3 실측, GTK4
+         * immodule.c 와 같은 구조). */
+        if (m_focusObject && (!result.commit.isEmpty() || !result.preedit.isEmpty())) {
             QInputMethodQueryEvent query(Qt::ImAnchorPosition | Qt::ImCursorPosition);
             QCoreApplication::sendEvent(m_focusObject, &query);
             int anchorPos = query.value(Qt::ImAnchorPosition).toInt();
