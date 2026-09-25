@@ -213,7 +213,11 @@ void unim_field_insert(UnimTestField *f, const char *text) {
 }
 
 void unim_field_backspace(UnimTestField *f) {
-    if (f->composing) {
+    /* 화면에 조합 글자가 있을 때만 IM 몫으로 본다. XIM 은 조합이 끝나도 PreeditStart/Done
+     * 사이클을 열어 둔 채 내용만 비우므로(third_party/xim preedit_clear_keep_session),
+     * composing 만으로 막으면 IM 이 되돌려 준 자가 주입 BackSpace(AutoTypeFix·한자 단어
+     * 교체)까지 무시해 실제 앱과 달라진다 — 실제 앱은 IM 이 거르지 않은 키를 그대로 처리한다. */
+    if (f->composing && f->preedit[0]) {
         unim_log_note("%s: 조합 중 백스페이스 — IM 이 처리한다 (앱 무동작)", f->id);
         return;
     }
@@ -232,7 +236,11 @@ void unim_field_backspace(UnimTestField *f) {
 }
 
 void unim_field_delete(UnimTestField *f) {
-    if (f->composing) {
+    /* 화면에 조합 글자가 있을 때만 IM 몫으로 본다. XIM 은 조합이 끝나도 PreeditStart/Done
+     * 사이클을 열어 둔 채 내용만 비우므로(third_party/xim preedit_clear_keep_session),
+     * composing 만으로 막으면 IM 이 되돌려 준 자가 주입 BackSpace(AutoTypeFix·한자 단어
+     * 교체)까지 무시해 실제 앱과 달라진다 — 실제 앱은 IM 이 거르지 않은 키를 그대로 처리한다. */
+    if (f->composing && f->preedit[0]) {
         unim_log_note("%s: 조합 중 Delete — IM 이 처리한다 (앱 무동작)", f->id);
         return;
     }

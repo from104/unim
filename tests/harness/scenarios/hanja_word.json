@@ -1,6 +1,9 @@
 [
   {
     "name": "hanja-word-syllable",
+    "known_fail": {
+      "xim": "XIM 교체 채널(자가 주입 BackSpace N+1, handler.rs AutoTypeFix)의 순서 결함 — 앱이 BS 1개만 처리한 뒤 확정이 먼저 도착하고 남은 BS 가 확정 한자를 지운다(2026-09 docker L3 실측: '대한大韓'). AutoTypeFix 역방향과 같은 경로라 함께 조사 필요"
+    },
     "desc": "대상①(음절 확정 모드) — 조합 중 최근 확정 음절 버퍼+preedit 최장 사전 접미 다음절 변환 (HANJA_WORD_SPEC.md §2.2·§2.6, 교체 채널 AutoTypefixApply)",
     "layout": "ko_2bulstd",
     "korean": true,
@@ -22,7 +25,10 @@
     "known_fail": {
       "gtk3": "대상② 미지원 — GtkIMContext vtable에 anchor 전달 경로가 없다(anchor=cursor 고정, gtk3/src/immodule.c:1220-1222). HANJA_WORD_SPEC.md §1.3",
       "gtk3-xim": "대상② 미지원 — 동일 바이너리(gtk3), 위와 동일 사유",
-      "xim": "대상② 미지원 — surrounding text 프로토콜 자체가 없다. HANJA_WORD_SPEC.md §1.3"
+      "xim": "대상② 미지원 — surrounding text 프로토콜 자체가 없다. HANJA_WORD_SPEC.md §1.3",
+      "gtk4": "시험 앱 한계 — 공용 시험 필드(tests/common/unim_test_field)에 선택 모델이 없다(anchor=cursor 고정, shift+Home 은 캐럿만 이동). 제품 경로는 L2(unim-test-dbus)로 검증",
+      "qt5": "시험 앱 한계 — gtk4 와 동일 사유(선택 모델 없음, ImAnchorPosition=ImCursorPosition)",
+      "qt6": "시험 앱 한계 — gtk4 와 동일 사유(선택 모델 없음, ImAnchorPosition=ImCursorPosition)"
     },
     "steps": [
       { "keys": ["e", "o", "g", "k", "s", "a", "l", "s", "r", "n", "r"] },

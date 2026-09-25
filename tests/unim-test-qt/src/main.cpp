@@ -136,7 +136,10 @@ public:
     }
 
     void changed() {
-        QGuiApplication::inputMethod()->update(Qt::ImCursorRectangle);
+        /* 실제 QLineEdit/QTextEdit 처럼 텍스트·캐럿이 바뀌면 surrounding 도 갱신을 알린다 —
+         * ImCursorRectangle 만 알리면 프런트의 surrounding 캐시가 포커스 진입 스냅샷(빈 값)에
+         * 머물러 한자 단어 변환(대상①)이 검증 실패로 단음절로 퇴화한다(HANJA_WORD_SPEC §2.2.3). */
+        QGuiApplication::inputMethod()->update(Qt::ImQueryInput);
         update();
         if (onChange) onChange();
     }
@@ -165,6 +168,17 @@ protected:
 
     void inputMethodEvent(QInputMethodEvent *e) override {
         UnimTestField *f = cur();
+
+        /* QLineEdit 처럼 replacementStart/Length 로 커밋 전 기존 텍스트를 지운다 —
+         * AutoTypeFix·한자 단어 교체(setCommitString(text, -n, n))가 이 경로다.
+         * 단위는 글자(char) — GTK4 시험 앱 on_delete_surrounding 과 같은 요령. */
+        if (e->replacementLength() > 0) {
+            unim_log_surrounding("delete", f->committed, f->caret,
+                                 e->replacementStart(), e->replacementLength());
+            for (int i = 0; i < -e->replacementStart(); i++) unim_field_move_caret(f, -1);
+            for (int i = 0; i <  e->replacementStart(); i++) unim_field_move_caret(f, +1);
+            for (int i = 0; i < e->replacementLength(); i++) unim_field_delete(f);
+        }
 
         if (!e->commitString().isEmpty()) {
             QByteArray c = e->commitString().toUtf8();

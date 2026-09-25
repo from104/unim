@@ -301,15 +301,17 @@ HARNESS_LOG="$OUT_DIR/harness.log"
 #    나가는 stdout 이 완전 버퍼링돼, 전역 timeout 이 걸려 프로세스가 죽을 때
 #    이미 실행된 시나리오의 PASS/FAIL 출력이 통째로 유실된다(2026-09 실측:
 #    fedora43 레그가 rc=124 로 죽었는데 로그에 "unim-daemon 기동 확인" 이후
-#    단 한 줄도 안 남아 진단 불가였다). 900s 는 5앱×전 시나리오 실측
-#    기준(느린 공유 호스트 포함) 여유를 둔 값 — 600s 는 부하 상황에서 빠듯했다.
+#    단 한 줄도 안 남아 진단 불가였다). 1200s 는 5앱×전 시나리오 실측
+#    기준(느린 공유 호스트 포함) 여유를 둔 값 — 600s 는 부하 상황에서 빠듯했고,
+#    900s 는 한자 단어 시나리오(+3종×5앱) 추가 후 로컬 docker 에서 xim 도중 끊겼다
+#    (2026-09 실측: 앱당 ~3.7분). 잡 timeout-minutes(40/60/90) 안쪽이다.
 # ⚠️ 파이프(`| tee`)로 받지 않는다 — dbus-daemon 이 활성화한 서비스(unim-popup-service,
 #    xdg-desktop-portal 류)가 stdout 파이프를 물려받은 채 dbus-run-session 종료 후에도
 #    살아남으면 tee 가 EOF 를 영영 못 받아 스크립트가 행(hang)한다(2026-09 실측:
 #    debian13·fedora44 레그가 결과 출력 후 수 분간 종료 안 됨). 파일로 직접 쓰고,
 #    setsid 로 새 프로세스 그룹에 넣어 끝나면 그룹째 정리한 뒤 로그를 출력한다.
 UNIM_HARNESS_OUT="$OUT_DIR" \
-    setsid timeout 900 dbus-run-session -- "$RUN_SCRIPT" "$DAEMON_BIN" "$XIM_BIN" "$NEED_XIM" "$WORK" \
+    setsid timeout 1200 dbus-run-session -- "$RUN_SCRIPT" "$DAEMON_BIN" "$XIM_BIN" "$NEED_XIM" "$WORK" \
     python3 -u "$REPO/tests/harness/run.py" "${APP_ARGS[@]}" "${SCENARIO_ARGS[@]}" --allow-layout-change \
     >"$HARNESS_LOG" 2>&1 &
 INNER_PID=$!
