@@ -1276,3 +1276,13 @@ fn password_entry_clears_stale_selection_snapshot() {
     assert!(!e.has_selection());
     assert!(e.surrounding_text().0.is_empty());
 }
+
+/// 한자 사전은 프로세스당 한 벌 — 엔진(데몬 컨텍스트)마다 ~100MB 를 새로 파싱하면
+/// 컨텍스트 수만큼 메모리가 쌓인다(2026-09 CI 기능 시험 러너 사망).
+#[test]
+fn engines_share_one_hanja_dictionary() {
+    let config = Config::default();
+    let a = InputEngine::new(&config);
+    let b = InputEngine::new(&config);
+    assert!(std::sync::Arc::ptr_eq(&a.hanja_dict, &b.hanja_dict));
+}

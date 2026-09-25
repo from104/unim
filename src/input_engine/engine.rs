@@ -279,8 +279,15 @@ impl InputEngine {
 
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
-        // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
-        let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
+        // 한자 사전 — 프로세스당 한 번만 파싱해 모든 엔진이 Arc 로 공유한다.
+        // 사전은 불변이고 한 벌이 약 100MB 라, 엔진(=데몬 컨텍스트)마다 새로 파싱하면
+        // 컨텍스트 수만큼 메모리가 쌓이고 glibc 가 해제분을 OS 에 돌려주지 않는다
+        // (2026-09 CI 기능 시험에서 데몬이 수 GB 까지 불어 러너가 죽음).
+        static SHARED_HANJA_DICT: std::sync::OnceLock<std::sync::Arc<crate::hanja::HanjaDictionary>> =
+            std::sync::OnceLock::new();
+        let hanja_dict = SHARED_HANJA_DICT
+            .get_or_init(|| std::sync::Arc::new(crate::hanja::HanjaDictionary::new()))
+            .clone();
 
         let commit_unit = config.engine.korean.commit_unit;
         let word_mode_apps = config.engine.korean.word_mode_apps.clone();
