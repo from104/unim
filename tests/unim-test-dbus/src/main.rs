@@ -798,8 +798,7 @@ async fn hw_case2_selection_commit(
 }
 
 /// §6.2 케이스 (3): 불일치/비한글 선택 → 후보 없음. Q8(a) 채택(§2.1)에 따라
-/// idle 이모지 팝업으로 폴백한다(실측 확인 — `HANJA_WORD_SPEC.md` §6.2 원문의
-/// "이모지 팝업 시그널 미발행" 표기는 이 폴백과 어긋난다. open_issues 참조).
+/// idle 이모지 팝업으로 폴백한다(`HANJA_WORD_SPEC.md` §6.2 (3), POPUP_SPEC v3.4 §9.2).
 async fn hw_case3_unmatched_selection(
     im: &InputMethodProxy<'_>,
     ic: &InputContextProxy<'_>,

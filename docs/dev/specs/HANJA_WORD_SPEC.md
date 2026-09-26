@@ -13,11 +13,11 @@
 
 ## 0. 결정 항목 (한눈에)
 
-기현님 부재중 **PM 대행 결정**(2026-09-17) — **기현님 최종 확인 대기**. 구현자는 '결정' 열대로 진행하며 본문은 결정이 반영된 상태다. 기현님이 뒤집으면 §8 이력에 행을 추가하고 본문을 되돌린다.
+기현님 부재중 **PM 대행 결정**(2026-09-17) → **기현님 최종 승인(2026-09-26, 전 항목 결정대로)**. 구현자는 '결정' 열대로 진행하며 본문은 결정이 반영된 상태다. 기현님이 뒤집으면 §8 이력에 행을 추가하고 본문을 되돌린다.
 
-| # | 항목 | 본문 기본값 | 대안 | **결정** (PM 대행 결정, 기현님 최종 확인 대기) |
+| # | 항목 | 본문 기본값 | 대안 | **결정** (PM 대행 결정 → 2026-09-26 기현님 승인) |
 |---|---|---|---|---|
-| Q1 | §5 POPUP_SPEC 개정안(규칙 2·4·5·10·11, §9.2 예외) | 채택 | 문구 수정 요청 | **코드와 문서는 대상② 를 구현·서술한다** — 기현님 요청 원문에 "선택한 단어" 가 명시돼 있어 기능 자체는 결정된 것으로 본다. 승인 대기로 남는 것은 `POPUP_SPEC.md` **파일 수정(U14b)뿐**. 대상① 판 2벌 문구·`Resolve::None` 스텁 같은 승인 전 조건부 장치는 두지 않는다 |
+| Q1 | §5 POPUP_SPEC 개정안(규칙 2·4·5·10·11, §9.2 예외) | 채택 | 문구 수정 요청 | **코드와 문서는 대상② 를 구현·서술한다** — 기현님 요청 원문에 "선택한 단어" 가 명시돼 있어 기능 자체는 결정된 것으로 본다. `POPUP_SPEC.md` **파일 수정(U14b)** 은 2026-09-26 승인·반영(v3.4, §5). 대상① 판 2벌 문구·`Resolve::None` 스텁 같은 승인 전 조건부 장치는 두지 않는다 |
 | Q2 | 출력 형식의 괄호 문자 | 반각 `(` `)` — `대한민국(大韓民國)` | 전각 `（）` | **반각 `(` `)`** |
 | Q3 | 대상② 확정 시 선택 앞뒤에서 제외한 공백을 되붙임(§2.4.3) | 되붙임(문서 보존) | 공백 소실 수용 | **되붙임** |
 | Q4 | GTK4·Qt 의 "빈 소비 키" 선택 삭제 동작 변경(§4.5) — 선택한 채 한자키·한/영 전환키를 눌러도 선택이 남는다 | 채택(D8 충족 필수) | — | **채택** |
@@ -132,7 +132,7 @@ pull 경로(Qt·XIM 의 `GetHanjaCandidates`)는 `start_hanja_conversion` 을 �
 
 #### 2.4.1 판정
 
-`SetSurroundingText(text, cursor, anchor)` 로 받은 값에서 **`max(cursor, anchor)` 가 문자 길이를 넘으면 선택 없음으로 거부**(로그 1회, 패닉 없음)하고, 그 외 `min < max` 이면 선택이 있다. 오프셋이 텍스트 길이를 넘는 입력은 실재한다 — GNOME 확장은 Mutter 오프셋을 단위 변환 없이 전달하고 Qt focus-in 은 UTF-16 단위를 보낸다. 범위 검사 없이 슬라이스하면 `a > b` 패닉으로 단일 워커 스레드가 죽어 모든 컨텍스트가 멈추지만, **클램프로 삼켜서도 안 된다**: 바이트 오프셋 "대한민국" 의 "대한" 선택 = (0,6) 을 (0,4) 로 클램프하면 target "대한민국" 팝업 → 확정 "大韓民國" 이 실제 선택 "대한" 만 치환 → "大韓民國민국". 초과 자체가 단위 불일치의 증거이므로 거부가 맞다(GNOME 실측에서 바이트로 확인되면 확장 쪽에서 문자 단위로 변환). `typefix_convert` 의 슬라이스(`surrounding.rs:197-199`, 현행 `end.min(len)` 클램프)도 같은 판정으로 통일한다. 선택 문자열의 앞뒤 공백을 제외한 부분이 **(a) 비어 있지 않고 (b) 전부 완성 음절이며 (c) 18자 이하이고 (d) 사전에 정확히 있을 때**만 그 문자열을 target 으로 삼는다. 하나라도 어긋나면 팝업 없이 키를 소비한다(§2.1).
+`SetSurroundingText(text, cursor, anchor)` 로 받은 값에서 **`max(cursor, anchor)` 가 문자 길이를 넘으면 선택 없음으로 거부**(로그 1회, 패닉 없음)하고, 그 외 `min < max` 이면 선택이 있다. 오프셋이 텍스트 길이를 넘는 입력은 실재한다 — GNOME 확장은 Mutter 오프셋을 단위 변환 없이 전달하고 Qt focus-in 은 UTF-16 단위를 보낸다. 범위 검사 없이 슬라이스하면 `a > b` 패닉으로 단일 워커 스레드가 죽어 모든 컨텍스트가 멈추지만, **클램프로 삼켜서도 안 된다**: 바이트 오프셋 "대한민국" 의 "대한" 선택 = (0,6) 을 (0,4) 로 클램프하면 target "대한민국" 팝업 → 확정 "大韓民國" 이 실제 선택 "대한" 만 치환 → "大韓民國민국". 초과 자체가 단위 불일치의 증거이므로 거부가 맞다(GNOME 실측에서 바이트로 확인되면 확장 쪽에서 문자 단위로 변환). `typefix_convert` 의 슬라이스(`surrounding.rs:197-199`, 현행 `end.min(len)` 클램프)도 같은 판정으로 통일한다. 선택 문자열의 앞뒤 공백을 제외한 부분이 **(a) 비어 있지 않고 (b) 전부 완성 음절이며 (c) 18자 이하이고 (d) 사전에 정확히 있을 때**만 그 문자열을 target 으로 삼는다. 하나라도 어긋나면 선택이 없는 것과 같이 종전 idle 동작(이모지 팝업)으로 폴백한다(§2.1, [Q8](a)).
 
 #### 2.4.2 확정
 
@@ -159,6 +159,10 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
 
 #### 2.5.4 헤더 표시
 헤더 `「대한민국」 → 한자` 는 문자열 연결이라 무수정. 8~18자 target(2,124건)에서 팝업 폭을 넘을 수 있어 세 렌더러(popup-service·GNOME·Windows)에 헤더 ellipsize 를 넣는다. Windows compact 한자 열은 고정 90px 이라 다글자 후보가 뜻 열과 겹치므로 실측 폭으로 바꾼다(compact 리스트는 설계서상 이미 가변 폭). **expanded 9×9 격자의 셀 폭은 고정 유지**(`popup-renderer-design.md:422` "popup 폭 고정 정책" — 페이지마다 폭이 요동하면 안 된다) + 셀 텍스트 `DT_END_ELLIPSIS`(전체 한자는 헤더가 담당, 설계서 :425 와 정합). 설계서 §3 은 동결 문서라 compact 열 폭 문구를 함께 갱신한다.
+
+#### 2.5.5 팝업 중 한자키 재타 — 접미 축소 [Q7](a)
+
+대상①(`RecentWord`/`WordBuffer`)로 연 한자 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 다시 띄운다 — "대한민국" → (한민국 없음) → "민국" → "국". 확정 접두 길이도 함께 줄며, 남은 접두는 원래 접두의 접미라 §2.2.3 검증을 그대로 만족한다. 대상②(선택 전체 치환)·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 현행 경로(push: 팝업 미지원 키 재처리 / pull: 같은 팝업 재발행)로 간다. push(`press_key`)·pull(`start_hanja_conversion`) 두 경로가 같다(`hanja_word.rs` `shrink_hanja_target`).
 
 ### 2.6 확정
 
@@ -310,16 +314,16 @@ GTK4(`immodule.c:1061`)와 Qt(`input_context.cpp:446`)는 엔진 결과가 `cons
 
 ---
 
-## 5. POPUP_SPEC 개정안 (승인 대기) [Q1]
+## 5. POPUP_SPEC 개정안 (2026-09-26 승인 → POPUP_SPEC v3.4 반영) [Q1]
 
-승인 시 아래 문구를 `POPUP_SPEC.md` 에 그대로 반영한다. 조항 번호는 현행 `POPUP_SPEC.md`(v3.3) 기준.
+아래 문구를 `POPUP_SPEC.md` 에 반영했다. 반영하면서 [Q7](a)·[Q8](a) 결정에 맞춰 5.1(c)·5.4·5.5 의 불일치 선택 동작을 "키만 소비" 에서 이모지 폴백으로 고치고 규칙 11(접미 축소, 5.4b)을 추가했다 — 아래는 그 반영판이다. 조항 번호는 현행 `POPUP_SPEC.md`(v3.3) 기준.
 
 ### 5.1 §3.7 동작 규칙 — 2번 교체
 
 > 2. **대상**: 다음 순서로 결정한다.
 >    - (a) 조합 중이고 preedit 의 마지막 글자가 완성 음절이면: 음절 확정 모드에서는 「엔진이 기억하는 최근 확정 한글 음절(최대 17자) + preedit」, 단어 확정 모드에서는 「preedit 전체」의 접미 가운데 한자 사전에 있는 **가장 긴** 문자열(2자 이상, 최대 18자). 예: "대한민"+"국" → "대한민국". 없으면 preedit 의 마지막 음절(종전 규칙, 예: "국").
 >    - (b) 조합 중이고 마지막 글자가 미완성 자모이면: 종전 규칙(마지막 글자, 초성이면 규칙 7 특수문자 전환).
->    - (c) 조합 중이 아니고 앱 선택 영역(`SetSurroundingText` 의 `cursor_pos != anchor_pos`)이 있으면: 선택 텍스트(앞뒤 공백 제외)가 전부 완성 음절이고 18자 이하이며 사전에 정확히 있을 때 그 문자열. 조건을 만족하지 않으면 어떤 팝업도 띄우지 않고 키만 소비한다.
+>    - (c) 조합 중이 아니고 앱 선택 영역(`SetSurroundingText` 의 `cursor_pos != anchor_pos`)이 있으면: 선택 텍스트(앞뒤 공백 제외)가 전부 완성 음절이고 18자 이하이며 사전에 정확히 있을 때 그 문자열. 조건을 만족하지 않으면 선택이 없는 것과 같이 종전 idle 동작(이모지 팝업, §9.2)으로 폴백하고 선택 텍스트는 건드리지 않는다.
 >    - 최근 확정 음절 버퍼는 비한글 확정(공백·구두점·영문·숫자·특수문자·이모지·한자 포함)·Enter·커서 이동·Backspace 통과(끝 1자 제거)·한/영 전환·포커스 이탈·Reset·비밀번호 필드·팝업 확정/취소 시 비워진다.
 >    - (a)에서 접미가 이미 확정된 글자를 포함하면(음절 확정 모드) 그 글자 수를 "확정 접두 길이" 로 기억한다. 단어 확정 모드에서 접미 앞의 나머지 preedit 은 확정 시 그대로 함께 커밋한다.
 
@@ -333,14 +337,18 @@ GTK4(`immodule.c:1061`)와 Qt(`input_context.cpp:446`)는 엔진 결과가 `cons
 
 ### 5.4 §3.7 동작 규칙 — 10번 신설
 
-> 10. **선택 영역 변환 지원 범위**: 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4·Qt5/6·GNOME Shell 확장·Wayland·Windows TSF)에서만 동작한다. GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 없으면 어떤 팝업도 띄우지 않는다.
+> 10. **선택 영역 변환 지원 범위**: 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4·Qt5/6·GNOME Shell 확장·Wayland·Windows TSF)에서만 동작한다. GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 정확히 없으면 역시 종전 idle 동작(이모지 팝업)이다.
+
+### 5.4b §3.7 동작 규칙 — 11번 신설
+
+> 11. **팝업 중 한자키 재타 (접미 축소)**: 규칙 2(a) 대상으로 연 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 갱신한다(예: "대한민국" → "민국" → "국"). 규칙 2(c) 선택 영역 대상·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 종전 동작(푸시 경로: 팝업 닫고 키 재처리 / 풀 경로: 같은 팝업 재발행).
 
 ### 5.5 §9.2 idle Hanja 키 dispatch 정책 — 인용문 교체
 
 > **idle Hanja 키 dispatch 정책 (v3.4)**: Hanja 키는 `input_category` 와 무관하게
 > `press_key()` 의 언어 분기 직전에 처리. 조합 중이면 한자 변환(§3.7 규칙 2(a)(b)).
-> preedit/조합 idle 이면 (i) 앱 선택 영역이 있을 때 §3.7 규칙 2(c) 선택 단어 변환을 시도하고
-> 사전 일치가 없으면 아무 팝업도 띄우지 않는다, (ii) 선택 영역이 없으면 emoji popup 트리거(종전 v3.2 동작).
+> preedit/조합 idle 이면 (i) 앱 선택 영역이 사전에 정확히 있는 한글이면 §3.7 규칙 2(c) 선택 단어 변환,
+> (ii) 그 외(선택 없음·불일치 선택)는 emoji popup 트리거(종전 v3.2 동작 — 불일치 선택은 건드리지 않는다).
 > 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가 not_consumed 로 떨어져 무시되던 회귀가 있었다.
 
 ### 5.6 §2.4 DBus 메서드 정리 — 행 주석 보강
@@ -349,7 +357,7 @@ GTK4(`immodule.c:1061`)와 Qt(`input_context.cpp:446`)는 엔진 결과가 `cons
 
 ### 5.7 §11 변경 이력 — 행 추가
 
-> | (승인일) | **v3.4** | **한자 단어 변환 — §3.7 규칙 2 대상 확장(최근 확정 음절+조합 최장 접미·단어 모드 preedit 접미·앱 선택 영역), 규칙 4/5 확정·취소 페이로드 개정, 규칙 10 선택 변환 지원 범위, §9.2 idle 정책에 선택 영역 예외. 확정 시 `AutoTypefixApply` 를 접두 교체 채널로 재사용, `SelectHanja` 반환 문자열에 출력 형식 설정(`hanja_output_format`) 적용. 헤더 ellipsize·Windows compact 한자 열 동적 폭. 별도 규격: `HANJA_WORD_SPEC.md`** |
+> | 2026-09-26 | **v3.4** | **한자 단어 변환 — §3.7 규칙 2 대상 확장(최근 확정 음절+조합 최장 접미·단어 모드 preedit 접미·앱 선택 영역), 규칙 4/5 확정·취소 페이로드 개정, 규칙 10 선택 변환 지원 범위, 규칙 11 팝업 중 한자키 재타 접미 축소, §9.2 idle 정책에 선택 영역 예외(불일치 선택은 이모지 폴백). 확정 시 `AutoTypefixApply` 를 접두 교체 채널로 재사용, `SelectHanja` 반환 문자열에 출력 형식 설정(`hanja_output_format`) 적용. 헤더 ellipsize·Windows compact 한자 열 동적 폭. 별도 규격: `HANJA_WORD_SPEC.md`** |
 
 ### 5.8 `unim-dbus/SPEC.md` 보강 (승인 불필요 — 신규 기능 문서화)
 
@@ -361,7 +369,7 @@ GTK4(`immodule.c:1061`)와 Qt(`input_context.cpp:446`)는 엔진 결과가 `cons
 
 ### 5.9 POPUP_SPEC 반영 절차
 
-Q1 승인 → §5.1~5.7 문구를 `POPUP_SPEC.md` 에 그대로 반영(v3.4) → 이 문서 상태를 "승인·반영" 으로 갱신. `CONTRIBUTING.md` 팝업 변경 6지점 체크리스트에 `POPUP_SPEC.md` 가 들어 있으므로 별도 작업 단위(PLAN U14b)로 잡는다. §9.2 정책 이탈(idle+선택 → 이모지 미발동)과 규칙 10 은 **Q1 승인 전에는 코드 착수하지 않는다**(엔진 U8 의 `selection_target` 분기·데몬 U11). 문서·UI 문구 중 대상② 서술(GTK `row_hanja_keys_*`·Slint 한자 변환 키 description·CHANGELOG Added 1행 후반부·매뉴얼 선택 변환 소절·루트 README 선택 행)도 같은 게이트 — 승인 전에는 §3.3 의 "Q1 승인 전 문구(대상① 판)" 를 쓴다.
+**(2026-09-26 완료)** Q1 승인 → §5.1~5.7 문구를 `POPUP_SPEC.md` 에 반영(v3.4) → 이 문서 상태를 "승인·반영" 으로 갱신. `CONTRIBUTING.md` 팝업 변경 6지점 체크리스트에 `POPUP_SPEC.md` 가 들어 있으므로 별도 작업 단위(PLAN U14b)로 잡는다. §9.2 정책 이탈(idle+선택 → 이모지 미발동)과 규칙 10 은 **Q1 승인 전에는 코드 착수하지 않는다**(엔진 U8 의 `selection_target` 분기·데몬 U11). 문서·UI 문구 중 대상② 서술(GTK `row_hanja_keys_*`·Slint 한자 변환 키 description·CHANGELOG Added 1행 후반부·매뉴얼 선택 변환 소절·루트 README 선택 행)도 같은 게이트 — 승인 전에는 §3.3 의 "Q1 승인 전 문구(대상① 판)" 를 쓴다.
 
 ---
 
@@ -386,7 +394,7 @@ Q1 승인 → §5.1~5.7 문구를 `POPUP_SPEC.md` 에 그대로 반영(v3.4) →
 | 회귀 | `cargo test --workspace` 전량(AutoTypeFix `tests.rs`·`tests_atf_hotkey`·`tests_scenarios`·`tests_popup_change_page`) 경고 0 |
 
 ### 6.2 L2 DBus (`tests/unim-test-dbus`)
-evdev 키열 `18 24 34 37 31 30 38 31 19 49 19` → Hanja(123). (1) `GetHanjaCandidates` target=="대한민국" → `AutoTypefixApply` 스트림 구독 후 `SelectHanja(0)` → `(3, "大韓民國", "")`. (2) `SetSurroundingText("대한민국 만세",0,4)` → Hanja → target=="대한민국" → `SelectHanja(0)` → `CommitText "大韓民國"`. (3) `SetSurroundingText("abc def",0,3)` → Hanja → 후보 없음·이모지 팝업 시그널 미발행. (4, 선택) `SetConfigYaml` 로 `HangulHanja` → "대한민국(大韓民國)". (5) 팝업 열림 → `SetContentType(Password)` → `HidePopup` 시그널 수신·`CommitText` 미발행. (6) AutoTypeFix 순방향 교정(영타 "eogksals" → "대한민") 직후 "국"+Hanja → target=="대한민국"(버퍼 시드).
+evdev 키열 `18 24 34 37 31 30 38 31 19 49 19` → Hanja(123). (1) `GetHanjaCandidates` target=="대한민국" → `AutoTypefixApply` 스트림 구독 후 `SelectHanja(0)` → `(3, "大韓民國", "")`. (2) `SetSurroundingText("대한민국 만세",0,4)` → Hanja → target=="대한민국" → `SelectHanja(0)` → `CommitText "大韓民國"`. (3) `SetSurroundingText("abc def",0,3)` → Hanja → 후보 없음 → `ProcessKey` 폴백에서 이모지 팝업(Q8(a)) — pull 단계 조기 발행 없음. (4, 선택) `SetConfigYaml` 로 `HangulHanja` → "대한민국(大韓民國)". (5) 팝업 열림 → `SetContentType(Password)` → `HidePopup` 시그널 수신·`CommitText` 미발행. (6) AutoTypeFix 순방향 교정(영타 "eogksals" → "대한민") 직후 "국"+Hanja → target=="대한민국"(버퍼 시드).
 
 ### 6.3 L3 Xvfb 하네스 (`tests/harness/scenarios/hanja_word.json`)
 (1) `hanja-word-syllable`: 11키 → `{committed:"대한민", preedit:"국"}` → F9 → 1 → `{committed:"大韓民國", preedit:"", rendered:"大韓民國"}`. (2) `hanja-word-selection`(GTK4 앱 필드): 11키 → space → Left → shift+Home → F9 → 1. (3) `selection-kept-on-consumed-key`(래퍼 게이트 회귀): `abc` → 선택 → 한/영 전환키 → committed "abc" 유지 → F9 → "abc" 유지. (4, 선택) `hanja-word-custom-key`(Qt 앱, `hanja_keys` 에 F9 아닌 키): 11키 → 커스텀 한자키 → 팝업 헤더 "대한민국"(stale 선택 스냅샷 없이 `update()` 갱신 경로 확인). `commit_unit`/서식 자동 적용 확장은 선택 — 채택 시 `harness.py` 에 `set_config_field(path, value)`(`GetConfigYaml` → 키 패치 → `SetConfigYaml`, 종료 시 복원) 헬퍼가 **필수**(레거시 `SetConfig` 는 두 키를 모르므로 layout 패턴 복제는 조용히 실패).
@@ -418,3 +426,4 @@ Mutter `vfunc_set_surrounding` 호출 빈도·오프셋 단위(바이트/문자 
 | 2026-09-17 | v1-draft | 초안 — 세 설계안(엔진·UX·플랫폼) 심사 종합, POPUP_SPEC 개정안 §5 수록, 승인 대기 |
 | 2026-09-17 | v1-draft2 | 검증 반영 — 선택 오프셋 양끝 클램프(패닉 방지), `before` 빈 문자열 검증 실패, 비번 게이트 순서·데몬 HidePopup 응답 채널, TSF OnSetFocus 양 분기, 바이트 동일 불변식을 preedit 1자로 한정, ATF 순방향 시드·XIM 스팟 Reset v1 승격, Windows 격자 폭 고정 유지, 동기 지점 표 확장(Slint .po·help-html·매뉴얼 범위), §5.9 반영 절차, Q7 대안·Q8·Q9 신설 |
 | 2026-09-17 | v1-draft3 | 2차 검증 반영 — 호스트 능력 플래그 `hanja_word_replace_capable`(기본 false, IMM32/capi 회귀 차단), chord 한자키 확정 음절 흡수, 선택 오프셋 초과를 클램프 대신 **거부**(단위 불일치 fail-closed), `prefix+pre` 검증 절을 TSF 전용 플래그로 한정, 비번 진입 시 surrounding 잔류 제거·Qt 프런트 이중 게이트·로그 길이만, GTK4 `is_focused` 우회 철회(역방향 ATF 시그니처 동일·XTest 폴백 위험)·GNOME `_hasFocus` 실측 항목, XIM 스팟 점프 판정 기준("IM 이 유발하지 않은 갱신"+디바운스)·Reset 비용 정정, ATF 순방향 시드를 replay 뒤로, 한자 교체 후 KeystrokeBuffer 폐기, TSF `apply_reverse_event` 시그니처 2개 추가, Qt surrounding 을 `update()` 갱신으로, 동기 지점에 `src/SPEC.md`·`unim-cli/SPEC.md`·루트 README·매뉴얼 ko/en 1:1 추가, Q1 승인 전 2벌 문구·Slint 한자 키 row |
+| 2026-09-26 | v1 | 기현님 최종 승인(Q1~Q9 결정대로) — POPUP_SPEC v3.4 반영(§5 를 Q7(a)·Q8(a) 판으로 갱신, 규칙 11 추가), §2.5.5 신설(끊긴 참조 복구), §2.4.1·§6.2(3) 을 Q8(a) 이모지 폴백으로 정정 |

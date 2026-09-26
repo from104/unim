@@ -97,9 +97,9 @@ sequenceDiagram
 
 | 인터페이스 | 메서드 | 인자 | 반환 | 용도 |
 |-----------|--------|------|------|------|
-| `InputContext` | `GetHanjaCandidates` | — | `(s target, a(ss) candidates)` | 한자 후보 목록 |
-| `InputContext` | `SelectHanja` | `(u index)` | `(s hanja)` | 한자 선택 → 커밋 |
-| `InputContext` | `CancelHanja` | — | — | 한자 모드 취소 |
+| `InputContext` | `GetHanjaCandidates` | — | `(s target, a(ss) candidates)` | 한자 후보 목록. `target` 은 다음절 어절일 수 있다(v3.4, §3.7 규칙 2) |
+| `InputContext` | `SelectHanja` | `(u index)` | `(s hanja)` | 한자 선택 → 커밋. 반환 `s` 는 출력 형식(`hanja_output_format`)이 적용된 문자열이며, 확정 접두가 있으면 데몬이 `CommitText` 대신 `AutoTypefixApply(u,s,s)` 를 발행한다(v3.4, 시그니처 변경 없음) |
+| `InputContext` | `CancelHanja` | — | — | 한자 모드 취소 — §3.7 규칙 5 의 텍스트를 커밋(v3.4) |
 | `InputContext` | `GetSpecialCharCandidates` | — | `(s target, as chars, s top_row)` | 특수문자 후보 |
 | `InputContext` | `SelectSpecialChar` | `(u index)` | `(s char)` | 특수문자 선택 |
 | `InputContext` | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
@@ -234,10 +234,15 @@ sequenceDiagram
 ### 3.7 동작 규칙
 
 1. **트리거**: 한국어 모드에서 한자키(F9/Hanja) 입력 시
-2. **대상**: preedit의 마지막 음절 (예: "대한민국" → "국")
+2. **대상** (v3.4): 다음 순서로 결정한다.
+   - (a) 조합 중이고 preedit 의 마지막 글자가 완성 음절이면: 음절 확정 모드에서는 「엔진이 기억하는 최근 확정 한글 음절(최대 17자) + preedit」, 단어 확정 모드에서는 「preedit 전체」의 접미 가운데 한자 사전에 있는 **가장 긴** 문자열(2자 이상, 최대 18자). 예: "대한민"+"국" → "대한민국". 없으면 preedit 의 마지막 음절(종전 규칙, 예: "국").
+   - (b) 조합 중이고 마지막 글자가 미완성 자모이면: 종전 규칙(마지막 글자, 초성이면 규칙 7 특수문자 전환).
+   - (c) 조합 중이 아니고 앱 선택 영역(`SetSurroundingText` 의 `cursor_pos != anchor_pos`)이 있으면: 선택 텍스트(앞뒤 공백 제외)가 전부 완성 음절이고 18자 이하이며 사전에 정확히 있을 때 그 문자열. 조건을 만족하지 않으면 선택이 없는 것과 같이 종전 idle 동작(이모지 팝업, §9.2)으로 폴백하고 선택 텍스트는 건드리지 않는다.
+   - 최근 확정 음절 버퍼는 비한글 확정(공백·구두점·영문·숫자·특수문자·이모지·한자 포함)·Enter·커서 이동·Backspace 통과(끝 1자 제거)·한/영 전환·포커스 이탈·Reset·비밀번호 필드·팝업 확정/취소 시 비워진다.
+   - (a)에서 접미가 이미 확정된 글자를 포함하면(음절 확정 모드) 그 글자 수를 "확정 접두 길이" 로 기억한다. 단어 확정 모드에서 접미 앞의 나머지 preedit 은 확정 시 그대로 함께 커밋한다.
 3. **후보 순서**: 사전 저장 순서 (빈도순). 즐겨찾기(★)는 stable sort로 상단 promote.
-4. **선택 시**: `SelectHanja(globalIndex)` → 엔진이 한자 문자열 반환 → 프론트엔드가 커밋
-5. **취소 시**: `CancelHanja()` → preedit(원래 한글) 유지 → 팝업 닫기
+4. **선택 시** (v3.4): `SelectHanja(globalIndex)` → 엔진이 **출력 형식 설정(`hanja_output_format`: 漢字 / 한자(漢字) / 漢字(한자))을 적용한 문자열** 반환(단음절 변환에도 동일 적용) → 프론트엔드가 커밋. 대상에 확정 접두가 포함되면(규칙 2(a) 음절 확정 모드) 데몬은 `CommitText` 대신 `AutoTypefixApply(delete_chars=접두 글자 수, commit_text=서식 문자열, preedit_text="")` 를 popup-owner path 로 발행하고 프론트엔드는 AutoTypeFix 와 동일한 삭제→커밋을 수행한다. 규칙 2(c) 는 `delete_chars=0` 커밋이며 위젯이 선택 영역을 치환한다(판정에서 제외한 앞뒤 공백은 커밋 문자열에 되붙인다).
+5. **취소 시** (v3.4): `CancelHanja()` → 엔진이 팝업 진입 때 preedit 에서 내려간 텍스트(음절 확정 모드: 마지막 음절, 단어 확정 모드: 누적 preedit 전체, 선택 영역: 없음)를 반환 → 프론트엔드가 그대로 커밋(없으면 커밋 없음) → 팝업 닫기. 이미 확정돼 앱에 있는 접두와 선택 영역은 건드리지 않는다.
 6. **포커스 상실**: 자동 취소 (CancelHanja 호출)
 7. **한자 후보 없음 + 초성**: 자동으로 특수문자 검색으로 전환
 8. **즐겨찾기 토글 후 자동 점프** (v3.1):
@@ -248,6 +253,8 @@ sequenceDiagram
    - `was_bookmarked == true && bookmarked == false`인 reorder 이벤트에서, cursor가 점프해 도착한 셀에 **140ms 동안 Catppuccin yellow `#f9e2af` flash**.
    - 등록(★ ON) 시에는 flash 없음 — cursor가 자연스럽게 promote된 page 0 row 0을 따라가므로 시각 단서가 충분.
    - flash는 사용자가 "내가 별을 끄니 이 한자가 여기로 갔구나"를 인지하게 만드는 핵심 단서.
+10. **선택 영역 변환 지원 범위** (v3.4): 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4·Qt5/6·GNOME Shell 확장·Wayland·Windows TSF)에서만 동작한다. GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 정확히 없으면 역시 종전 idle 동작(이모지 팝업)이다.
+11. **팝업 중 한자키 재타 (접미 축소)** (v3.4): 규칙 2(a) 대상으로 연 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 갱신한다(예: "대한민국" → "민국" → "국"). 규칙 2(c) 선택 영역 대상·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 종전 동작(푸시 경로: 팝업 닫고 키 재처리 / 풀 경로: 같은 팝업 재발행).
 
 ---
 
@@ -603,9 +610,10 @@ pub enum PopupAction {
 6. 마우스 ◀/▶ 클릭 → DBus `popup_change_page(±1)` → 엔진이 `PopupKey::PageUp/PageDown` 분기에 위임 → `PopupNavigate` 발행 (cursor sel_row/sel_col 보존)
 7. 기타 → 팝업 취소 후 키 재처리
 
-> **idle Hanja 키 dispatch 정책 (v3.2)**: Hanja 키는 `input_category` 와 무관하게
-> `press_key()` 의 언어 분기 직전에 처리. preedit/조합 idle 이면 emoji popup 트리거,
-> 조합 중이면 한자 변환. 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가
+> **idle Hanja 키 dispatch 정책 (v3.4)**: Hanja 키는 `input_category` 와 무관하게
+> `press_key()` 의 언어 분기 직전에 처리. 조합 중이면 한자 변환(§3.7 규칙 2(a)(b)).
+> preedit/조합 idle 이면 (i) 앱 선택 영역이 사전에 정확히 있는 한글이면 §3.7 규칙 2(c) 선택 단어 변환,
+> (ii) 그 외(선택 없음·불일치 선택)는 emoji popup 트리거(종전 v3.2 동작 — 불일치 선택은 건드리지 않는다). 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가
 > not_consumed 로 떨어져 무시되던 회귀가 있었다.
 
 ---
@@ -734,6 +742,7 @@ impl PopupState {
 | 2026-05-03 | **v3.1** | **마우스 페이지 이동 ◀/▶ 버튼 (한자/특수문자/이모지), 페이지 이동 wrap-around 정책 명시, 한자 즐겨찾기 해제 시 cursor flash(140ms #f9e2af) 추가, `popup_change_page` RPC + `was_bookmarked` 시그널 필드 추가** |
 | 2026-05-04 | **v3.2** | **Phase B 통합 SoT — `PopupViewModel` 확장 + `PopupRender` DBus 시그널 추가 (헤더/푸터/탭/확장 아이콘 daemon 산출). `TogglePopupExpand` RPC (마우스 ⊞/⊟ 클릭). 키 바인딩 추가: `Home`/`End` (3개 popup), `.` Period (한자 expand 토글). 엔진 `update_page_layout` rows=9 고정 정책 (시각·엔진 column-major 인덱싱 일치). idle Hanja 키가 영문 모드에서도 emoji popup 트리거. 디자인 토큰 SoT (`tools/popup-styles/popup_tokens.toml` + 양 frontend 자동 생성 CSS). 우클릭 즐겨찾기 토글 gui-gtk parity. 이모지 popup nav/edit 키 stage 캡처 (Wayland idle text-input 우회). 이모지 카테고리 라벨 우측 정렬.** |
 | 2026-05-17 | **v3.3** | **GNOME Wayland 분기 — extension PopupView (St 위젯) 도입. popup-service 와 동일 클래스명·CSS 토큰·위젯 트리 (`.unim-{hanja,special,emoji}-popup`, `.grid-cell`, `.hanja-num`, `.popup-page-btn` 등) 1:1 동기. 활성 조건 `Meta.is_wayland_compositor()` — X11 에선 미생성(이중 popup 방지). 이모지 카테고리 탭을 통합 GridLayout col 0 에 attach → 우측 row 헤더와 vertical 자연 정렬. 한자 cell 별(★/☆) 우측 고정 (뜻 없어도 hexpand spacer). 푸터 페이저 가로 폭 꽉 채움 (◀ 좌 / 페이지 중앙 / ▶ 우 / ⊞ 우끝). 페이저 항상 표시 + 페이지 1개면 ◀▶ 비활성화·dim — popup 크기 점프 방지. col_headers 항상 9개 — page item 수와 무관하게 popup 폭 일정. popup 위치 화면 정중앙 고정 (모든 frontend 공통). dismiss 정책 — focus_out/reset 단일 경로 + cursor-jump 감지(IBus 자동 reset 미동작 보완). popup-service D-Bus auto-activation 도입 (`org.atit.unim.PopupService.service`) + autostart .desktop 폐기. main.rs 시작 순서 재배치 — PopupServer 등록 먼저, register_frontend fire-and-forget. SetEmojiCategory 가 ShowEmojiPopupV2 + PopupRender 동반 emit (카테고리 탭 갱신 정상 동작). `call_popup_service` RPC signature mismatch 수정(`call_method` 사용).** |
+| 2026-09-26 | **v3.4** | **한자 단어 변환 — §3.7 규칙 2 대상 확장(최근 확정 음절+조합 최장 접미·단어 모드 preedit 접미·앱 선택 영역), 규칙 4/5 확정·취소 페이로드 개정, 규칙 10 선택 변환 지원 범위, 규칙 11 팝업 중 한자키 재타 접미 축소, §9.2 idle 정책에 선택 영역 예외(불일치 선택은 이모지 폴백). 확정 시 `AutoTypefixApply` 를 접두 교체 채널로 재사용, `SelectHanja` 반환 문자열에 출력 형식 설정(`hanja_output_format`) 적용. 헤더 ellipsize·Windows compact 한자 열 동적 폭. 별도 규격: `HANJA_WORD_SPEC.md`** |
 
 ---
 
