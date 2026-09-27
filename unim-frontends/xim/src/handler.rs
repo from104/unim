@@ -114,6 +114,15 @@ pub struct UnimHandler {
     /// 주입 직전에 delete_chars 만큼 증가, handle_forward_event에서 BackSpace
     /// 감지 시 감소시키고 Ok(false)로 반환하여 클라이언트에 전달.
     self_backspace_pending: u32,
+    /// 다음 자가 주입 BackSpace 를 메인 루프 복귀 시(`process_deferred_autofix`) 넣어야 하는지.
+    ///
+    /// BS 는 **한 번에 1개씩**, 직전 BS 의 ForwardEvent 가 앱으로 되돌아간 뒤에 주입한다.
+    /// 한꺼번에 넣으면 되돌린 이벤트가 앱 큐에 겹쳐 쌓이는데, libX11 은 "IM 이 되돌린
+    /// 이벤트" 표시를 IM 단위 단일 플래그(FABRICATED — imDefLkup.c `_XimProcEvent` 가
+    /// 세우고 imDefFlt.c 필터가 한 번 통과시키며 지움)로 관리해 첫 개만 앱에 주고 나머지는
+    /// 새 키로 보고 IM 에 다시 보낸다 → 카운터가 이미 0 이라 commit 뒤에 앱에 도착해 확정
+    /// 텍스트를 지운다(2026-09 docker L3 실측: 한자 단어 교체 "대한민국" → "대한大韓").
+    self_backspace_inject_next: bool,
     /// AutoTypeFix 지연 교정 (commit_text, preedit_text)
     /// N+1번째(마지막) BS의 handle_forward_event에서 pending==0 시
     /// 진짜 user_ic.ic로 commit+preedit 실행하고 Ok(true)로 소비.
@@ -206,6 +215,7 @@ impl UnimHandler {
             last_focused_app_window: None,
             last_focused_context_path: None,
             self_backspace_pending: 0,
+            self_backspace_inject_next: false,
             deferred_autofix: None,
             autofix_context_path: None,
             replayed_key: None,
@@ -583,6 +593,7 @@ impl UnimHandler {
                         );
                         self.deferred_autofix = None;
                         self.self_backspace_pending = 0;
+                        self.self_backspace_inject_next = false;
                         self.autofix_context_path = None;
                     }
 
@@ -593,29 +604,10 @@ impl UnimHandler {
                     // commit/preedit 분리 저장 (순방향: preedit 있음, 역방향: 없음)
                     self.deferred_autofix = Some((commit_text.clone(), preedit_text.clone()));
 
-                    // BackSpace를 XTEST 확장으로 일괄 주입 (GTK3 패턴)
-                    // XSendEvent는 send_event=True 때문에 modern app이 무시하므로
-                    // XTestFakeKeyEvent 사용 (실제 하드웨어 이벤트로 인식)
-                    unsafe {
-                        let bs_keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
-                        for _ in 0..delete_chars + 1 {
-                            x11::xtest::XTestFakeKeyEvent(
-                                self.display,
-                                bs_keycode as u32,
-                                1, // KeyPress
-                                0,
-                            );
-                            x11::xtest::XTestFakeKeyEvent(
-                                self.display,
-                                bs_keycode as u32,
-                                0, // KeyRelease
-                                0,
-                            );
-                            // per-BS flush + 10ms 간격: 앱이 각 BS를 순차 처리할 시간 확보
-                            x11::xlib::XFlush(self.display);
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                        }
-                    }
+                    // 첫 BS 1개만 주입한다. 나머지는 직전 BS 의 ForwardEvent 가 앱으로
+                    // 되돌아간 뒤 메인 루프에서 하나씩(`self_backspace_inject_next` 문서).
+                    self.self_backspace_inject_next = false;
+                    self.inject_self_backspace();
                 } else {
                     unim_log!("XIM_HANDLER", "AutoTypeFix: 활성 IC 없음, 무시");
                 }
@@ -672,14 +664,42 @@ impl UnimHandler {
 
     /// AutoTypeFix 지연 교정 처리 (메인 루프에서 호출)
     ///
+    /// AutoTypeFix 자가 주입 BackSpace 1개(KeyPress+KeyRelease)를 XTest 로 넣는다.
+    /// XSendEvent 는 send_event=True 라 modern app 이 무시하므로 XTestFakeKeyEvent
+    /// (실제 하드웨어 이벤트로 인식)를 쓴다.
+    fn inject_self_backspace(&self) {
+        unsafe {
+            let bs_keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
+            x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 1, 0);
+            x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 0, 0);
+            x11::xlib::XFlush(self.display);
+        }
+    }
+
     /// GTK3의 g_idle_add 패턴 적용:
     /// handle_forward_event에서 마지막 BackSpace의 ForwardEvent가
     /// 전송·flush된 후, 메인 루프로 돌아와서 교정 텍스트를 commit.
     /// 이렇게 해야 앱이 BS 처리 → commit 수신 순서를 보장받음.
     pub fn process_deferred_autofix<C: Connection + HasConnection>(
         &mut self,
-        _server: &mut X11rbServer<C>,
+        server: &mut X11rbServer<C>,
     ) {
+        // 직렬 주입: 직전 BS 의 ForwardEvent 를 앱으로 돌려보낸 뒤 다음 BS 를 넣는다.
+        // ForwardEvent(x11rb 연결)와 XTest 주입(Xlib 연결)은 서로 다른 X 연결이라, 왕복
+        // 1회로 앞의 SendEvent 가 X 서버에서 처리된 것을 확인한 다음 주입한다 — 그래야
+        // 앱 큐에 [되돌린 BS → 다음 원시 BS] 순서로 쌓인다.
+        if self.self_backspace_inject_next {
+            self.self_backspace_inject_next = false;
+            if self.self_backspace_pending > 0 {
+                use x11rb::protocol::xproto::ConnectionExt as _;
+                if let Ok(cookie) = server.conn().get_input_focus() {
+                    let _ = cookie.reply();
+                }
+                self.inject_self_backspace();
+            }
+            return;
+        }
+
         // BS가 아직 남아있으면 대기
         if self.self_backspace_pending > 0 || self.deferred_autofix.is_none() {
             return;
@@ -927,6 +947,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 self.deferred_autofix.is_some()
             );
             self.self_backspace_pending = 0;
+            self.self_backspace_inject_next = false;
             self.deferred_autofix = None;
             self.autofix_context_path = None;
         }
@@ -1148,8 +1169,12 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         let bs_keysym = unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
         if bs_keysym == 0xff08 && self.self_backspace_pending > 0 {
             if xev.response_type != KEY_RELEASE {
-                // KeyPress: 카운터 감소, 앱에 통과
+                // KeyPress: 카운터 감소, 앱에 통과. 남았으면 다음 BS 는 이 ForwardEvent 가
+                // 앱으로 되돌아간 뒤 메인 루프에서 주입한다(직렬 주입).
                 self.self_backspace_pending -= 1;
+                if self.self_backspace_pending > 0 {
+                    self.self_backspace_inject_next = true;
+                }
                 unim_log!(
                     "XIM_HANDLER",
                     "AutoTypeFix self-BackSpace 패스스루 (남은={})",

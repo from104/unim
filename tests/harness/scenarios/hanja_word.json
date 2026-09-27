@@ -1,9 +1,6 @@
 [
   {
     "name": "hanja-word-syllable",
-    "known_fail": {
-      "xim": "XIM 교체 채널(자가 주입 BackSpace N+1, handler.rs AutoTypeFix)의 순서 결함 — 앱이 BS 1개만 처리한 뒤 확정이 먼저 도착하고 남은 BS 가 확정 한자를 지운다(2026-09 docker L3 실측: '대한大韓'). AutoTypeFix 역방향과 같은 경로라 함께 조사 필요"
-    },
     "desc": "대상①(음절 확정 모드) — 조합 중 최근 확정 음절 버퍼+preedit 최장 사전 접미 다음절 변환 (HANJA_WORD_SPEC.md §2.2·§2.6, 교체 채널 AutoTypefixApply)",
     "layout": "ko_2bulstd",
     "korean": true,
