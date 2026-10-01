@@ -87,7 +87,7 @@ preedit 을 볼 수 없으니 P1 을 만족할 수 없다.
 | `core.plain` | 일반 | 없음 | 기본 조합·확정 |
 | `core.plain2` | 일반 2 | 없음 | 포커스 전환·필드 간 클릭 커밋 |
 | `core.numeric` | 숫자 | `NUMBER` | 숫자 힌트에서의 IM 동작 |
-| `core.password` | 비밀번호 | `PASSWORD` | AutoTypeFix·한자 팝업 억제 |
+| `core.password` | 비밀번호 | `PASSWORD` | 영문 강제·AutoTypeFix·한자 팝업 억제. 포커스 시 툴킷 정식 경로로 IM 에 비밀번호 목적을 알린다(GTK `input-purpose=PASSWORD`, Qt `ImhHiddenText` + `update(ImHints)`, Wayland `set_content_type`). XIM 은 프로토콜상 불가 |
 | `core.search` | 검색 | `SEARCH` | 검색 힌트 경로 |
 | `core.multiline` | 여러 줄 | `MULTILINE` | 줄바꿈·멀티라인 캐럿 |
 
@@ -212,7 +212,9 @@ tests/harness/run.py --list
 | `commit-then-preedit` | 2026-08-07 XIM ON-THE-SPOT preedit 누락 |
 | `click-commit` | 2026-08-06 조합 중 클릭 시 클릭 자리 커밋 |
 | `focus-switch` | Tab 전환 시 조합 플러시 |
-| `password-suppress` | 비밀번호 필드 AutoTypeFix·팝업 억제 |
+| `password-compose` | 비밀번호 칸 영문 강제(한글 키 → 라틴 확정, preedit 없음)·이탈 시 한글 모드 복구 (XIM known_fail) |
+| `atf-forward-plain` | 대조군 — 일반 칸 영문 모드 ATF 순방향 교정 발동 |
+| `password-no-atf` | 비밀번호 칸에서 같은 입력이 교정되지 않음·이탈 시 한글 모드 복구 (XIM known_fail) |
 | `backspace-decompose` | 조합 중 백스페이스 분해 |
 | `english-passthrough` | 영문 모드 무간섭 |
 | `mode-toggle` | 한/영 전환 중 조합 플러시 |

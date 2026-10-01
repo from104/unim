@@ -129,6 +129,19 @@ static int measure_cb(const char *utf8, size_t nbytes, void *user) {
     return w;
 }
 
+/* ─── IM 입력 목적 ────────────────────────────────────────────────────── */
+
+/* 활성 코어 필드의 목적을 IM 에 알린다 — 실제 비밀번호 GtkText 와 같은 정식
+ * 경로(GtkIMContext:input-purpose). 마스킹만 하면 UNIM 은 일반 칸으로 보고
+ * 영문 강제·AutoTypeFix 억제가 시험되지 않는다. multicontext 가 슬레이브
+ * (libim-unim)로 전파하고, 모듈은 notify::input-purpose 로 SetContentType 을 보낸다. */
+static void apply_input_purpose(void) {
+    if (!A.im) return;
+    GtkInputPurpose p = cur()->hint == UNIM_HINT_PASSWORD
+                        ? GTK_INPUT_PURPOSE_PASSWORD : GTK_INPUT_PURPOSE_FREE_FORM;
+    g_object_set(A.im, "input-purpose", p, NULL);
+}
+
 /* ─── IM 커서 위치 ────────────────────────────────────────────────────── */
 
 static void update_cursor_location(void) {
@@ -224,6 +237,7 @@ static void focus_field(int idx, const char *reason) {
     unim_field_set_focus(old, 0, NULL);
     A.active = idx;
     unim_field_set_focus(cur(), 1, prev_id);
+    apply_input_purpose();
     after_change();
 }
 
@@ -448,8 +462,10 @@ static GtkWidget *make_native_row(const UnimSpecNative *spec) {
         gtk_box_append(GTK_BOX(row), sc);
     } else {
         wid = gtk_entry_new();
-        if (spec->kind == UNIM_NATIVE_PASSWORD)
+        if (spec->kind == UNIM_NATIVE_PASSWORD) {
             gtk_entry_set_visibility(GTK_ENTRY(wid), FALSE);
+            gtk_entry_set_input_purpose(GTK_ENTRY(wid), GTK_INPUT_PURPOSE_PASSWORD);
+        }
         g_signal_connect(wid, "changed", G_CALLBACK(on_native_changed),
                          (gpointer)spec->id);
         gtk_widget_set_hexpand(wid, TRUE);

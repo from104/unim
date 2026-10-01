@@ -37,5 +37,39 @@
         "expect": { "preedit": "", "committed": "한" } },
       { "wait": 300, "field": "core.plain2", "expect": { "rendered": "" } }
     ]
+  },
+  {
+    "name": "atf-forward-plain",
+    "desc": "대조군 — 일반 칸·영문 모드에서 두벌식 \"대한민\" 로마자 오타(eogksals)를 치면 AutoTypeFix 순방향이 한글로 교정하는가 (password-no-atf 가 ATF 미작동으로 거저 통과하지 않음을 보장, L2 hw_case6 과 같은 입력)",
+    "layout": "ko_2bulstd",
+    "korean": false,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s"],
+        "expect": { "rendered": "대한민" } },
+      { "key": "space", "expect": { "preedit": "", "committed": "대한민 " } }
+    ]
+  },
+  {
+    "name": "password-no-atf",
+    "desc": "비밀번호 칸(purpose=Password)에서는 한글 모드여도 영문이 강제되고, atf-forward-plain 에서 교정되던 eogksals 가 그대로 남아 AutoTypeFix 가 일어나지 않는가, 일반 칸으로 옮기면 한글 모드가 복구되는가 (engine_worker.rs atf_active_for_field·surrounding.rs set_content_purpose)",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.password",
+    "known_fail": {
+      "xim": "XIM 프로토콜에는 입력 목적(purpose)을 IM 서버에 전달할 수단이 없다 — 비밀번호 칸이 일반 칸으로 보여 한글이 조합된다(프로토콜 한계, 수정 불가)"
+    },
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s"],
+        "expect": { "preedit": "", "committed": "eogksals" } },
+      { "wait": 800, "expect": { "preedit": "", "committed": "eogksals",
+                                 "rendered": "eogksals" } },
+      { "click": "core.plain2", "field": "core.plain2",
+        "expect": { "rendered": "" } },
+      { "keys": ["g", "k", "s"], "expect": { "preedit": "한" } },
+      { "key": "space", "expect": { "preedit": "", "committed": "한 " } },
+      { "wait": 300, "field": "core.password",
+        "expect": { "committed": "eogksals", "preedit": "" } }
+    ]
   }
 ]

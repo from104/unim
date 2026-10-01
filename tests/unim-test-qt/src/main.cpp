@@ -132,6 +132,10 @@ public:
         unim_field_set_focus(old, 0, nullptr);
         active = idx;
         unim_field_set_focus(cur(), 1, prevId);
+        /* 한 위젯 안에서 필드만 바뀌므로 setFocusObject 가 다시 불리지 않는다 —
+         * 실제 QLineEdit::setEchoMode 처럼 ImHints 변경을 알려야 플랫폼 IM 이
+         * 새 힌트(비밀번호 = ImhHiddenText)를 다시 읽는다. */
+        QGuiApplication::inputMethod()->update(Qt::ImHints);
         changed();
     }
 

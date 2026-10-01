@@ -386,6 +386,14 @@ def run_scenario(app_name: str, sc: dict, *,
     # 고쳐지면 시나리오에서 이 항목을 지운다 — 그때부터 다시 FAIL 로 잡힌다.
     res.known_issue = (sc.get("known_fail") or {}).get(app_name, "")
 
+    # 돌리면 앱/IM 서버 자체가 죽어 뒤 시나리오까지 줄줄이 무너뜨리는 조합은
+    # known_fail 로는 못 막는다(서버는 앱 매트릭스 전체가 공유) — 사유를 남기고 건너뛴다.
+    # 원인이 고쳐지면 시나리오에서 이 항목을 지운다.
+    skip_reason = (sc.get("skip_apps") or {}).get(app_name, "")
+    if skip_reason:
+        res.skipped = skip_reason
+        return res
+
     spec = APPS[app_name]
     if not spec["xtest"]:
         res.skipped = "XTEST 가 닿지 않는 앱 (Wayland 네이티브)"
