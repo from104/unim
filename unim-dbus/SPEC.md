@@ -152,8 +152,8 @@ pub struct EngineResponse {
 | `GetConfigYaml` | — | `s` | 전체 Config를 YAML 문자열로 반환 (파일 포맷과 동일) |
 | `GetConfigJson` | — | `s` | 전체 Config를 JSON 문자열로 반환 (JS 친화) |
 | `SetConfigYaml` | `yaml: s` | — | YAML 파싱 → `clamp_ranges()` → 저장 → `ConfigChangedJson` 방출 |
-| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). §5.5 참조 — IM 프런트엔드 레지스트리가 아님 |
-| `UnregisterFrontend` | `name: s` | — | 등록형 서비스 목록에서 이름 제거 (없으면 no-op) |
+| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). 호출자 unique name 을 등록자로 기록(§5.5). IM 프런트엔드 레지스트리가 아님 |
+| `UnregisterFrontend` | `name: s` | — | **호출자 자신의** 등록만 제거, 등록자가 없어진 이름은 목록에서 빠짐 (없으면 no-op). §5.5 |
 | `GetActiveFrontends` | — | `as` | 현재 등록된 이름 목록 조회 (정렬됨) |
 | `TypeFix` | `direction: u` | `(i, u, s)` | 글로벌(InputContext 비보유) 수동 TypeFix. direction: 0=자동,1=영→한,2=한→영. 반환 (offset_from_cursor, delete_chars, replacement) — 호출자(현재 GNOME extension)가 직접 삭제/커밋 수행 |
 | `AddReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 AutoTypeFix 억제 사전에 단어 추가 (영문 알파벳만) |
@@ -162,7 +162,7 @@ pub struct EngineResponse {
 | `UpdateReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 사전 단어의 메모 갱신 |
 | `RegisterUserDictFromSelection` | — | `s` | 마지막 selection surrounding text를 역방향 사전에 등록 |
 | `GetEmojiRecent` | — | `as` | 최근 사용 이모지 목록 조회 |
-| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`뿐 — §5.6 참조 |
+| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`, `"notify_test"` — §5.6 참조 |
 | `SetEmojiCategory` | `idx: u` | — | **internal-only** — popup-service forward 전용. 외부 frontend는 `org.atit.unim.Popup::SetEmojiCategory` 사용 |
 | `CommitEmoji` | `emoji: s` | — | 글로벌 이모지 커밋 (InputContext 비보유 경로) |
 
@@ -173,7 +173,8 @@ pub struct EngineResponse {
 | `GlobalModeChanged` | `is_korean: b` | 모드 변경, FocusIn, ProcessKey 모드 변경 |
 | `ConfigChanged` | `key: s, value: s` | (legacy) SetConfig 호출 시 |
 | `ConfigChangedJson` | `json: s` | SetConfigYaml 호출 시 전체 Config JSON payload |
-| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
+| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로, 또는 등록자 소멸(`NameOwnerChanged`, §5.5)로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
+| `Notify` | `kind: s, title: s, body: s, duration_ms: u, flags: u` | 상황 알림(토스트) 표시 요청. 알림 전담 태스크가 **`gnome-shell-notify` 등록자가 1명 이상일 때만** 발행하고, 없으면 데몬이 `org.freedesktop.Notifications` 를 직접 호출한다(시그널 미발행). `kind` 는 snake_case 이벤트 종류(`atf_corrected_forward`·`atf_corrected_reverse`·`atf_suppressed`·`blacklist_learned`·`password_enter`·`password_leave`·`mode_toggle_suppressed`·`mode_changed`·`feature_toggled`, 테스트 액션은 `test`). `flags`: 0x01=text_shown(`notify.show_text` 로 입력 텍스트 포함 — 수신측 로그 금지), 0x02=replace(직전 알림 교체). `title`/`body` 는 데몬이 `engine.notify.language` 로 렌더링한 완성 문구이며 **로그에 남기지 않는다**(`kind` 만). 설계 [`NOTIFY_SPEC.md`](../docs/dev/specs/NOTIFY_SPEC.md) §3.2 |
 
 ### 5.3 CreateInputContext 상세
 
@@ -212,15 +213,36 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `auto-typefix-rollback-detection` | bool | `engine.auto_typefix.rollback_detection` (4315dce) |
 | `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
 | `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |
+| `notify_enabled` | bool | `engine.notify.enabled` (알림 전역 스위치) |
+| `notify_duration_ms` | u32 | `engine.notify.duration_ms` (500..=5000, `clamp_ranges`). GNOME 알림 배너에는 적용되지 않음 |
+| `notify_language` | enum | `engine.notify.language` — `auto`, `ko`, `en` |
+| `notify_show_text` | bool | `engine.notify.show_text` — 교정 전후 텍스트·단어 표시(기본 false, 민감정보 주의) |
+| `notify_corner` | enum | `engine.notify.corner` — `auto`, `top_right`, `bottom_right`, `top_left`, `bottom_left` (Windows 전용) |
+| `notify_events` | string list | `engine.notify.events` — 쉼표 구분 설정명(`atf_corrected`, `atf_suppressed`, `blacklist_learned`, `password_enter`, `password_leave`, `mode_toggle_suppressed`, `mode_changed`, `feature_toggled`, `feature_result`). 기본 7종(`password_leave`·`mode_changed` 제외), 미지 원소는 무시 |
 
 ### 5.5 RegisterFrontend / UnregisterFrontend / GetActiveFrontends — 의미 명시 (FUNC-LINUX-04)
 
 이 세 메서드 + `ActiveFrontendsChanged` 시그널은 **"현재 어떤 IM 입력 경로(GTK/Qt/XIM/Wayland)가
 쓰이는지 진단하는 레지스트리"가 아니다.** GTK/Qt/XIM/Wayland IM 모듈은 이 메서드를 호출하지 않는다.
 
-실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`) 뿐이며,
-목적은 **트레이 조정용 등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의
-`has_gnome` 판정이 이 목록을 읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정한다.
+실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`), 그리고
+GNOME 확장(`gnome-shell`, 알림 브리지 `gnome-shell-notify`) 이며, 목적은 **트레이 조정·알림 라우팅용
+등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의 `has_gnome` 판정이 이 목록을
+읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정하고(이름 `gnome-shell` 정확 일치),
+데몬의 알림 전담 태스크는 `gnome-shell-notify` 등록자가 있을 때만 `Notify` 시그널(§5.2)을 내고 없으면
+fdo 직접 호출로 폴백한다. 두 이름은 서로 독립이라 구버전 확장(`gnome-shell` 만 등록)은 fdo 로 떨어진다.
+
+**등록자 추적**(NOTIFY_SPEC §3.2): 목록은 `이름 → 등록자 집합(호출자 unique name)` 맵으로 보관한다.
+- `RegisterFrontend` 는 `header.sender()` 를 해당 이름의 등록자로 기록한다(같은 호출자 재호출은 멱등).
+- `UnregisterFrontend` 는 **호출자 자신의 등록만** 지운다(타인 등록 해제 불가). 등록자 집합이 비면 이름이 목록에서 빠진다.
+- **`NameOwnerChanged` 정리**: 데몬은 `org.freedesktop.DBus.NameOwnerChanged` 를 구독해 `name` 이 `:`
+  접두(unique name)이고 `new_owner` 가 비면(연결 종료) 그 등록자를 **모든 이름**에서 제거하고, 이름
+  집합이 바뀌었으면 `ActiveFrontendsChanged` 를 발행한다(`gnome-shell` 등 기존 이름에도 동일 적용).
+  **한계**: GNOME 확장은 gnome-shell 프로세스의 버스 연결을 공유하므로 셸이 살아 있고 확장만 고장 난
+  경우에는 정리되지 않는다.
+- **재연결 재등록**: 데몬 재시작 후 목록은 비어 있으므로 등록자는 재연결 시 다시 등록해야 한다
+  (GNOME 확장은 `_onDaemonReady` 에서 `gnome-shell`, 알림 브리지가 켜져 있으면 `gnome-shell-notify` 도 재등록).
+- `GetActiveFrontends` 반환형(`as`, 이름만·정렬)은 변하지 않는다.
 
 따라서 `unim-cli daemon frontends`(활성 목록 조회)의 결과에는 GTK3/GTK4/Qt5/Qt6/XIM/Wayland IM
 경로가 **원래부터** 나타나지 않으며, 이는 결함이 아니라 설계된 범위다. IM 입력 경로 자체의 활성
@@ -229,8 +251,8 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 ### 5.6 TriggerAction — 지원 액션 범위
 
 `TriggerAction`(InputMethod, 글로벌)과 `InputContext.TriggerAction`(컨텍스트-scoped, §6.1)은
-현재 **`"emoji_popup"` 한 가지만** 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
-유지 목적의 fail-open). `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
+현재 **`"emoji_popup"`** 과 알림 검증용 **`"notify_test"`** 만 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
+유지 목적의 fail-open). `notify_test` 는 `kind="test"` 의 `Notify` 시그널/fdo 알림을 한 번 발생시키며(`engine.notify.enabled` 게이트 적용, L2·L3 검증용), `InputContext.TriggerAction` 에는 해당 없다. `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
 에 전 데스크톱으로 노출하는 것은 v0.4.0 범위 밖이다(FUNC-LINUX-05) — 실제 텍스트 치환에는
 GNOME extension이 갖는 IM vfunc(`delete_surrounding`/`commitText`) 수준의 앱 조작 권한이 필요하고,
 이 권한이 없는 환경(CLI 단독 호출 등)에서는 `TypeFix`/`SmartBackspace`가 반환하는 (offset, delete,
