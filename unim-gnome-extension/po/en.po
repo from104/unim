@@ -200,3 +200,11 @@ msgstr "🔤 Typing English"
 #: indicator.js:332
 msgid "UNIM 데몬이 실행 중이지 않습니다."
 msgstr "UNIM daemon is not running."
+
+#: extension.js
+msgid "Conversion complete"
+msgstr "Conversion complete"
+
+#: extension.js
+msgid "Registered to the reverse user dictionary."
+msgstr "Registered to the reverse user dictionary."

@@ -110,6 +110,31 @@ export class UnimDbusIME {
         this._onConfigChanged = null;
         /** @type {object|null} 캐시된 Config (GetConfigJson / ConfigChangedJson payload) */
         this._configCache = null;
+        /** @type {Function|null} Notify 시그널 콜백 (kind, title, body, durationMs, flags) — 알림 브리지 */
+        this._onNotify = null;
+    }
+
+    /**
+     * 상황 알림 `Notify` 시그널 콜백 등록 (NOTIFY_SPEC §3.3).
+     *
+     * 콜백 인자의 title/body 는 입력 텍스트를 담을 수 있으니 로그에 남기지 말 것.
+     * 구독은 g-signal 핸들러가 콜백을 매번 읽는 방식이라 데몬 재연결(프록시 재생성)에도 유지된다.
+     *
+     * @param {Function|null} cb - (kind, title, body, durationMs, flags) => void
+     */
+    setOnNotify(cb) {
+        this._onNotify = cb || null;
+    }
+
+    /**
+     * `Notify` 시그널을 실제로 받을 수 있는 상태인가.
+     * 콜백이 등록돼 있고 InputMethod 프록시의 시그널 핸들러가 걸려 있어야 한다 —
+     * 이 조건이 거짓이면 `gnome-shell-notify` 를 등록하지 말 것(fdo 폴백 유지).
+     *
+     * @returns {boolean}
+     */
+    hasNotifySubscription() {
+        return !!this._onNotify && !!this._imProxy && this._imSignalId > 0;
     }
 
     /**
@@ -189,6 +214,17 @@ export class UnimDbusIME {
                     if (signalName === 'GlobalModeChanged' && this._onModeChanged) {
                         const [isKorean] = parameters.deep_unpack();
                         this._onModeChanged(isKorean);
+                    } else if (signalName === 'Notify') {
+                        if (this._onNotify) {
+                            try {
+                                const [kind, title, body, durationMs, flags] =
+                                    parameters.deep_unpack();
+                                this._onNotify(kind, title, body, durationMs, flags);
+                            } catch (e) {
+                                // title/body 는 로그에 남기지 않는다(§2.3)
+                                unimError('DBUS_IME', `Notify 처리 실패: ${e.message}`);
+                            }
+                        }
                     } else if (signalName === 'ConfigChangedJson') {
                         const [jsonStr] = parameters.deep_unpack();
                         try {
@@ -1129,6 +1165,7 @@ export class UnimDbusIME {
         this._cancelRetry();
         this._onDaemonReady = null;
         this._onDaemonLost = null;
+        this._onNotify = null;
 
         // AutoTypefixApply 글로벌 시그널 구독 해제
         if (this._popupSignalId > 0) {

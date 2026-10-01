@@ -253,7 +253,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq --no-install-recommends \
-            xvfb x11-utils xdotool imagemagick dbus-x11 libxft-dev libfontconfig-dev
+            xvfb x11-utils xdotool imagemagick dbus-x11 libxft-dev libfontconfig-dev python3-gi
 
       - name: scripts/ci/functional-test.sh ubuntu24.04-native
         run: scripts/ci/functional-test.sh ubuntu24.04-native

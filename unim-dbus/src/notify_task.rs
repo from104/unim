@@ -41,8 +41,15 @@ const FDO_BACKOFF: Duration = Duration::from_secs(60);
 const FDO_CALL_TIMEOUT: Duration = Duration::from_secs(3);
 
 const FDO_APP_NAME: &str = "UNIM";
-/// 알림 아이콘 이름 (P2 에서 실기 확정 — 지금은 설치된 트레이 아이콘 이름).
-const FDO_APP_ICON: &str = "io.github.from104.unim.Indicator";
+/// 알림 아이콘 이름. `unim-common` 이 항상 설치하는 hicolor 아이콘(`data/icons/unim-korean.svg`,
+/// Makefile `install-icons`·`debian/unim-common.install`)이다 — 트레이 전용 `…Indicator` 아이콘은
+/// `unim-desktop` 에만 있어 데몬 단독 설치에서 빠지므로 쓰지 않는다.
+const FDO_APP_ICON: &str = "unim-korean";
+/// `desktop-entry` 힌트 — 설치되는 desktop 파일명(`.desktop` 제외). `unim-desktop` 이 설치하는
+/// `io.github.from104.unim.Settings.desktop` 이다. 파일이 없어도 서버는 `app_name` 으로 폴백한다.
+const FDO_DESKTOP_ENTRY: &str = "io.github.from104.unim.Settings";
+/// fdo `category` 힌트 — 표준 목록에 입력기 상태가 없어 `x-<vendor>.<class>` 형식을 쓴다.
+const FDO_CATEGORY: &str = "x-unim.input";
 
 /// 표시 요청 1건. 게이트·문구 생성이 끝난 완성품이다.
 #[derive(Clone, PartialEq, Eq)]
@@ -196,6 +203,20 @@ fn fdo_expire_timeout(duration_ms: u32) -> i32 {
     i32::try_from(duration_ms).unwrap_or(i32::MAX)
 }
 
+/// fdo `Notify` hints. 값은 모두 정적 — 입력 텍스트는 들어가지 않는다.
+///
+/// - `transient`: GNOME 알림 목록에 남기지 않는다(D4)
+/// - `urgency`=1(normal): low 는 GNOME 이 배너를 띄우지 않는다
+/// - `desktop-entry`·`category`: 서버가 앱 단위로 묶거나 규칙을 적용할 수 있게 한다
+fn fdo_hints() -> HashMap<&'static str, Value<'static>> {
+    let mut hints: HashMap<&'static str, Value<'static>> = HashMap::new();
+    hints.insert("transient", Value::Bool(true));
+    hints.insert("urgency", Value::U8(1));
+    hints.insert("desktop-entry", Value::Str(FDO_DESKTOP_ENTRY.into()));
+    hints.insert("category", Value::Str(FDO_CATEGORY.into()));
+    hints
+}
+
 /// `org.freedesktop.Notifications` 프록시 (알림 서버 표준 인터페이스).
 #[proxy(
     interface = "org.freedesktop.Notifications",
@@ -294,10 +315,7 @@ async fn run_notify_task(
                     );
                     continue;
                 };
-                let mut hints: HashMap<&str, Value<'_>> = HashMap::new();
-                // D4: GNOME 알림 목록에 남기지 않는다. urgency=normal — low 는 GNOME 이 배너를 안 띄운다.
-                hints.insert("transient", Value::Bool(true));
-                hints.insert("urgency", Value::U8(1));
+                let hints = fdo_hints();
                 let call = proxy.notify(
                     FDO_APP_NAME,
                     last_id,
@@ -315,6 +333,8 @@ async fn run_notify_task(
                         unim_log!("NOTIFY", "[Notify] kind={} 경로=fdo", out.kind);
                     }
                     Ok(Err(e)) => {
+                        // 서버가 재시작됐을 수 있어 낡은 id 를 버린다(재개 시 새 알림으로 시작).
+                        last_id = 0;
                         backoff.trip(now);
                         unim_log!(
                             "NOTIFY",
@@ -325,6 +345,7 @@ async fn run_notify_task(
                         );
                     }
                     Err(_) => {
+                        last_id = 0;
                         backoff.trip(now);
                         unim_log!(
                             "NOTIFY",
@@ -448,6 +469,28 @@ mod tests {
         b.trip(t0);
         b.clear();
         assert!(!b.blocked(t0 + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn fdo_hints_complete_and_static() {
+        let h = fdo_hints();
+        assert_eq!(h.get("transient"), Some(&Value::Bool(true)));
+        assert_eq!(h.get("urgency"), Some(&Value::U8(1)));
+        assert_eq!(h.get("desktop-entry"), Some(&Value::Str(FDO_DESKTOP_ENTRY.into())));
+        assert_eq!(h.get("category"), Some(&Value::Str(FDO_CATEGORY.into())));
+        assert_eq!(h.len(), 4);
+    }
+
+    /// 아이콘·desktop 이름은 저장소에 실제로 있는 설치 대상이어야 한다.
+    #[test]
+    fn fdo_icon_and_desktop_entry_exist_in_repo() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let icon = root.join(format!("data/icons/{FDO_APP_ICON}.svg"));
+        assert!(icon.exists(), "{}", icon.display());
+        let desktop = root.join(format!(
+            "unim-settings-gtk/data/{FDO_DESKTOP_ENTRY}.desktop"
+        ));
+        assert!(desktop.exists(), "{}", desktop.display());
     }
 
     #[test]

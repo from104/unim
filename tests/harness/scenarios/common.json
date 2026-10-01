@@ -21,5 +21,21 @@
       { "key": "Home" },
       { "key": "Delete", "expect": { "committed": "c", "rendered": "c" } }
     ]
+  },
+  {
+    "name": "notify-fdo-replace",
+    "desc": "TriggerAction(notify_test) 두 번 → mock fdo 에 Notify 2회, 둘째 replaces_id 가 첫째가 돌려받은 id (NOTIFY_SPEC §6 P2 — 최신 1장·hints·아이콘 배선, 알림 단언 전용)",
+    "korean": false,
+    "field": "core.plain",
+    "notify": {
+      "language": "ko",
+      "expect": { "*": { "total": 2, "bodies": { "알림 시험": 2 }, "replace_chain": true } }
+    },
+    "steps": [
+      { "trigger": "notify_test" },
+      { "wait": 500 },
+      { "trigger": "notify_test" },
+      { "wait": 300 }
+    ]
   }
 ]

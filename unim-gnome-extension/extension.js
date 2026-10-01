@@ -19,6 +19,7 @@ import { UnimDbusIME } from './dbus_ime.js';
 import { PopupView, unpackPopupRender } from './popup_view.js';
 import { UnimInputMethod } from './unim_input_method.js';
 import { KeyHandler } from './key_handler.js';
+import { NotifyBridge, NOTIFY_BRIDGE_NAME, notifyAllowed } from './notify_bridge.js';
 import { PreeditOverlay } from './preedit_overlay.js';
 // 한자/특수문자/이모지 popup 은 unim-popup-service (GTK4) 가 전담.
 // GNOME extension 은 popup show signal 시 emoji ZWSP preedit 만 관리하고
@@ -112,6 +113,8 @@ export default class UnimExtension extends Extension {
                 } catch (e) {
                     console.warn(`[unim] RegisterFrontend 실패: ${e.message}`);
                 }
+                // 알림 브리지 — 구독이 만들어진 뒤에만 gnome-shell-notify 를 등록한다
+                this._enableNotifyBridge();
             }
 
             // IME 활성화
@@ -139,10 +142,16 @@ export default class UnimExtension extends Extension {
         if (this._dbusIME) {
             // 데몬에 프런트엔드 해제 (실패 무시 — disable 중이라 데몬이 없을 수 있음)
             try {
+                // 알림 브리지를 먼저 해제해야 데몬이 fdo 직접 경로로 돌아가 알림이 유실되지 않는다
+                this._dbusIME.unregisterFrontend(NOTIFY_BRIDGE_NAME);
                 this._dbusIME.unregisterFrontend('gnome-shell');
             } catch (_e) { /* no-op */ }
             this._dbusIME.destroy();
             this._dbusIME = null;
+        }
+        if (this._notifyBridge) {
+            this._notifyBridge.destroy();
+            this._notifyBridge = null;
         }
 
         // TypeFIX 단축키 해제
@@ -504,6 +513,8 @@ export default class UnimExtension extends Extension {
         } catch (e) {
             console.warn(`[unim] 재연결 후 RegisterFrontend 실패: ${e.message}`);
         }
+        // 데몬 재시작으로 등록 목록이 비었다 — 브리지가 켜져 있으면 다시 등록한다
+        this._registerNotifyBridge();
         // IME 를 쓰고 있을 때만 포커스를 되살린다 — 꺼둔 상태에서 포커스를
         // 심으면 데몬이 쓰지도 않을 컨텍스트를 활성으로 본다.
         if (this._inputMethod) {
@@ -514,6 +525,75 @@ export default class UnimExtension extends Extension {
             }
         }
         unimLog('EXTENSION', 'unim-daemon 재연결 — 프런트엔드 등록·포커스 복원');
+    }
+
+    // ===========================================
+    // 상황 알림 (NOTIFY_SPEC §3.3 P2)
+    // ===========================================
+
+    /**
+     * 알림 브리지를 만들고 `Notify` 시그널 구독 뒤 `gnome-shell-notify` 를 등록한다.
+     * 이 셸이 MessageTray API 를 지원하지 않으면 만들지 않는다 → 등록도 없어 데몬 fdo 폴백.
+     * @private
+     */
+    _enableNotifyBridge() {
+        if (!this._dbusIME || this._notifyBridge) return;
+        if (!NotifyBridge.supported()) {
+            unimLog('EXTENSION', 'MessageTray 미지원 — 알림 브리지 없음(데몬 fdo 폴백)');
+            return;
+        }
+        this._notifyBridge = new NotifyBridge({
+            getNotifyConfig: () => this._getNotifyConfig(),
+        });
+        this._dbusIME.setOnNotify((kind, title, body, durationMs, flags) =>
+            this._notifyBridge?.onNotifySignal(kind, title, body, durationMs, flags));
+        this._registerNotifyBridge();
+    }
+
+    /**
+     * 브리지가 켜져 있으면(확장 활성 + Notify 구독 존재) `gnome-shell-notify` 를 등록한다.
+     * 멱등 — enable·데몬 재연결(_onDaemonReady)에서 호출한다.
+     * @private
+     */
+    _registerNotifyBridge() {
+        if (!this._notifyBridge || !this._dbusIME) return;
+        if (!this._dbusIME.hasNotifySubscription()) return;
+        this._dbusIME.registerFrontend(NOTIFY_BRIDGE_NAME);
+    }
+
+    /**
+     * 데몬 설정 캐시의 `engine.notify` (없으면 null).
+     * @returns {object|null}
+     * @private
+     */
+    _getNotifyConfig() {
+        const cfg = this._dbusIME ? this._dbusIME.getCachedConfig() : null;
+        return cfg && cfg.engine && cfg.engine.notify ? cfg.engine.notify : null;
+    }
+
+    /**
+     * 확장 로컬 `feature_result` 알림 (TypeFIX 수동 변환·사용자 사전 등록 결과).
+     *
+     * gschema `show-notification` **AND** 데몬 `engine.notify`(enabled·events 의 feature_result)
+     * 둘 다 켜져야 뜬다(E1). `engine.notify.show_text` 가 꺼져 있으면(기본·설정 미확인 포함)
+     * 입력 텍스트가 없는 `maskedBody` 를 쓴다 — 알림 문구에 사용자 텍스트가 새지 않게(D1).
+     *
+     * @param {string} title
+     * @param {string} textBody - 텍스트 포함 문구 (show_text=true 일 때만 쓰임)
+     * @param {string} maskedBody - 텍스트 없는 문구
+     * @private
+     */
+    _notifyFeatureResult(title, textBody, maskedBody) {
+        if (!this._settings?.get_boolean('show-notification')) return;
+        const cfg = this._getNotifyConfig();
+        if (!notifyAllowed(cfg, 'feature_result')) return;
+        const body = cfg && cfg.show_text === true ? textBody : maskedBody;
+        if (this._notifyBridge) {
+            this._notifyBridge.show(title, body);
+            unimLog('NOTIFY', '[Notify] kind=feature_result 경로=extension');
+        } else {
+            Main.notify(title, body);
+        }
     }
 
     /**
@@ -728,9 +808,11 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(replacement);
             }
 
-            if (this._settings.get_boolean('show-notification')) {
-                Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(replacement));
-            }
+            this._notifyFeatureResult(
+                _('UNIM TypeFIX'),
+                _('Conversion complete: %s').format(replacement),
+                _('Conversion complete')
+            );
         } catch (e) {
             unimError('EXTENSION', `TypeFIX DBus 오류: ${e.message}`);
         } finally {
@@ -782,23 +864,18 @@ export default class UnimExtension extends Extension {
             const [word] = result.deep_unpack();
 
             if (!word) {
-                if (this._settings.get_boolean('show-notification')) {
-                    Main.notify(
-                        _('UNIM Dictionary'),
-                        _('Selection is empty, invalid, or already registered.')
-                    );
-                }
+                const msg = _('Selection is empty, invalid, or already registered.');
+                this._notifyFeatureResult(_('UNIM Dictionary'), msg, msg);
                 return;
             }
 
             unimLog('EXTENSION', `UserDict 등록: '${word}'`);
 
-            if (this._settings.get_boolean('show-notification')) {
-                Main.notify(
-                    _('UNIM Dictionary'),
-                    _("Registered '%s' to the reverse user dictionary.").format(word)
-                );
-            }
+            this._notifyFeatureResult(
+                _('UNIM Dictionary'),
+                _("Registered '%s' to the reverse user dictionary.").format(word),
+                _('Registered to the reverse user dictionary.')
+            );
         } catch (e) {
             unimError('EXTENSION', `UserDict DBus 오류: ${e.message}`);
         }

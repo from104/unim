@@ -29,10 +29,11 @@ $SUDO apt-get install -y -qq --no-install-recommends \
 #   x11-utils       — xwininfo(창 좌표)·xdpyinfo(서버 대기)·xwd(실패 진단 스샷)
 #   xdotool         — XTEST 키 입력·창 포커스
 #   imagemagick     — harness.py 의 실패 스크린샷(import -window, 없으면 생략)
+#   python3-gi      — tests/harness/mock_notifyd.py(가짜 알림 서버, 알림 단언; 없으면 단언만 생략)
 # tests/unim-test-xim 컴파일에 필요한 dev 헤더(control 의 Build-Depends 는
 # GTK/Qt/glib/X11 은 이미 있으나 Xft/fontconfig 는 없다 — XIM 앱 전용).
 $SUDO apt-get install -y -qq --no-install-recommends \
-    xvfb x11-utils xdotool imagemagick libxft-dev libfontconfig-dev >/dev/null || \
+    xvfb x11-utils xdotool imagemagick libxft-dev libfontconfig-dev python3-gi >/dev/null || \
     echo "⚠️  xvfb/x11-utils/xdotool 중 일부가 이 배포판에 없다 — functional-test.sh 가 감지해 스킵한다"
 
 # 'apt build-dep .' 은 소스 저장소(deb-src)를 요구한다. 24.04+/데비안13 은

@@ -1307,3 +1307,23 @@ fn outcome_distinguishes_fix_and_no_match() {
     let o = check_forward_outcome(&buf, &off, "ko_2bulstd", "qwerty", &bl);
     assert!(matches!(o, AtfOutcome::NoMatch));
 }
+
+#[test]
+fn debug_of_result_and_outcome_never_prints_text() {
+    let fix = AutoTypeFixResult {
+        delete_chars: 4,
+        commit_text: "비밀COMMIT".into(),
+        corrected: "비밀CORRECTED".into(),
+        original: "ORIGINALxyz".into(),
+        clear_preedit: true,
+        replay_keys: vec![(KeyCode::A, ModifierState::default())],
+        replace_composition: false,
+    };
+    for d in [format!("{fix:?}"), format!("{:?}", AtfOutcome::Fix(fix.clone()))] {
+        for secret in ["비밀", "COMMIT", "CORRECTED", "ORIGINAL", "xyz"] {
+            assert!(!d.contains(secret), "Debug 에 텍스트 노출({secret}): {d}");
+        }
+        assert!(d.contains("corrected_chars: 11") && d.contains("replay_keys_len: 1"), "{d}");
+    }
+    assert!(format!("{:?}", AtfOutcome::NoMatch).contains("NoMatch"));
+}

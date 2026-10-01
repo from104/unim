@@ -135,6 +135,89 @@ def set_config(key: str, value: str) -> None:
     _gdbus("SetConfig", key, value)
 
 
+# ─── 알림(fdo) 기록 — mock_notifyd.py ───────────────────────────────────
+#
+# L3 에는 알림 서버가 없다. functional-test.sh 가 세션 버스에 mock
+# `org.freedesktop.Notifications`(tests/harness/mock_notifyd.py)를 띄우고
+# UNIM_MOCK_NOTIFY_LOG 로 그 기록 파일을 알려 준다. 그 변수가 없으면(실세션
+# 실행 등) 알림 단언은 전부 건너뛴다 — 실제 알림 서버가 따로 있을 수 있다.
+# 데몬은 `gnome-shell-notify` 등록자가 없으니(확장 없음) fdo 직접 경로를 탄다.
+
+# 데몬 fdo 호출이 항상 달고 가는 값 (unim-dbus/src/notify_task.rs fdo_hints 와 같아야 한다)
+FDO_EXPECT = {
+    "app_name": "UNIM",
+    "app_icon": "unim-korean",
+    "hints": {
+        "transient": True,
+        "urgency": 1,
+        "desktop-entry": "io.github.from104.unim.Settings",
+        "category": "x-unim.input",
+    },
+}
+
+
+def notify_log_path() -> Path | None:
+    p = os.environ.get("UNIM_MOCK_NOTIFY_LOG", "")
+    return Path(p) if p else None
+
+
+def notify_records() -> list[dict]:
+    """mock 이 지금까지 받은 Notify 호출 전부 (없으면 [])."""
+    p = notify_log_path()
+    if p is None or not p.exists():
+        return []
+    out = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return out
+
+
+def check_notify(rule: dict, recs: list[dict], forbid: list[str]) -> list[str]:
+    """알림 기록이 규칙에 맞는지. 어긋난 항목 설명 목록(빈 목록 = 통과).
+
+    rule = {"total": N, "bodies": {"문구": 횟수, ...}}
+      - total  : 기록 전체 개수(중복 0 단언)
+      - bodies : 문구별 정확한 횟수 — 문구는 core 가림 문구와 **정확히 일치**해야 센다
+    rule["replace_chain"]=True 면 i 번째 호출의 replaces_id 가 i-1 번째가 돌려받은 id 여야 한다
+    (최신 1장 규칙을 서버에 위임하는 replaces_id 배선 검증).
+    forbid : 어느 기록의 summary/body 에도 들어 있으면 안 되는 부분 문자열(입력 텍스트 유출 방지)
+    모든 기록은 FDO_EXPECT(앱 이름·아이콘·hints)도 만족해야 한다.
+    """
+    problems: list[str] = []
+    counts: dict[str, int] = {}
+    for r in recs:
+        counts[r["body"]] = counts.get(r["body"], 0) + 1
+    if "total" in rule and len(recs) != rule["total"]:
+        problems.append(f"Notify 총 {len(recs)}회 (기대 {rule['total']}) — "
+                        f"body: {sorted(counts.items())}")
+    for body, want in (rule.get("bodies") or {}).items():
+        got = counts.get(body, 0)
+        if got != want:
+            problems.append(f"body {body!r} {got}회 (기대 {want})")
+    if rule.get("replace_chain"):
+        for i in range(1, len(recs)):
+            if recs[i].get("replaces_id") != recs[i - 1].get("id"):
+                problems.append(f"{i + 1}번째 호출 replaces_id={recs[i].get('replaces_id')} "
+                                f"(기대 직전 id {recs[i - 1].get('id')})")
+    for r in recs:
+        for k in ("app_name", "app_icon"):
+            if r.get(k) != FDO_EXPECT[k]:
+                problems.append(f"{k}={r.get(k)!r} (기대 {FDO_EXPECT[k]!r})")
+        h = r.get("hints") or {}
+        for k, v in FDO_EXPECT["hints"].items():
+            if h.get(k) != v:
+                problems.append(f"hint {k}={h.get(k)!r} (기대 {v!r})")
+        for bad in forbid:
+            if bad in r.get("body", "") or bad in r.get("summary", ""):
+                problems.append(f"입력 텍스트 {bad!r} 가 알림에 노출됨")
+    return problems
+
+
 # ─── 키 주입 ────────────────────────────────────────────────────────────
 
 class Injector:
@@ -348,6 +431,10 @@ class ScenarioResult:
     screenshot: Path | None = None
     log_path: Path | None = None
     known_issue: str = ""      # 이 앱에서 이미 알려진 실패면 그 설명
+    # 알림 단언(§6 P2) — known_fail 과 무관하게 판정한다(XIM 은 알림 내용 자체가 시험 대상).
+    notify_checked: bool = False
+    notify_problems: list[str] = dc_field(default_factory=list)
+    notify_note: str = ""
 
 
 def _match(expect: dict, render: dict | None) -> bool:
@@ -418,7 +505,21 @@ def run_scenario(app_name: str, sc: dict, *,
 
     saved_mode = get_mode()
     running = None
+    # 알림 단언 준비 — mock 서버가 있을 때만. 문구를 고정하려고 언어를 명시한다(auto 는
+    # 컨테이너 env 에 좌우된다). 끝나면 되돌린다.
+    nsc = sc.get("notify") or {}
+    nrule = (nsc.get("expect") or {}).get(app_name) or (nsc.get("expect") or {}).get("*")
+    notify_on = bool(nrule) and notify_log_path() is not None
+    saved_nlang = None
+    n_off = 0
+    if nrule and not notify_on:
+        res.notify_note = "mock 알림 서버 없음 — 알림 단언 건너뜀"
     try:
+        if notify_on:
+            saved_nlang = get_config("notify_language")
+            set_config("notify_language", nsc.get("language", "ko"))
+            time.sleep(0.4)
+            n_off = len(notify_records())
         running = launch(app_name, sc["name"])
         res.log_path = running.log_path
         if not running.wait_ready():
@@ -517,6 +618,10 @@ def run_scenario(app_name: str, sc: dict, *,
             elif "wait" in step:
                 time.sleep(step["wait"] / 1000.0)
                 action = f"wait {step['wait']}ms"
+            elif "trigger" in step:
+                _gdbus("TriggerAction", step["trigger"])
+                action = f"trigger {step['trigger']}"
+                time.sleep(0.3)
             else:
                 raise RuntimeError(
                     f"스텝 {i}: key/keys/click/mode/wait 중 하나가 필요하다")
@@ -541,6 +646,12 @@ def run_scenario(app_name: str, sc: dict, *,
                 break        # 첫 실패에서 멈춘다 — 뒤 스텝은 의미가 없다
 
         res.ok = all_ok
+        # 알림 단언 — 스텝이 실패해 break 했어도 그 시점까지의 기록을 판정한다.
+        if notify_on:
+            time.sleep(nsc.get("settle_ms", 1000) / 1000.0)
+            recs = notify_records()[n_off:]
+            res.notify_checked = True
+            res.notify_problems = check_notify(nrule, recs, nsc.get("forbid", []))
         return res
 
     except Exception as e:
@@ -557,6 +668,8 @@ def run_scenario(app_name: str, sc: dict, *,
             set_mode(saved_mode)
             if saved_layout is not None:
                 set_config("korean_layout", saved_layout)
+            if saved_nlang is not None:
+                set_config("notify_language", saved_nlang)
         except Exception:
             pass
 

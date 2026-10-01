@@ -759,6 +759,38 @@ impl NotifyHub {
         }
     }
 
+    /// 포커스가 다른 컨텍스트로 옮겨 온 직후 호출: 비밀번호 진입/이탈 알림.
+    ///
+    /// GTK 처럼 위젯마다 IM 컨텍스트를 갖는 툴킷은 포커스 없는 위젯의 목적(예: 아직 포커스를
+    /// 못 받은 비밀번호 칸)도 `SetContentType` 으로 미리 보낸다 — 그 전이는 사용자가 그 칸에
+    /// 들어온 것이 아니므로 [`Self::on_content_type_unfocused`] 가 알림을 만들지 않고, 실제
+    /// 진입은 여기서 이전 포커스 컨텍스트와의 차단 상태 비교로 잡는다.
+    fn on_focus_change(
+        &mut self,
+        config: &Config,
+        prev: Option<(u32, ContentPurpose)>,
+        new_id: u32,
+        new: ContentPurpose,
+    ) {
+        if let Some(ev) =
+            focus_transition_event(prev, new_id, new, config.engine.auto_typefix.enabled)
+        {
+            self.dispatch(vec![ev], new, config);
+        }
+    }
+
+    /// 포커스가 없는 컨텍스트의 목적 변경: 규칙 2 리셋만 하고 알림은 만들지 않는다.
+    fn on_content_type_unfocused(
+        &mut self,
+        context_id: u32,
+        prev: Option<ContentPurpose>,
+        new: Option<ContentPurpose>,
+    ) {
+        if prev.is_some() && new.is_some() && prev != new {
+            self.gate.on_purpose_change(context_id);
+        }
+    }
+
     /// 필드 목적이 바뀐 직후 호출: 규칙 2 리셋 + 비밀번호 진입/이탈 알림.
     ///
     /// `prev`/`new` 는 `apply_content_type` 호출 **전·후** 의 엔진 목적(컨텍스트 없으면 None).
@@ -785,6 +817,24 @@ impl NotifyHub {
         ) {
             self.dispatch(vec![ev], new, config);
         }
+    }
+}
+
+/// 포커스 이동에 따른 비밀번호 진입/이탈 알림 이벤트 (NOTIFY_SPEC §2.1·§2.2-4).
+///
+/// 비차단→차단이면 새 컨텍스트의 `password_enter`, 차단→비차단이면 **떠난 컨텍스트**의
+/// `password_leave`(게이트의 진입 기록이 그 컨텍스트 키이므로). 이전 포커스가 없으면 비차단으로 본다.
+fn focus_transition_event(
+    prev: Option<(u32, ContentPurpose)>,
+    new_id: u32,
+    new: ContentPurpose,
+    atf_on: bool,
+) -> Option<NotifyEvent> {
+    let prev_block = prev.is_some_and(|(_, p)| p.should_block_hangul());
+    match (prev_block, new.should_block_hangul()) {
+        (false, true) => Some(NotifyEvent::password_enter(new_id, atf_on)),
+        (true, false) => prev.map(|(id, _)| NotifyEvent::password_leave(id)),
+        _ => None,
     }
 }
 
@@ -2145,6 +2195,10 @@ fn run_engine_worker(
                 response,
             } => {
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
+                let refocus = last_focused_context_id == Some(context_id);
+                let prev_focus = last_focused_context_id
+                    .filter(|p| *p != context_id)
+                    .and_then(|p| contexts.get(&p).map(|e| (p, e.content_purpose())));
                 last_focused_context_id = Some(context_id);
 
                 let is_korean = handle_focus_in(
@@ -2158,6 +2212,14 @@ fn run_engine_worker(
                     context_id,
                     &window_id,
                 );
+                // 다른 컨텍스트에서 옮겨 왔으면 비밀번호 진입/이탈 알림(같은 컨텍스트 재포커스는 전이 없음)
+                if !refocus {
+                    if let Some(new_purpose) =
+                        contexts.get(&context_id).map(|e| e.content_purpose())
+                    {
+                        notify.on_focus_change(&config, prev_focus, context_id, new_purpose);
+                    }
+                }
                 unim_log!(
                     "ENGINE_WORKER",
                     "[Engine Worker] FocusIn: context_id={}, window_id={}, is_korean={}",
@@ -2574,7 +2636,11 @@ fn run_engine_worker(
                     purpose,
                 );
                 let new = contexts.get(&context_id).map(|e| e.content_purpose());
-                notify.on_content_type(&config, context_id, prev, new);
+                if last_focused_context_id == Some(context_id) {
+                    notify.on_content_type(&config, context_id, prev, new);
+                } else {
+                    notify.on_content_type_unfocused(context_id, prev, new);
+                }
             }
 
             EngineRequest::SetContentTypeWithReply {
@@ -2593,7 +2659,11 @@ fn run_engine_worker(
                 );
                 let _ = response.send(popup_closed);
                 let new = contexts.get(&context_id).map(|e| e.content_purpose());
-                notify.on_content_type(&config, context_id, prev, new);
+                if last_focused_context_id == Some(context_id) {
+                    notify.on_content_type(&config, context_id, prev, new);
+                } else {
+                    notify.on_content_type_unfocused(context_id, prev, new);
+                }
             }
 
             EngineRequest::SetSurroundingText {
@@ -3738,6 +3808,42 @@ mod tests {
         assert_eq!(kind(Password, Password), None);
         assert_eq!(kind(Password, Pin), None);
         assert_eq!(kind(Normal, Normal), None);
+    }
+
+    #[test]
+    fn focus_transition_event_enter_on_new_leave_on_previous_context() {
+        use ContentPurpose::*;
+        let k = |prev, id, new| {
+            focus_transition_event(prev, id, new, true).map(|e| (e.kind.as_str(), e.context_id))
+        };
+        // 첫 포커스·일반 칸 → 비밀번호 칸: 새 컨텍스트의 enter
+        assert_eq!(k(None, 7, Password), Some(("password_enter", 7)));
+        assert_eq!(k(Some((3, Normal)), 7, Pin), Some(("password_enter", 7)));
+        // 비밀번호 칸 → 일반 칸: **떠난** 컨텍스트(3)의 leave
+        assert_eq!(k(Some((3, Password)), 7, Normal), Some(("password_leave", 3)));
+        // 차단 상태 불변이면 전이 없음
+        assert_eq!(k(Some((3, Password)), 7, Pin), None);
+        assert_eq!(k(Some((3, Normal)), 7, Normal), None);
+        assert_eq!(k(None, 7, Normal), None);
+    }
+
+    #[test]
+    fn hub_unfocused_content_type_never_notifies_but_focus_in_does() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        // GTK: 포커스 없는 비밀번호 위젯이 미리 목적을 보냄 → 알림 없음
+        hub.on_content_type_unfocused(9, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty());
+        // 실제로 그 칸에 포커스가 오면 진입 알림 1회
+        hub.on_focus_change(&cfg, Some((3, Normal)), 9, Password);
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 일반 칸으로 옮기면 떠난 칸(9)의 leave — 진입 기록이 9 번 키라 나간다
+        hub.on_focus_change(&cfg, Some((9, Password)), 3, Normal);
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+        // 같은 칸 재진입은 10분 안엔 침묵
+        hub.on_focus_change(&cfg, Some((3, Normal)), 9, Password);
+        assert!(kinds(&mut rx).is_empty());
     }
 
     #[test]

@@ -252,7 +252,7 @@ fdo 직접 호출로 폴백한다. 두 이름은 서로 독립이라 구버전 �
 
 `TriggerAction`(InputMethod, 글로벌)과 `InputContext.TriggerAction`(컨텍스트-scoped, §6.1)은
 현재 **`"emoji_popup"`** 과 알림 검증용 **`"notify_test"`** 만 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
-유지 목적의 fail-open). `notify_test` 는 `kind="test"` 의 `Notify` 시그널/fdo 알림을 한 번 발생시키며(`engine.notify.enabled` 게이트 적용, L2·L3 검증용), `InputContext.TriggerAction` 에는 해당 없다. `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
+유지 목적의 fail-open). `notify_test` 는 `kind="test"` 의 `Notify` 시그널/fdo 알림을 한 번 발생시키며(`engine.notify.enabled` 게이트 적용, L2·L3 검증용), `InputContext.TriggerAction` 에는 해당 없다. fdo 직접 경로의 `Notify` 호출은 `app_icon="unim-korean"`(unim-common 설치 hicolor 아이콘), hints `transient=true`·`urgency=1`·`desktop-entry="io.github.from104.unim.Settings"`·`category="x-unim.input"`, `replaces_id`=직전 id(실패 시 0 으로 초기화)이다. `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
 에 전 데스크톱으로 노출하는 것은 v0.4.0 범위 밖이다(FUNC-LINUX-05) — 실제 텍스트 치환에는
 GNOME extension이 갖는 IM vfunc(`delete_surrounding`/`commitText`) 수준의 앱 조작 권한이 필요하고,
 이 권한이 없는 환경(CLI 단독 호출 등)에서는 `TypeFix`/`SmartBackspace`가 반환하는 (offset, delete,

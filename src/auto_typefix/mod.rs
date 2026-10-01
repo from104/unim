@@ -38,7 +38,11 @@ pub(crate) static DICTIONARY: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 /// AutoTypeFix 교정 결과
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Debug` 는 수동 구현이다 — `commit_text`·`corrected`·`original`·`replay_keys` 는 사용자가
+/// 친 텍스트(비밀번호 오입력 포함)라 `{:?}` 로 로그·패닉 메시지에 새면 안 된다(NOTIFY_SPEC §2.3).
+/// 글자 수·불리언만 찍는다.
+#[derive(Clone, PartialEq)]
 pub struct AutoTypeFixResult {
     /// 삭제할 화면 글자 수
     pub delete_chars: u32,
@@ -63,10 +67,26 @@ pub struct AutoTypeFixResult {
     pub replace_composition: bool,
 }
 
+impl std::fmt::Debug for AutoTypeFixResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoTypeFixResult")
+            .field("delete_chars", &self.delete_chars)
+            .field("commit_text_chars", &self.commit_text.chars().count())
+            .field("corrected_chars", &self.corrected.chars().count())
+            .field("original_chars", &self.original.chars().count())
+            .field("clear_preedit", &self.clear_preedit)
+            .field("replay_keys_len", &self.replay_keys.len())
+            .field("replace_composition", &self.replace_composition)
+            .finish()
+    }
+}
+
 /// ATF 감지 판정 3분: 교정 / 억제(사유) / 미해당.
 ///
 /// 억제는 "교정할 만했으나 학습 규칙이 막은" 경우만이다. 방향 꺼짐·버퍼 짧음·영어 사전
 /// 적중 등 단순 "해당 없음"은 [`AtfOutcome::NoMatch`] — 알림 대상이 아니다.
+///
+/// `Debug` 는 `Fix` 안의 [`AutoTypeFixResult`] 수동 `Debug`(길이만)를 그대로 쓰므로 텍스트가 새지 않는다.
 #[derive(Debug)]
 pub enum AtfOutcome {
     Fix(AutoTypeFixResult),

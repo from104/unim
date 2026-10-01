@@ -20,6 +20,8 @@
 # 환경변수:
 #   UNIM_DAEMON_BIN          데몬 바이너리 경로 (기본 /usr/libexec/unim-daemon)
 #   UNIM_XIM_BIN              unim-xim 바이너리 경로 (기본 /usr/libexec/unim-xim)
+#   (알림 단언) python3-gi 가 있으면 tests/harness/mock_notifyd.py 가 세션 버스에서 가짜
+#                org.freedesktop.Notifications 를 맡아 harness 가 알림을 단언한다. 없으면 건너뜀.
 #   UNIM_FUNCTEST_ARTIFACT_DIR 로그·스크린샷 상위 디렉터리
 #                              (기본: 저장소 루트/functional-logs)
 #   UNIM_HARNESS_READY_TIMEOUT / UNIM_HARNESS_WINDOW_TIMEOUT
@@ -245,8 +247,31 @@ RUN_SCRIPT="$WORK/run-in-session.sh"
 cat >"$RUN_SCRIPT" <<'INNER'
 #!/usr/bin/env bash
 set -uo pipefail
-DAEMON_BIN="$1"; XIM_BIN="$2"; NEED_XIM="$3"; WORK="$4"
-shift 4
+DAEMON_BIN="$1"; XIM_BIN="$2"; NEED_XIM="$3"; WORK="$4"; REPO_DIR="$5"
+shift 5
+
+# 가짜 알림 서버(NOTIFY_SPEC §6 P2) — 데몬이 뜨기 전에 org.freedesktop.Notifications 를
+# 잡아 둔다. L3 에는 셸·알림 데몬이 없으니 데몬의 fdo 직접 경로를 이 mock 이 받아 기록하고,
+# harness 가 그 기록으로 알림 횟수·문구를 단언한다. python3-gi 가 없거나 기동이 안 되면
+# UNIM_MOCK_NOTIFY_LOG 를 풀어 harness 가 알림 단언만 건너뛰게 한다(타이핑 판정은 그대로).
+if [ -n "${UNIM_MOCK_NOTIFY_LOG:-}" ]; then
+    python3 "$REPO_DIR/tests/harness/mock_notifyd.py" >"$WORK/mock-notifyd.log" 2>&1 &
+    echo $! >"$WORK/mock.pid"
+    mock_up=0
+    for i in $(seq 1 40); do
+        gdbus call --session -d org.freedesktop.Notifications \
+            -o /org/freedesktop/Notifications \
+            -m org.freedesktop.Notifications.GetServerInformation >/dev/null 2>&1 && { mock_up=1; break; }
+        sleep 0.1
+    done
+    if [ "$mock_up" -ne 1 ]; then
+        echo "⚠️  mock 알림 서버 기동 실패(python3-gi 부재?) — 알림 단언을 건너뛴다. 로그:"
+        cat "$WORK/mock-notifyd.log" 2>/dev/null
+        unset UNIM_MOCK_NOTIFY_LOG
+    else
+        echo "✅ mock 알림 서버 기동 확인"
+    fi
+fi
 
 "$DAEMON_BIN" -n --replace >"$WORK/daemon.log" 2>&1 &
 echo $! >"$WORK/daemon.pid"
@@ -280,6 +305,7 @@ rc=$?
 
 kill "$(cat "$WORK/daemon.pid" 2>/dev/null)" 2>/dev/null || true
 [ -f "$WORK/xim.pid" ] && kill "$(cat "$WORK/xim.pid" 2>/dev/null)" 2>/dev/null || true
+[ -f "$WORK/mock.pid" ] && kill "$(cat "$WORK/mock.pid" 2>/dev/null)" 2>/dev/null || true
 exit "$rc"
 INNER
 chmod +x "$RUN_SCRIPT"
@@ -310,8 +336,8 @@ HARNESS_LOG="$OUT_DIR/harness.log"
 #    살아남으면 tee 가 EOF 를 영영 못 받아 스크립트가 행(hang)한다(2026-09 실측:
 #    debian13·fedora44 레그가 결과 출력 후 수 분간 종료 안 됨). 파일로 직접 쓰고,
 #    setsid 로 새 프로세스 그룹에 넣어 끝나면 그룹째 정리한 뒤 로그를 출력한다.
-UNIM_HARNESS_OUT="$OUT_DIR" \
-    setsid timeout 1200 dbus-run-session -- "$RUN_SCRIPT" "$DAEMON_BIN" "$XIM_BIN" "$NEED_XIM" "$WORK" \
+UNIM_HARNESS_OUT="$OUT_DIR" UNIM_MOCK_NOTIFY_LOG="$WORK/notify.jsonl" \
+    setsid timeout 1200 dbus-run-session -- "$RUN_SCRIPT" "$DAEMON_BIN" "$XIM_BIN" "$NEED_XIM" "$WORK" "$REPO" \
     python3 -u "$REPO/tests/harness/run.py" "${APP_ARGS[@]}" "${SCENARIO_ARGS[@]}" --allow-layout-change \
     >"$HARNESS_LOG" 2>&1 &
 INNER_PID=$!
@@ -325,6 +351,8 @@ cat "$HARNESS_LOG"
 #      함께 복사해 CI 아티팩트에서 한 번에 보이게 한다 ─────────────────────
 [ -f "$WORK/daemon.log" ] && cp "$WORK/daemon.log" "$OUT_DIR/daemon.log"
 [ -f "$WORK/unim-xim.log" ] && cp "$WORK/unim-xim.log" "$OUT_DIR/unim-xim.log"
+[ -f "$WORK/notify.jsonl" ] && cp "$WORK/notify.jsonl" "$OUT_DIR/notify.jsonl"
+[ -f "$WORK/mock-notifyd.log" ] && cp "$WORK/mock-notifyd.log" "$OUT_DIR/mock-notifyd.log"
 if command -v xwd >/dev/null 2>&1 && [ "$HARNESS_RC" -ne 0 ]; then
     xwd -root -display "$XVFB_DISPLAY" -out "$OUT_DIR/screen-final.xwd" 2>/dev/null || true
 fi

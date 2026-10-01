@@ -44,6 +44,12 @@
     "layout": "ko_2bulstd",
     "korean": false,
     "field": "core.plain",
+    "notify": {
+      "desc": "NOTIFY_SPEC §6 P2 — 교정 알림이 정확히 1회, 가림 문구(입력 텍스트 미포함)로 mock fdo 에 도달",
+      "language": "ko",
+      "forbid": ["eogksals", "대한민"],
+      "expect": { "*": { "total": 1, "bodies": { "자동 교정됨 (영→한)": 1 } } }
+    },
     "steps": [
       { "keys": ["e", "o", "g", "k", "s", "a", "l", "s"],
         "expect": { "rendered": "대한민" } },
@@ -56,6 +62,15 @@
     "layout": "ko_2bulstd",
     "korean": true,
     "field": "core.password",
+    "notify": {
+      "desc": "NOTIFY_SPEC §6 P2 — GTK3/GTK4/Qt: 교정 알림 0건·password_enter 1건. XIM 은 목적 전달 불가라 password_enter 0건 — 그리고 이 시나리오는 한글 모드라 XIM 에서는 ATF 가 아니라 한글 조합이 일어나 교정 알림도 0건(가림 문구 정확 일치는 atf-forward-plain 이 XIM 에서 단언)",
+      "language": "ko",
+      "forbid": ["eogksals", "대한민"],
+      "expect": {
+        "*":   { "total": 1, "bodies": { "비밀번호 칸: 영문 고정, 자동 교정 꺼짐": 1 } },
+        "xim": { "total": 0 }
+      }
+    },
     "known_fail": {
       "xim": "XIM 프로토콜에는 입력 목적(purpose)을 IM 서버에 전달할 수단이 없다 — 비밀번호 칸이 일반 칸으로 보여 한글이 조합된다(프로토콜 한계, 수정 불가)"
     },
@@ -70,6 +85,31 @@
       { "key": "space", "expect": { "preedit": "", "committed": "한 " } },
       { "wait": 300, "field": "core.password",
         "expect": { "committed": "eogksals", "preedit": "" } }
+    ]
+  },
+  {
+    "name": "password-notify-refocus",
+    "desc": "비밀번호 칸을 벗어났다 같은 칸으로 되돌아와도 password_enter 알림은 1회뿐인가 (NOTIFY_SPEC §6 P2 — 컨텍스트당 1회 규칙, 알림 단언 전용 변형)",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.password",
+    "skip_apps": {
+      "xim": "XIM 은 입력 목적을 전달할 수 없어 비밀번호 칸이 일반 칸으로 보인다 — password-no-atf 가 알림 문구로 판정"
+    },
+    "notify": {
+      "language": "ko",
+      "forbid": ["eogksals"],
+      "expect": { "*": { "total": 1, "bodies": { "비밀번호 칸: 영문 고정, 자동 교정 꺼짐": 1 } } }
+    },
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s"],
+        "expect": { "preedit": "", "committed": "eogksals" } },
+      { "click": "core.plain2", "field": "core.plain2",
+        "expect": { "rendered": "" } },
+      { "click": "core.password", "field": "core.password",
+        "expect": { "committed": "eogksals", "preedit": "" } },
+      { "wait": 600, "field": "core.password",
+        "expect": { "committed": "eogksals" } }
     ]
   }
 ]
