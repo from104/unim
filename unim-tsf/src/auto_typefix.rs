@@ -473,6 +473,15 @@ pub fn process_after_key(
                     }
                     let rp = engine.preedit_str().to_string();
                     engine.clear_commit();
+                    // 한자 단어 버퍼 시드(HANJA_WORD_SPEC §4.1, engine_worker.rs 미러): reset 으로
+                    // 비워진 최근 확정 음절 버퍼를 교정된 접두("대한민")로 채워, 곧바로 한자키를
+                    // 누르면 target 이 "대한민"+preedit"국" 이 되게 한다. 반드시 replay·
+                    // clear_commit **뒤** — replay 중 commit 델타가 키 래퍼로 시드 위에 추가
+                    // push 되면 과다 삭제가 된다.
+                    engine.recent_clear();
+                    for c in fix.commit_text.chars() {
+                        engine.recent_push_char(c);
+                    }
                     (fix.commit_text.clone(), rp)
                 };
 
