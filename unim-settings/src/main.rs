@@ -22,7 +22,8 @@ use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 use unim::config::{
     english_layout_display_name, normalize_korean_layout_name,
     AppRule, AutoTypeFixConfig, CommitUnit, Config, HanjaOutputFormat, InputCategory,
-    ModeSharingMode,
+    ModeSharingMode, NotifyConfig, NotifyCorner, NotifyLanguage, NOTIFY_DURATION_MAX,
+    NOTIFY_DURATION_MIN,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -318,6 +319,84 @@ fn build_layout_lists_from_pairs(
     (canon, display, index)
 }
 
+/// `engine.notify` → 알림 페이지 컨트롤.
+fn push_notify_to_ui(ui: &SettingsWindow, n: &NotifyConfig) {
+    let tr = ui.global::<Tr>();
+    ui.set_notify_enabled(n.enabled);
+    ui.set_notify_duration(n.duration_ms as f32);
+    // 콤보 순서: 언어 = 자동/한국어/영어, 모서리 = 자동/우상/우하/좌상/좌하 (GTK 와 동일).
+    ui.set_notify_language_options(string_model(vec![
+        tr.get_notify_lang_auto(),
+        tr.get_notify_lang_ko(),
+        tr.get_notify_lang_en(),
+    ]));
+    ui.set_notify_language_index(match n.language {
+        NotifyLanguage::Auto => 0,
+        NotifyLanguage::Ko => 1,
+        NotifyLanguage::En => 2,
+    });
+    ui.set_notify_corner_options(string_model(vec![
+        tr.get_notify_corner_auto(),
+        tr.get_notify_corner_top_right(),
+        tr.get_notify_corner_bottom_right(),
+        tr.get_notify_corner_top_left(),
+        tr.get_notify_corner_bottom_left(),
+    ]));
+    ui.set_notify_corner_index(match n.corner {
+        NotifyCorner::Auto => 0,
+        NotifyCorner::TopRight => 1,
+        NotifyCorner::BottomRight => 2,
+        NotifyCorner::TopLeft => 3,
+        NotifyCorner::BottomLeft => 4,
+    });
+    ui.set_notify_show_text(n.show_text);
+    ui.set_notify_ev_atf_corrected(n.event_enabled("atf_corrected"));
+    ui.set_notify_ev_atf_suppressed(n.event_enabled("atf_suppressed"));
+    ui.set_notify_ev_blacklist_learned(n.event_enabled("blacklist_learned"));
+    ui.set_notify_ev_password_enter(n.event_enabled("password_enter"));
+    ui.set_notify_ev_password_leave(n.event_enabled("password_leave"));
+    ui.set_notify_ev_mode_toggle_suppressed(n.event_enabled("mode_toggle_suppressed"));
+    ui.set_notify_ev_mode_changed(n.event_enabled("mode_changed"));
+    ui.set_notify_ev_feature_toggled(n.event_enabled("feature_toggled"));
+    ui.set_notify_ev_feature_result(n.event_enabled("feature_result"));
+}
+
+/// 알림 페이지 컨트롤 → `engine.notify`. 이벤트 스위치는 리스트로 직렬화하되 목록의
+/// 미지 원소(향후 이벤트)는 건드리지 않는다.
+fn pull_notify_from_ui(ui: &SettingsWindow, n: &mut NotifyConfig) {
+    n.enabled = ui.get_notify_enabled();
+    // Slider 는 float 값을 주므로 반올림 후 정수 범위로 clamp 한다.
+    n.duration_ms =
+        (ui.get_notify_duration().round() as u32).clamp(NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX);
+    n.language = match ui.get_notify_language_index() {
+        1 => NotifyLanguage::Ko,
+        2 => NotifyLanguage::En,
+        _ => NotifyLanguage::Auto,
+    };
+    n.corner = match ui.get_notify_corner_index() {
+        1 => NotifyCorner::TopRight,
+        2 => NotifyCorner::BottomRight,
+        3 => NotifyCorner::TopLeft,
+        4 => NotifyCorner::BottomLeft,
+        _ => NotifyCorner::Auto,
+    };
+    n.show_text = ui.get_notify_show_text();
+    // 설정명 순서 = `NOTIFY_EVENT_NAMES`.
+    for (name, on) in [
+        ("atf_corrected", ui.get_notify_ev_atf_corrected()),
+        ("atf_suppressed", ui.get_notify_ev_atf_suppressed()),
+        ("blacklist_learned", ui.get_notify_ev_blacklist_learned()),
+        ("password_enter", ui.get_notify_ev_password_enter()),
+        ("password_leave", ui.get_notify_ev_password_leave()),
+        ("mode_toggle_suppressed", ui.get_notify_ev_mode_toggle_suppressed()),
+        ("mode_changed", ui.get_notify_ev_mode_changed()),
+        ("feature_toggled", ui.get_notify_ev_feature_toggled()),
+        ("feature_result", ui.get_notify_ev_feature_result()),
+    ] {
+        n.set_event(name, on);
+    }
+}
+
 fn string_model(items: Vec<SharedString>) -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(items))
 }
@@ -523,7 +602,7 @@ fn merge_field<T: Clone + std::fmt::Debug>(dst: &mut T, baseline: Option<&T>, ui
 ///
 /// UI-소유 필드(이 설정앱이 실제 편집하는 것):
 ///   engine.{default_category, mode_sharing, toggle_keys, hanja_keys, app_rules,
-///           toggle_announce_beep, auto_typefix, auto_english},
+///           toggle_announce_beep, auto_typefix, auto_english, notify},
 ///   engine.korean.{layout, active_rule_sets, layout_rule_sets, bidirectional_combine,
 ///                  chord_window_ms, commit_unit, hanja_output_format, word_mode_apps},
 ///   engine.english.layout.
@@ -555,6 +634,7 @@ fn merge_ui_owned(disk: &mut Config, ui: &Config) {
     );
     merge_field(&mut d.auto_typefix, be.map(|e| &e.auto_typefix), &u.auto_typefix);
     merge_field(&mut d.auto_english, be.map(|e| &e.auto_english), &u.auto_english);
+    merge_field(&mut d.notify, be.map(|e| &e.notify), &u.notify);
     merge_field(&mut d.korean.layout, bk.map(|k| &k.layout), &u.korean.layout);
     merge_field(
         &mut d.korean.active_rule_sets,
@@ -904,6 +984,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_toggle_announce_beep(e.toggle_announce_beep);
         // 조합키 자동반복 억제 (접근성, 지체장애) — Windows·Linux 양 플랫폼 노출.
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
+        // 상황 알림(토스트) — engine.notify.
+        push_notify_to_ui(&ui, &e.notify);
         // 앱별 강제 모드 콤보 옵션(0=영문, 1=한글).
         ui.set_app_rule_category_options(string_model(vec![
             tr.get_mode_english(),
@@ -983,6 +1065,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             e.toggle_announce_beep = ui.get_toggle_announce_beep();
             // 조합키 자동반복 억제 (접근성, 지체장애).
             e.ignore_key_repeat = ui.get_ignore_key_repeat();
+            // 상황 알림(토스트).
+            pull_notify_from_ui(&ui, &mut e.notify);
 
             let a = &mut e.auto_typefix;
             a.enabled = ui.get_atf_enabled();
@@ -1725,6 +1809,23 @@ mod tests {
             disk.engine.english.preferred_direct,
             "preferred_direct(비-UI)는 disk 값이 보존돼야 함"
         );
+    }
+
+    /// 알림 설정(engine.notify)은 UI-소유 — ui 값이 disk 값을 덮어쓴다(baseline 부재 시).
+    #[test]
+    fn merge_ui_owned_overwrites_notify() {
+        let mut disk = Config::default();
+        disk.engine.notify.enabled = true;
+        let mut ui = Config::default();
+        ui.engine.notify.enabled = false;
+        ui.engine.notify.duration_ms = 3000;
+        ui.engine.notify.set_event("mode_changed", true);
+
+        merge_ui_owned(&mut disk, &ui);
+
+        assert!(!disk.engine.notify.enabled);
+        assert_eq!(disk.engine.notify.duration_ms, 3000);
+        assert!(disk.engine.notify.event_enabled("mode_changed"));
     }
 
     /// M-07(GAP-config-02) 회귀 가드: baseline 대비 세션 중 안 건드린 UI-소유 필드는

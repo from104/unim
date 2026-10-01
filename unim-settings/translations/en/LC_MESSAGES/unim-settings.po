@@ -806,3 +806,130 @@ msgstr "Another input method framework detected"
 
 msgid "ibus 또는 fcitx 가 현재 실행 중입니다. 재로그인하면 UNIM 이 기본 입력기가 되며, 대개 자동으로 정리됩니다. 재로그인 후에도 한/영 전환이 되지 않으면 두 프레임워크 중 하나만 남기고 다시 재로그인하세요."
 msgstr "ibus or fcitx is currently running. Logging back in will make UNIM the default input method, and this usually clears up on its own. If Korean/English switching still doesn't work after logging back in, keep only one of the frameworks and log back in again."
+
+# 상황 알림(토스트) — NOTIFY_SPEC §5.
+msgid "자동"
+msgstr "Auto"
+
+msgid "한국어"
+msgstr "Korean"
+
+msgid "영어"
+msgstr "English"
+
+msgid "자동 (우하단)"
+msgstr "Auto (bottom right)"
+
+msgid "우상단"
+msgstr "Top right"
+
+msgid "우하단"
+msgstr "Bottom right"
+
+msgid "좌상단"
+msgstr "Top left"
+
+msgid "좌하단"
+msgstr "Bottom left"
+
+msgid "알림"
+msgstr "Notifications"
+
+msgid "상황 알림"
+msgstr "Situation Notifications"
+
+msgid "자동 교정 발동·비밀번호 칸 진입 같은 입력기 상황을 짧은 알림으로 알립니다. 포커스를 가져가지 않고 자동으로 사라집니다."
+msgstr "Briefly reports input-method situations such as auto-fix firing or entering a password field. It never takes focus and disappears automatically."
+
+msgid "상황 알림 사용"
+msgstr "Enable situation notifications"
+
+msgid "끄면 아래 이벤트가 모두 알림을 내지 않습니다."
+msgstr "When off, none of the events below produce a notification."
+
+msgid "알림 표시 시간 (ms)"
+msgstr "Notification duration (ms)"
+
+msgid "알림이 화면에 머무는 시간입니다. GNOME 알림 배너에는 적용되지 않습니다(GNOME 은 셸 고정 시간)."
+msgstr "How long a notification stays on screen. Not applied to GNOME notification banners (GNOME uses a fixed shell duration)."
+
+msgid "알림 표시 시간"
+msgstr "Notification duration"
+
+msgid "알림 언어"
+msgstr "Notification language"
+
+msgid "자동은 로케일 환경변수(LC_ALL > LC_MESSAGES > LANG)로 판정합니다. 세션 환경에 따라 비어 있을 수 있어 직접 선택을 권장합니다."
+msgstr "Auto uses the locale variables (LC_ALL > LC_MESSAGES > LANG). They may be empty depending on the session, so choosing a language explicitly is recommended."
+
+msgid "알림 표시 위치 (Windows 전용)"
+msgstr "Notification position (Windows only)"
+
+msgid "알림을 띄울 화면 모서리입니다. Linux 에서는 알림 서버가 위치를 정합니다."
+msgstr "Screen corner for the notification. On Linux the notification server decides the position."
+
+msgid "알림 표시 위치"
+msgstr "Notification position"
+
+msgid "교정 전후 텍스트 표시"
+msgstr "Show text before/after correction"
+
+msgid "기본은 꺼짐(가림)입니다. 켜면 비밀번호 칸을 감지하지 못하는 환경(XIM 등)에서 입력 일부가 알림 화면·알림 서버·잠금 화면에 보일 수 있습니다."
+msgstr "Off (masked) by default. When on, in environments that cannot detect password fields (XIM, etc.) part of what you type may appear on the notification, in the notification server and on the lock screen."
+
+msgid "알림 이벤트"
+msgstr "Notification Events"
+
+msgid "자동 교정됨"
+msgstr "Auto-fixed"
+
+msgid "영→한 / 한→영 자동 교정이 발동했을 때 알립니다."
+msgstr "Notifies when EN→KO / KO→EN auto-fix fired."
+
+msgid "자동 교정 건너뜀"
+msgstr "Auto-fix skipped"
+
+msgid "교정 억제 단어라서 교정하지 않았을 때 알립니다."
+msgstr "Notifies when a correction was skipped because the word is on the suppression list."
+
+msgid "임시 제외 학습"
+msgstr "Temporary exclusion learned"
+
+msgid "되돌린 교정을 학습해 단어를 임시 제외했을 때 알립니다."
+msgstr "Notifies when an undone correction was learned and the word was temporarily excluded."
+
+msgid "비밀번호 칸 진입"
+msgstr "Entered password field"
+
+msgid "같은 칸에서는 한 번만 알리고 10분이 지나면 다시 알립니다."
+msgstr "Announced once per field, and again after 10 minutes."
+
+msgid "비밀번호 칸 벗어남"
+msgstr "Left password field"
+
+msgid "비밀번호 칸에서 나왔을 때 알립니다."
+msgstr "Notifies when you leave a password field."
+
+msgid "한/영 전환 막힘"
+msgstr "Language toggle blocked"
+
+msgid "비밀번호 칸이라 한/영 전환이 거부됐을 때 알립니다."
+msgstr "Notifies when the Korean/English toggle was refused in a password field."
+
+msgid "한/영 모드 변경"
+msgstr "Korean/English mode changed"
+
+msgid "한글/영문 모드가 바뀔 때 알립니다(소리 알림과는 별개)."
+msgstr "Notifies when the Korean/English mode changes (separate from the sound alert)."
+
+msgid "자동 교정 켜짐/꺼짐"
+msgstr "Auto-fix turned on/off"
+
+msgid "토글 단축키로 자동 교정을 켜거나 껐을 때 알립니다."
+msgstr "Notifies when auto-fix is switched on or off with the toggle hotkey."
+
+msgid "기능 결과 (GNOME 확장)"
+msgstr "Feature results (GNOME extension)"
+
+msgid "TypeFIX 수동 변환·사전 등록 결과를 알립니다(GNOME 확장 알림)."
+msgstr "Notifies the result of manual TypeFIX conversion and dictionary registration (GNOME extension notifications)."

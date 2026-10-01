@@ -9,6 +9,12 @@ use unim::input_engine::{InputEngine, InputResult};
 use unim::keycode::ModifierState;
 use unim::popup::{PopupKey, PopupKeyResult, PopupKind, PopupState};
 
+// `InputResult` 는 C 의 `UnimInputResult`(bool 5개)와 바이트 단위로 대응한다. 필드가 늘면
+// 배포 ABI(`libunim_capi.so.0`, `unim.h`)가 깨지므로 컴파일 단계에서 막는다
+// (drift guard 는 함수 목록만 비교한다 — NOTIFY_SPEC §3.1a).
+const _: () =
+    assert!(core::mem::size_of::<InputResult>() == 5 && core::mem::align_of::<InputResult>() == 1);
+
 /// API 버전
 pub const UNIM_API_VERSION: usize = 1;
 
@@ -353,6 +359,14 @@ pub extern "C" fn unim_engine_remove_preedit(engine: &mut InputEngine) {
 #[no_mangle]
 pub extern "C" fn unim_engine_is_composing(engine: &InputEngine) -> bool {
     engine.is_composing()
+}
+
+/// 직전 `unim_engine_press_key` 가 비밀번호 칸 때문에 한/영 전환을 거부했는지 확인합니다.
+///
+/// `InputResult` 에 필드를 더하지 않는 out-of-band getter 입니다(ABI 불변).
+#[no_mangle]
+pub extern "C" fn unim_engine_last_toggle_blocked(engine: &InputEngine) -> bool {
+    engine.last_toggle_blocked()
 }
 
 /// ready 상태 확인 (프론트엔드 호환용)
@@ -994,6 +1008,37 @@ mod tests {
             unim_engine_delete(engine);
             unim_config_delete(config);
         }
+    }
+
+    #[test]
+    fn test_last_toggle_blocked_getter() {
+        use unim::config::ContentPurpose;
+        unsafe {
+            let config = unim_config_default();
+            let engine = unim_engine_new(&*config);
+            assert!(!unim_engine_last_toggle_blocked(&*engine));
+
+            // 비밀번호 칸(영문 고정)에서 한/영 전환 키(evdev 122) → 차단 플래그.
+            unim_engine_set_input_category(&mut *engine, InputCategory::Korean);
+            (*engine).set_content_purpose(ContentPurpose::Password);
+            let r = unim_engine_press_key(&mut *engine, &*config, 122, ModifierState::default());
+            assert!(r.consumed);
+            assert!(unim_engine_last_toggle_blocked(&*engine));
+
+            // 다음 키에서 리셋.
+            unim_engine_press_key(&mut *engine, &*config, 30, ModifierState::default());
+            assert!(!unim_engine_last_toggle_blocked(&*engine));
+
+            unim_engine_delete(engine);
+            unim_config_delete(config);
+        }
+    }
+
+    #[test]
+    fn test_input_result_layout_is_abi_stable() {
+        // 위 컴파일 단언과 같은 값을 런타임에서도 고정해 실패 메시지를 읽기 쉽게 한다.
+        assert_eq!(core::mem::size_of::<InputResult>(), 5);
+        assert_eq!(core::mem::align_of::<InputResult>(), 1);
     }
 
     #[test]

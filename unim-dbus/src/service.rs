@@ -7,7 +7,7 @@
 //! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
 //! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
+use crate::notify_task::NotifyOut;
 use unim::config::{Config, InputCategory, KoreanConfig};
 use unim::input_engine::{AtfToggleKind, InputEngine, PopupAction};
 use unim::unim_log;
@@ -344,8 +345,118 @@ pub struct InputMethodService {
     /// 일치시켜, 단축키 캡처 주체(GNOME extension)와 입력 주체(GTK4_IM)가 분리된
     /// 환경에서도 emoji가 사용자 앱에 정확히 들어가게 한다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
-    /// 현재 등록된 프런트엔드 이름 집합 (ephemeral; 데몬 재시작 시 초기화)
-    active_frontends: Arc<RwLock<HashSet<String>>>,
+    /// 현재 등록된 프런트엔드 맵: 이름 → 등록자(호출자 unique name) 집합
+    /// (ephemeral; 데몬 재시작 시 초기화). 등록자를 기록해 두어야 확장이 해제 없이 죽어도
+    /// `NameOwnerChanged` 로 정리할 수 있다(NOTIFY_SPEC §3.2 E2).
+    active_frontends: Arc<RwLock<FrontendMap>>,
+    /// 알림 채널 송신 측 (`TriggerAction("notify_test")` 용). `with_notify` 로 주입.
+    notify_tx: Option<mpsc::Sender<NotifyOut>>,
+}
+
+/// 프런트엔드 이름 → 등록자(호출자 unique name) 집합.
+///
+/// 불변식: 등록자 집합이 빈 이름은 맵에 남지 않는다(아래 헬퍼가 유지).
+pub(crate) type FrontendMap = HashMap<String, HashSet<String>>;
+
+/// 등록을 기록한다. 반환값: **이름 집합이 바뀌었으면**(새 이름) true — 같은 이름에 등록자만
+/// 늘어난 경우·같은 호출자 재등록은 false(멱등, `ActiveFrontendsChanged` 미발산).
+pub(crate) fn register_frontend_inner(map: &mut FrontendMap, name: &str, sender: &str) -> bool {
+    let is_new_name = !map.contains_key(name);
+    map.entry(name.to_string())
+        .or_default()
+        .insert(sender.to_string());
+    is_new_name
+}
+
+/// **호출자 자신의** 등록만 지운다(타인 등록 해제 불가). 반환값: 이름이 목록에서 빠졌으면 true.
+pub(crate) fn unregister_frontend_inner(map: &mut FrontendMap, name: &str, sender: &str) -> bool {
+    let Some(owners) = map.get_mut(name) else {
+        return false;
+    };
+    owners.remove(sender);
+    if owners.is_empty() {
+        map.remove(name);
+        true
+    } else {
+        false
+    }
+}
+
+/// 연결이 끊긴 등록자(`owner`)를 **모든 이름**에서 제거한다. 반환값: 이름 집합이 바뀌었으면 true.
+pub(crate) fn drop_owner(map: &mut FrontendMap, owner: &str) -> bool {
+    let before = map.len();
+    map.retain(|_, owners| {
+        owners.remove(owner);
+        !owners.is_empty()
+    });
+    map.len() != before
+}
+
+/// 정렬된 이름 목록 (`GetActiveFrontends`·`ActiveFrontendsChanged` 페이로드).
+pub(crate) fn frontend_names(map: &FrontendMap) -> Vec<String> {
+    let mut v: Vec<String> = map.keys().cloned().collect();
+    v.sort();
+    v
+}
+
+/// `NameOwnerChanged` 가 "unique name 연결 종료" 인가 — `name` 이 `:` 접두이고 `new_owner` 가 비었다.
+pub(crate) fn is_connection_closed(name: &str, new_owner: Option<&str>) -> bool {
+    name.starts_with(':') && new_owner.unwrap_or("").is_empty()
+}
+
+/// 프런트엔드 등록자 감시: `NameOwnerChanged` 로 연결이 끊긴 등록자를 모든 이름에서 지운다.
+///
+/// 확장이 `UnregisterFrontend` 없이 죽어도(셸 재시작 등) `gnome-shell-notify` 가 남아 fdo
+/// 폴백이 막히는 일이 없게 한다(NOTIFY_SPEC §3.2). 이름 집합이 바뀌면 `ActiveFrontendsChanged` 를
+/// 발행한다. 한계: 셸은 살아 있고 확장만 고장 난 경우는 정리되지 않는다(문서화된 한계).
+fn spawn_frontend_watcher(connection: Connection, frontends: Arc<RwLock<FrontendMap>>) {
+    use futures_util::StreamExt;
+
+    tokio::spawn(async move {
+        let proxy = match zbus::fdo::DBusProxy::new(&connection).await {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!("DBUS", "[DBus] 프런트엔드 감시 시작 실패(DBusProxy): {}", e);
+                return;
+            }
+        };
+        let mut stream = match proxy.receive_name_owner_changed().await {
+            Ok(s) => s,
+            Err(e) => {
+                unim_log!("DBUS", "[DBus] 프런트엔드 감시 시작 실패(NameOwnerChanged 구독): {}", e);
+                return;
+            }
+        };
+        while let Some(sig) = stream.next().await {
+            let Ok(args) = sig.args() else { continue };
+            let new_owner = args.new_owner().as_ref().map(|o| o.as_str());
+            if !is_connection_closed(args.name().as_str(), new_owner) {
+                continue;
+            }
+            let gone = args.name().to_string();
+            let names = {
+                let mut map = frontends.write().await;
+                if !drop_owner(&mut map, &gone) {
+                    continue;
+                }
+                frontend_names(&map)
+            };
+            unim_log!(
+                "DBUS",
+                "[DBus] 프런트엔드 등록자 {} 연결 종료 — 정리 후 활성 목록={:?}",
+                gone,
+                names
+            );
+            match SignalContext::new(&connection, crate::INPUT_METHOD_PATH) {
+                Ok(ctx) => {
+                    if let Err(e) = InputMethodService::active_frontends_changed(&ctx, names).await {
+                        unim_log!("DBUS", "[DBus] ActiveFrontendsChanged 발행 실패: {}", e);
+                    }
+                }
+                Err(e) => unim_log!("DBUS", "[DBus] SignalContext 생성 실패: {}", e),
+            }
+        }
+    });
 }
 
 impl InputMethodService {
@@ -367,8 +478,30 @@ impl InputMethodService {
             connection,
             last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
             last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
-            active_frontends: Arc::new(RwLock::new(HashSet::new())),
+            active_frontends: Arc::new(RwLock::new(FrontendMap::new())),
+            notify_tx: None,
         }
+    }
+
+    /// 알림 채널을 연결하고 백그라운드 태스크 2개를 띄운다 (데몬 기동 시 한 번).
+    ///
+    /// - 알림 전담 태스크: `Notify` 시그널·fdo 호출·`replaces_id`·백오프 소유(NOTIFY_SPEC §3.2)
+    /// - 등록자 감시: `NameOwnerChanged` 로 죽은 프런트엔드 등록 정리
+    ///
+    /// tokio 런타임 안에서 호출해야 한다. `notify_tx` 는 엔진 워커와 같은 채널의 송신 측이다.
+    pub fn with_notify(
+        mut self,
+        notify_tx: mpsc::Sender<NotifyOut>,
+        notify_rx: mpsc::Receiver<NotifyOut>,
+    ) -> Self {
+        crate::notify_task::spawn_notify_task(
+            self.connection.clone(),
+            Arc::clone(&self.active_frontends),
+            notify_rx,
+        );
+        spawn_frontend_watcher(self.connection.clone(), Arc::clone(&self.active_frontends));
+        self.notify_tx = Some(notify_tx);
+        self
     }
 
     /// 전역 cursor_rect 캐시 핸들 (InputContextHandler에 공유 주입)
@@ -503,22 +636,21 @@ impl InputMethodService {
     }
 
     /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op, signal 미발산)
+    ///
+    /// 호출자(unique name)를 등록자로 기록한다 — 연결이 끊기면 `NameOwnerChanged` 로 정리된다.
     async fn register_frontend(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         name: String,
     ) -> zbus::fdo::Result<()> {
+        let sender = hdr.sender().map(|s| s.to_string()).unwrap_or_default();
         let inserted = {
-            let mut set = self.active_frontends.write().await;
-            set.insert(name.clone())
+            let mut map = self.active_frontends.write().await;
+            register_frontend_inner(&mut map, &name, &sender)
         };
         if inserted {
-            let names = {
-                let set = self.active_frontends.read().await;
-                let mut v: Vec<String> = set.iter().cloned().collect();
-                v.sort();
-                v
-            };
+            let names = frontend_names(&*self.active_frontends.read().await);
             unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 등록됨, 활성 목록={:?}", name, names);
             Self::active_frontends_changed(&signal_ctx, names).await?;
         } else {
@@ -528,36 +660,32 @@ impl InputMethodService {
     }
 
     /// 프런트엔드 등록 해제 (없으면 no-op, signal 미발산)
+    ///
+    /// **호출자 자신의** 등록만 지운다. 다른 등록자가 남으면 이름은 목록에 유지된다.
     async fn unregister_frontend(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         name: String,
     ) -> zbus::fdo::Result<()> {
+        let sender = hdr.sender().map(|s| s.to_string()).unwrap_or_default();
         let removed = {
-            let mut set = self.active_frontends.write().await;
-            set.remove(&name)
+            let mut map = self.active_frontends.write().await;
+            unregister_frontend_inner(&mut map, &name, &sender)
         };
         if removed {
-            let names = {
-                let set = self.active_frontends.read().await;
-                let mut v: Vec<String> = set.iter().cloned().collect();
-                v.sort();
-                v
-            };
+            let names = frontend_names(&*self.active_frontends.read().await);
             unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 해제됨, 활성 목록={:?}", name, names);
             Self::active_frontends_changed(&signal_ctx, names).await?;
         } else {
-            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 미등록 (no-op)", name);
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 이름 유지 또는 미등록 (no-op)", name);
         }
         Ok(())
     }
 
     /// 현재 등록된 프런트엔드 목록 조회 (정렬된 Vec<String>)
     async fn get_active_frontends(&self) -> Vec<String> {
-        let set = self.active_frontends.read().await;
-        let mut v: Vec<String> = set.iter().cloned().collect();
-        v.sort();
-        v
+        frontend_names(&*self.active_frontends.read().await)
     }
 
     /// 활성 프런트엔드 목록 변경 시그널
@@ -565,6 +693,20 @@ impl InputMethodService {
     async fn active_frontends_changed(
         signal_ctx: &SignalContext<'_>,
         names: Vec<String>,
+    ) -> zbus::Result<()>;
+
+    /// 상황 알림 표시 요청 (NOTIFY_SPEC §3.2, SPEC §5.2).
+    ///
+    /// 실제 발행은 알림 전담 태스크(`notify_task`)가 `gnome-shell-notify` 등록자가 있을 때만
+    /// 한다. 여기 선언은 인트로스펙션용이다. `title`/`body` 는 로그에 남기지 않는다.
+    #[zbus(signal)]
+    async fn notify(
+        signal_ctx: &SignalContext<'_>,
+        kind: &str,
+        title: &str,
+        body: &str,
+        duration_ms: u32,
+        flags: u32,
     ) -> zbus::Result<()>;
 
     /// 전역 모드 변경 시그널
@@ -810,6 +952,13 @@ impl InputMethodService {
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "toggle_announce_beep" => config.engine.toggle_announce_beep.to_string(),
             "ignore_key_repeat" => config.engine.ignore_key_repeat.to_string(),
+            // 상황 알림(토스트) 6키 — NOTIFY_SPEC §5.
+            "notify_enabled" => config.engine.notify.enabled.to_string(),
+            "notify_duration_ms" => config.engine.notify.duration_ms.to_string(),
+            "notify_language" => config.engine.notify.language.as_str().to_string(),
+            "notify_show_text" => config.engine.notify.show_text.to_string(),
+            "notify_corner" => config.engine.notify.corner.as_str().to_string(),
+            "notify_events" => config.engine.notify.events.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
             // 모아치기 설정 (supports_moachigi 자판 전용)
             "korean_bidirectional_combine" => match config.engine.korean.bidirectional_combine {
@@ -1111,6 +1260,49 @@ impl InputMethodService {
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
+                "notify_enabled" => {
+                    config.engine.notify.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "notify_duration_ms" => {
+                    let v: u32 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.notify.duration_ms = v;
+                    config.engine.notify.clamp_ranges();
+                }
+                "notify_language" => {
+                    config.engine.notify.language = unim::config::NotifyLanguage::parse(value)
+                        .ok_or_else(|| {
+                            zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid notify_language: {} (auto|ko|en)",
+                                value
+                            ))
+                        })?;
+                }
+                "notify_show_text" => {
+                    config.engine.notify.show_text = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "notify_corner" => {
+                    config.engine.notify.corner = unim::config::NotifyCorner::parse(value)
+                        .ok_or_else(|| {
+                            zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid notify_corner: {}",
+                                value
+                            ))
+                        })?;
+                }
+                // 이벤트 목록: 빈 값이 유효하다(모두 끔). 미지 원소는 게이트가 무시하므로 저장한다.
+                "notify_events" => {
+                    config.engine.notify.events = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =
                         serde_json::from_str(value).map_err(|e| {
@@ -1217,6 +1409,7 @@ impl InputMethodService {
 
         // 2. 범위 방어
         new_config.engine.auto_typefix.clamp_ranges();
+        new_config.engine.notify.clamp_ranges();
 
         // 2.5. 키 목록 진단 — 설정앱(GTK 레거시·Slint 공통)의 실제 쓰기 경로는 legacy
         // SetConfig 가 아니라 이 메서드다. 전 항목 무효인 필수 키 목록은 SetConfig 와
@@ -1369,6 +1562,23 @@ impl InputMethodService {
                         h,
                         home_row
                     );
+                }
+            }
+            "notify_test" => {
+                // 알림 검증용(L2·L3): 게이트(중복 억제·events)는 거치지 않고 enabled 만 본다.
+                let cfg = self.config.read().await.engine.notify.clone();
+                if !cfg.enabled {
+                    unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test — notify.enabled=false 라 무시");
+                } else if let Some(tx) = &self.notify_tx {
+                    let lang = unim::notify::Lang::resolve(
+                        cfg.language,
+                        crate::notify_task::detect_auto_lang(),
+                    );
+                    if tx.try_send(NotifyOut::test(&cfg, lang)).is_err() {
+                        unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test 채널 가득 참 — 폐기");
+                    }
+                } else {
+                    unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test — 알림 채널 미연결");
                 }
             }
             other => {
@@ -3477,89 +3687,131 @@ impl InputContextHandler {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // active_frontends 단위 테스트 (daemon 없이 순수 메모리 상태 검증)
+//
+// zbus 메서드는 `#[zbus(header)]` 인자 때문에 직접 부르기 어렵다 — 등록·해제·정리 로직을
+// `(name, sender)` 순수 헬퍼로 분리해 두었으므로 헬퍼를 직접 호출한다.
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use super::{
+        drop_owner, frontend_names, is_connection_closed, register_frontend_inner,
+        unregister_frontend_inner, FrontendMap,
+    };
 
-    /// 헬퍼: 테스트용 active_frontends Arc 생성
-    fn make_set() -> Arc<RwLock<HashSet<String>>> {
-        Arc::new(RwLock::new(HashSet::new()))
+    const SHELL: &str = ":1.42";
+    const OTHER: &str = ":1.77";
+
+    /// 멱등성: 같은 호출자가 같은 이름을 두 번 등록해도 이름 1개, 두 번째는 변화 없음
+    #[test]
+    fn test_register_frontend_idempotent() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "gnome-shell", SHELL), "첫 등록은 true");
+        assert!(!register_frontend_inner(&mut m, "gnome-shell", SHELL), "재등록은 false (no-op)");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m["gnome-shell"].len(), 1);
     }
 
-    /// 멱등성: 동일 이름을 두 번 insert해도 set 크기 1
-    #[tokio::test]
-    async fn test_register_frontend_idempotent() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            let first = s.insert("gnome-shell".to_string());
-            let second = s.insert("gnome-shell".to_string());
-            assert!(first, "첫 등록은 true");
-            assert!(!second, "재등록은 false (no-op)");
-            assert_eq!(s.len(), 1);
-        }
+    /// 같은 이름에 다른 등록자가 추가돼도 이름 집합은 불변(signal 불필요)
+    #[test]
+    fn test_register_second_owner_keeps_name_set() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "gnome-shell-notify", SHELL));
+        assert!(!register_frontend_inner(&mut m, "gnome-shell-notify", OTHER));
+        assert_eq!(m["gnome-shell-notify"].len(), 2);
     }
 
     /// 등록 후 조회: 정렬된 Vec 반환
-    #[tokio::test]
-    async fn test_get_active_frontends_sorted() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            s.insert("unim-xim".to_string());
-            s.insert("gnome-shell".to_string());
-            s.insert("unim-wayland".to_string());
-        }
-        let names = {
-            let s = set.read().await;
-            let mut v: Vec<String> = s.iter().cloned().collect();
-            v.sort();
-            v
-        };
-        assert_eq!(names, vec!["gnome-shell", "unim-wayland", "unim-xim"]);
+    #[test]
+    fn test_get_active_frontends_sorted() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "unim-xim", OTHER);
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        register_frontend_inner(&mut m, "unim-wayland", OTHER);
+        assert_eq!(frontend_names(&m), vec!["gnome-shell", "unim-wayland", "unim-xim"]);
     }
 
-    /// unregister: 제거 후 set 비어 있음, 없는 이름 제거는 false
-    #[tokio::test]
-    async fn test_unregister_frontend_idempotent() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            s.insert("gnome-shell".to_string());
-        }
-        let removed = {
-            let mut s = set.write().await;
-            s.remove("gnome-shell")
-        };
-        assert!(removed, "존재하는 이름 제거 true");
-        let removed_again = {
-            let mut s = set.write().await;
-            s.remove("gnome-shell")
-        };
-        assert!(!removed_again, "이미 없는 이름 제거 false (no-op)");
-        let s = set.read().await;
-        assert!(s.is_empty());
+    /// unregister: 제거 후 비어 있음, 없는 이름 제거는 false
+    #[test]
+    fn test_unregister_frontend_idempotent() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        assert!(unregister_frontend_inner(&mut m, "gnome-shell", SHELL), "존재하는 이름 제거 true");
+        assert!(
+            !unregister_frontend_inner(&mut m, "gnome-shell", SHELL),
+            "이미 없는 이름 제거 false (no-op)"
+        );
+        assert!(m.is_empty());
     }
 
-    /// signal 발산 조건: insert 결과 true일 때만 signal emit 필요
-    #[tokio::test]
-    async fn test_signal_emit_condition() {
-        let set = make_set();
-        let inserted = {
-            let mut s = set.write().await;
-            s.insert("unim-gui-gtk".to_string())
-        };
-        // 변경 있을 때만 signal 발산 (inserted == true)
-        assert!(inserted, "signal emit 해야 함");
+    /// 타인 등록 해제 불가: 호출자가 등록하지 않은 이름은 지워지지 않는다
+    #[test]
+    fn test_unregister_cannot_remove_others_registration() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        assert!(!unregister_frontend_inner(&mut m, "gnome-shell-notify", OTHER));
+        assert!(m.contains_key("gnome-shell-notify"));
+        assert!(m["gnome-shell-notify"].contains(SHELL));
+    }
 
-        let inserted_dup = {
-            let mut s = set.write().await;
-            s.insert("unim-gui-gtk".to_string())
-        };
-        // 중복 등록 — signal 발산 불필요
-        assert!(!inserted_dup, "signal emit 불필요");
+    /// 다른 등록자가 남으면 이름은 유지, 마지막 등록자가 빠지면 이름이 사라진다
+    #[test]
+    fn test_unregister_keeps_name_while_other_owner_remains() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "n", SHELL);
+        register_frontend_inner(&mut m, "n", OTHER);
+        assert!(!unregister_frontend_inner(&mut m, "n", SHELL), "이름 유지 → false");
+        assert!(m.contains_key("n"));
+        assert!(unregister_frontend_inner(&mut m, "n", OTHER), "마지막 등록자 → 이름 제거");
+        assert!(m.is_empty());
+    }
+
+    /// 등록자 소멸 시 이름 제거(해제 없이 죽은 확장) — 모든 이름에서 지운다
+    #[test]
+    fn test_drop_owner_removes_names_of_dead_owner() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        register_frontend_inner(&mut m, "unim-popup-service", OTHER);
+        assert!(drop_owner(&mut m, SHELL), "이름 집합이 바뀜 → signal 필요");
+        assert_eq!(frontend_names(&m), vec!["unim-popup-service"]);
+    }
+
+    /// 다른 등록자가 남으면 이름 유지(집합 불변 → signal 불필요)
+    #[test]
+    fn test_drop_owner_keeps_name_when_other_owner_remains() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        register_frontend_inner(&mut m, "gnome-shell-notify", OTHER);
+        assert!(!drop_owner(&mut m, SHELL));
+        assert!(m["gnome-shell-notify"].contains(OTHER));
+        assert!(!m["gnome-shell-notify"].contains(SHELL));
+    }
+
+    /// 등록 이력 없는 호출자가 사라져도 아무 일 없음
+    #[test]
+    fn test_drop_unknown_owner_is_noop() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        assert!(!drop_owner(&mut m, ":1.999"));
+        assert_eq!(m.len(), 1);
+    }
+
+    /// signal 발산 조건: 새 이름일 때만 true
+    #[test]
+    fn test_signal_emit_condition() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "unim-gui-gtk", OTHER), "signal emit 해야 함");
+        assert!(!register_frontend_inner(&mut m, "unim-gui-gtk", OTHER), "signal emit 불필요");
+    }
+
+    /// NameOwnerChanged 판정: unique name 이고 new_owner 가 비었을 때만 연결 종료
+    #[test]
+    fn test_is_connection_closed() {
+        assert!(is_connection_closed(":1.42", None));
+        assert!(is_connection_closed(":1.42", Some("")));
+        // well-known 이름 소유자 변경은 등록자 정리 대상이 아니다
+        assert!(!is_connection_closed("org.atit.unim.InputMethod", None));
+        // unique name 에 새 소유자가 있으면(발생하지 않지만) 연결 종료가 아님
+        assert!(!is_connection_closed(":1.42", Some(":1.43")));
     }
 }

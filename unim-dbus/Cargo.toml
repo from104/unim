@@ -20,6 +20,9 @@ unim-popup-types = { path = "../unim-popup-types" }
 # DBus with async support
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 
+# DBus 시그널 스트림 소비 (NameOwnerChanged 구독)
+futures-util = "0.3"
+
 # Async runtime
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 

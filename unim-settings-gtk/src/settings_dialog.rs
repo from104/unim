@@ -14,7 +14,8 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode, NotifyCorner,
+    NotifyLanguage, NOTIFY_EVENT_NAMES,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
     AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
@@ -121,6 +122,15 @@ pub fn show_settings_dialog(app: &adw::Application) {
     page_typefix.add(&forward_group);
     page_typefix.add(&reverse_group);
     window.add(&page_typefix);
+
+    // ── 알림 페이지 (NOTIFY_SPEC §5) ──────────────────────────
+    let page_notify = adw::PreferencesPage::builder()
+        .title(t!("page_notify_title"))
+        .icon_name("preferences-system-notifications-symbolic")
+        .build();
+    page_notify.add(&build_notify_group(&state));
+    page_notify.add(&build_notify_events_group(&state));
+    window.add(&page_notify);
 
     // ── Page 3: 교정 억제 단어 ────────────────────────────────
     let page_blacklist = build_blacklist_page();
@@ -870,6 +880,190 @@ fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&sw_repeat);
+
+    group
+}
+
+// ─────────────────────────────────────────────────────────────
+// 알림 페이지: 상황 알림(토스트) — NOTIFY_SPEC §5
+// ─────────────────────────────────────────────────────────────
+
+/// 알림 전역 설정 그룹 — 전역 스위치·표시 시간·언어·모서리·텍스트 표시.
+fn build_notify_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_notify"))
+        .description(t!("group_notify_desc"))
+        .build();
+
+    // 전역 스위치
+    let sw = adw::SwitchRow::builder()
+        .title(t!("row_notify_enabled"))
+        .subtitle(t!("row_notify_enabled_subtitle"))
+        .build();
+    {
+        let s = state.borrow();
+        sw.set_active(s.config.engine.notify.enabled);
+    }
+    {
+        let state_c = state.clone();
+        sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.enabled = sw.is_active();
+            save_and_notify(&s.config, "notify_enabled");
+        });
+    }
+    group.add(&sw);
+
+    // 표시 시간 (초 단위 슬라이더 — 범위 500~5000ms 가 `NOTIFY_DURATION_*` 와 같다)
+    group.add(&build_time_window_row(
+        state,
+        &t!("row_notify_duration"),
+        &t!("row_notify_duration_subtitle"),
+        &t!("row_notify_duration_tooltip"),
+        |cfg| cfg.engine.notify.duration_ms,
+        |cfg, ms| cfg.engine.notify.duration_ms = ms,
+        "notify_duration_ms",
+    ));
+
+    // 문구 언어
+    let lang_row = adw::ComboRow::builder()
+        .title(t!("row_notify_language"))
+        .subtitle(t!("row_notify_language_subtitle"))
+        .build();
+    let lang_list = gtk4::StringList::new(&[
+        t!("notify_language_auto").as_ref(),
+        t!("notify_language_ko").as_ref(),
+        t!("notify_language_en").as_ref(),
+    ]);
+    lang_row.set_model(Some(&lang_list));
+    {
+        let s = state.borrow();
+        lang_row.set_selected(match s.config.engine.notify.language {
+            NotifyLanguage::Auto => 0,
+            NotifyLanguage::Ko => 1,
+            NotifyLanguage::En => 2,
+        });
+    }
+    {
+        let state_c = state.clone();
+        lang_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.language = match row.selected() {
+                0 => NotifyLanguage::Auto,
+                1 => NotifyLanguage::Ko,
+                _ => NotifyLanguage::En,
+            };
+            save_and_notify(&s.config, "notify_language");
+        });
+    }
+    group.add(&lang_row);
+
+    // 표시 모서리 (Windows 전용)
+    let corner_row = adw::ComboRow::builder()
+        .title(t!("row_notify_corner"))
+        .subtitle(t!("row_notify_corner_subtitle"))
+        .build();
+    let corner_list = gtk4::StringList::new(&[
+        t!("notify_corner_auto").as_ref(),
+        t!("notify_corner_top_right").as_ref(),
+        t!("notify_corner_bottom_right").as_ref(),
+        t!("notify_corner_top_left").as_ref(),
+        t!("notify_corner_bottom_left").as_ref(),
+    ]);
+    corner_row.set_model(Some(&corner_list));
+    {
+        let s = state.borrow();
+        corner_row.set_selected(match s.config.engine.notify.corner {
+            NotifyCorner::Auto => 0,
+            NotifyCorner::TopRight => 1,
+            NotifyCorner::BottomRight => 2,
+            NotifyCorner::TopLeft => 3,
+            NotifyCorner::BottomLeft => 4,
+        });
+    }
+    {
+        let state_c = state.clone();
+        corner_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.corner = match row.selected() {
+                0 => NotifyCorner::Auto,
+                1 => NotifyCorner::TopRight,
+                2 => NotifyCorner::BottomRight,
+                3 => NotifyCorner::TopLeft,
+                _ => NotifyCorner::BottomLeft,
+            };
+            save_and_notify(&s.config, "notify_corner");
+        });
+    }
+    group.add(&corner_row);
+
+    // 교정 전후 텍스트 표시 — 민감정보 경고를 subtitle 에 붙인다(D1).
+    let sw_text = adw::SwitchRow::builder()
+        .title(t!("row_notify_show_text"))
+        .subtitle(t!("row_notify_show_text_subtitle"))
+        .build();
+    sw_text.set_tooltip_text(Some(t!("row_notify_show_text_tooltip").as_ref()));
+    {
+        let s = state.borrow();
+        sw_text.set_active(s.config.engine.notify.show_text);
+    }
+    {
+        let state_c = state.clone();
+        sw_text.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.show_text = sw.is_active();
+            save_and_notify(&s.config, "notify_show_text");
+        });
+    }
+    group.add(&sw_text);
+
+    group
+}
+
+/// 알림 이벤트별 스위치 그룹 — `engine.notify.events` 리스트로 직렬화된다.
+fn build_notify_events_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_notify_events"))
+        .description(t!("group_notify_events_desc"))
+        .build();
+
+    // `NOTIFY_EVENT_NAMES` 순서 그대로 (로케일 키 `notify_event_<설정명>`).
+    for name in NOTIFY_EVENT_NAMES {
+        let title_key = format!("notify_event_{name}");
+        let subtitle_key = format!("notify_event_{name}_subtitle");
+        let sw = adw::SwitchRow::builder()
+            .title(t!(&title_key).to_string())
+            .subtitle(t!(&subtitle_key).to_string())
+            .build();
+        {
+            let s = state.borrow();
+            sw.set_active(s.config.engine.notify.event_enabled(name));
+        }
+        {
+            let state_c = state.clone();
+            sw.connect_active_notify(move |sw| {
+                let mut s = state_c.borrow_mut();
+                if s.updating {
+                    return;
+                }
+                s.config.engine.notify.set_event(name, sw.is_active());
+                save_and_notify(&s.config, "notify_events");
+            });
+        }
+        group.add(&sw);
+    }
 
     group
 }

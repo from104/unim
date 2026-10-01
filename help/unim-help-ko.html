@@ -648,14 +648,14 @@ unim-cli config set hanja-output-format hangul-hanja
 </blockquote>
 <hr />
 <h3 id="user-guide--5-설정-gui-투어">5. 설정 GUI 투어</h3>
-<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 4개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
+<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 5개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
 <p><strong>🐧 리눅스에서 여는 법</strong> — 앱 메뉴의 「UNIM 설정」 항목, 첫 실행 마법사, 트레이 메뉴가 모두 이 실행 파일을 띄운다. 터미널에서 직접 띄워도 된다.</p>
 <pre><code class="language-bash">unim-settings &amp;
 </code></pre>
 <blockquote>
 <p><strong>레거시 GTK 다이얼로그(<code>unim-settings-gtk</code>)에 관해</strong>: GTK4+libadwaita로 짠 예전 설정창은 계속 패키지에 포함되지만 <strong>앱 메뉴에는 더 이상 노출되지 않는다</strong>(<code>.desktop</code> 파일에 <code>NoDisplay=true</code>). 직접 <code>unim-settings-gtk &amp;</code>로 띄울 수는 있으나 신규 설정 항목이 이쪽에는 반영되지 않을 수 있다 — 위 <code>unim-settings</code>를 기준으로 삼는다. Qt 다이얼로그(<code>unim-gui-qt</code>)는 이미 폐기됐고, 트레이 아이콘은 <code>unim-indicator</code>, 한자·특수문자·이모지 팝업은 <code>unim-popup-service</code>가 각각 별도 프로세스로 담당한다(§2.5 참고).</p>
 </blockquote>
-<p>페이지 구성 (좌측 내비게이션 4개):</p>
+<p>페이지 구성 (좌측 내비게이션 5개):</p>
 <h4 id="user-guide--51-페이지-1--일반">5.1 페이지 1 — 일반</h4>
 <!-- screenshot: settings-general -->
 <div class="tablewrap"><table><thead><tr><th>그룹</th><th>항목</th><th>비고</th></tr></thead><tbody>
@@ -697,6 +697,22 @@ unim-cli config set hanja-output-format hangul-hanja
 <h4 id="user-guide--54-페이지-4--사용자-사전-역방향-화이트리스트">5.4 페이지 4 — 사용자 사전 (역방향 화이트리스트)</h4>
 <!-- screenshot: settings-userdict -->
 <p>「단어」+「메모(선택)」를 입력해 [추가]하면 영어 단어 ↔ 한글 시퀀스 매핑이 등록된다. 예: <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. 아래 목록에서 선택 후 [선택 삭제]로 제거한다. reverse 교정에서 우선 매칭.</p>
+<h4 id="user-guide--55-페이지-5--알림-상황-알림">5.5 페이지 5 — 알림 (상황 알림)</h4>
+<p>자동 교정이 발동했을 때, 비밀번호 칸에서 한/영 전환이 막혔을 때처럼 <strong>눈치채지 못하고 지나가기 쉬운 입력기 상황</strong>을 1~2초짜리 짧은 알림으로 알려 준다. 포커스를 가져가지 않고 자동으로 사라지며, 알림 센터(GNOME 알림 목록)에는 남지 않는다.</p>
+<div class="tablewrap"><table><thead><tr><th>항목</th><th>설명</th></tr></thead><tbody>
+<tr><td>상황 알림 사용</td><td>전체 스위치(기본 켜짐). 끄면 아래 이벤트가 모두 알림을 내지 않는다</td></tr>
+<tr><td>표시 시간</td><td>500~5000ms(기본 2000). <strong>GNOME 알림 배너에는 적용되지 않는다</strong>(GNOME 은 셸이 정한 시간 동안 표시)</td></tr>
+<tr><td>알림 언어</td><td><code>자동</code>(로케일 환경변수 <code>LC_ALL</code> &gt; <code>LC_MESSAGES</code> &gt; <code>LANG</code> 로 판정) / <code>한국어</code> / <code>English</code>. 세션에 따라 환경변수가 비어 있을 수 있어 직접 고르는 편이 확실하다</td></tr>
+<tr><td>표시 위치</td><td>Windows 전용 — 알림을 띄울 모서리(기본 우하단)</td></tr>
+<tr><td>교정 전후 텍스트 표시</td><td>기본 <strong>꺼짐</strong>(「자동 교정됨」만 표시). 켜면 <code>{교정 전} → {교정 후}</code>·단어를 보여 준다</td></tr>
+<tr><td>알림 이벤트</td><td>자동 교정됨 · 자동 교정 건너뜀 · 임시 제외 학습 · 비밀번호 칸 진입 · 비밀번호 칸 벗어남 · 한/영 전환 막힘 · 한/영 모드 변경 · 자동 교정 켜짐/꺼짐 · 기능 결과(GNOME 확장). 앞의 7종(비밀번호 칸 벗어남·모드 변경 제외)이 기본 켜짐</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>⚠️ <strong>교정 전후 텍스트 표시는 신중하게 켠다.</strong> XIM 처럼 비밀번호 칸을 감지하지 못하는 환경에서는 비밀번호 일부가 알림 화면·알림 서버·잠금 화면에 보일 수 있다. 비밀번호 칸으로 감지된 곳에서는 이 스위치와 무관하게 입력 텍스트를 담은 알림을 만들지 않는다.</p>
+<p><strong>비밀번호 칸 진입 알림은 같은 칸에서 한 번만</strong> 나가고 10분이 지나면 다시 나간다. 브라우저처럼 창 하나가 입력 칸 하나로 보이는 앱에서는 첫 알림 뒤 10분 안에 같은 창의 다른 사이트 비밀번호 칸으로 옮겨 가도 알리지 않는다.</p>
+</blockquote>
+<p>CLI 로도 바꿀 수 있다: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code>(쉼표 구분).</p>
 <hr />
 <h3 id="user-guide--56-자판-도구-keymap-studio--typing-practice">5.6 자판 도구 (Keymap Studio / Typing Practice)</h3>
 <p>설정 GUI와 별개로, 자판을 눈으로 보고·편집하고·연습하는 두 GTK4 도구가 함께 설치된다. 각자

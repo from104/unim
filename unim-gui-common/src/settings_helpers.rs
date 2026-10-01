@@ -155,7 +155,7 @@ fn merge_field<T: Clone + std::fmt::Debug>(dst: &mut T, baseline: Option<&T>, ui
 ///
 /// GTK-소유 필드: `engine.{default_category, mode_sharing, toggle_keys,
 /// hanja_keys, toggle_announce_beep, ignore_key_repeat, auto_typefix,
-/// auto_english}`, `engine.korean.{layout, active_rule_sets,
+/// auto_english, notify}`, `engine.korean.{layout, active_rule_sets,
 /// layout_rule_sets, bidirectional_combine, chord_window_ms, commit_unit,
 /// hanja_output_format}`, `engine.english.layout`.
 ///
@@ -188,6 +188,7 @@ pub fn merge_gtk_ui_owned(disk: &mut Config, ui: &Config) {
     merge_field(&mut d.ignore_key_repeat, be.map(|e| &e.ignore_key_repeat), &u.ignore_key_repeat);
     merge_field(&mut d.auto_typefix, be.map(|e| &e.auto_typefix), &u.auto_typefix);
     merge_field(&mut d.auto_english, be.map(|e| &e.auto_english), &u.auto_english);
+    merge_field(&mut d.notify, be.map(|e| &e.notify), &u.notify);
     merge_field(&mut d.korean.layout, bk.map(|k| &k.layout), &u.korean.layout);
     merge_field(
         &mut d.korean.active_rule_sets,

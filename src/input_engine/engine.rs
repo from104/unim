@@ -183,6 +183,12 @@ pub struct InputEngine {
     /// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널
     /// (`popup_pending_action` 선례). 호스트가 `take_atf_toggle()` 로 소비한다.
     pub(super) pending_atf_toggle: Option<AtfToggleKind>,
+    /// 직전 `press_key` 가 ContentPurpose(Password/Pin) 때문에 한/영 전환을 거부했는가.
+    ///
+    /// `press_key` 진입 시 `false` 로 리셋되므로 드레인 없이 "마지막 호출" 의미를 갖는다.
+    /// `InputResult`(`repr(C)` ABI)에 필드를 더하지 않는 out-of-band 채널
+    /// (`pending_atf_toggle` 선례). 호스트가 `last_toggle_blocked()` 로 읽는다.
+    pub(super) last_toggle_blocked: bool,
     /// 마지막으로 매칭된 ATF 핫키(키코드, 시각) — 오토리핏 디바운스용.
     ///
     /// 키 홀드 시 프런트가 자동반복 키다운을 흘려보내면 press_key 가 연속 호출돼
@@ -337,6 +343,7 @@ impl InputEngine {
                 "ATF 토글 단축키(역방향)",
             ),
             pending_atf_toggle: None,
+            last_toggle_blocked: false,
             last_atf_hotkey: None,
             auto_english_enabled: config.engine.auto_english.enabled,
             auto_english_triggers: Self::parse_auto_english_triggers(
@@ -662,6 +669,15 @@ impl InputEngine {
     /// (`popup_pending_action` 선례). 대기 중 토글이 없으면 `None`.
     pub fn take_atf_toggle(&mut self) -> Option<AtfToggleKind> {
         self.pending_atf_toggle.take()
+    }
+
+    /// 직전 `press_key` 가 비밀번호 칸(`ContentPurpose::Password|Pin`) 때문에 한/영 전환을
+    /// 거부했는지 돌려준다(읽기 전용 — 드레인 아님).
+    ///
+    /// 다음 `press_key` 진입 때 `false` 로 되돌아간다. 호스트가 `press_key` 직후 호출해
+    /// "한/영 전환 막힘" 알림 여부를 정한다. `InputResult` 레이아웃은 건드리지 않는다.
+    pub fn last_toggle_blocked(&self) -> bool {
+        self.last_toggle_blocked
     }
 
     /// 한자 단어 교체 페이로드를 드레인한다(1회성 — `take`).

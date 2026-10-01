@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
+use crate::notify_task::{build_notify_outs, detect_auto_lang, NotifyOut};
 use crate::service::{
     popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
 };
@@ -17,6 +18,7 @@ use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, KoreanLayout};
 use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState, UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
+use unim::notify::{Lang, NotifyEvent, NotifyGate};
 use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::typefix_userdict::UserDictionary;
@@ -710,6 +712,97 @@ fn handle_focus_in(
         .unwrap_or(false)
 }
 
+/// 상황 알림 발송 허브 (NOTIFY_SPEC §3.2) — 워커 스레드가 단독 소유한다.
+///
+/// 게이트(`NotifyGate`)와 알림 채널 송신 측을 묶는다. 이벤트는 요청 처리 중 지역 `Vec` 에
+/// 모았다가 `dispatch` 로 **정확히 1회** 심사한다(규칙 6 — ATF 교정이 통과하면 같은 묶음의
+/// ATF 유발 `mode_changed` 제거). 채널은 `try_send` 라 키 경로를 막지 않는다.
+struct NotifyHub {
+    tx: mpsc::Sender<NotifyOut>,
+    gate: NotifyGate,
+    /// `notify.language=auto` 일 때 쓸 로케일 판정 (워커 시작 시 env 에서 1회)
+    auto_lang: Lang,
+}
+
+impl NotifyHub {
+    fn new(tx: mpsc::Sender<NotifyOut>) -> Self {
+        Self {
+            tx,
+            gate: NotifyGate::new(),
+            auto_lang: detect_auto_lang(),
+        }
+    }
+
+    /// 이벤트 묶음을 심사해 통과분을 알림 채널로 보낸다. 가득 차면 폐기(kind 만 로그).
+    fn dispatch(&mut self, evs: Vec<NotifyEvent>, purpose: ContentPurpose, config: &Config) {
+        if evs.is_empty() {
+            return;
+        }
+        let outs = build_notify_outs(
+            &mut self.gate,
+            evs,
+            purpose,
+            &config.engine.notify,
+            self.auto_lang,
+            Instant::now(),
+        );
+        for out in outs {
+            let kind = out.kind;
+            if self.tx.try_send(out).is_err() {
+                // title/body 는 남기지 않는다(§2.3).
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] 알림 채널 가득 참/닫힘 — 폐기: kind={}",
+                    kind
+                );
+            }
+        }
+    }
+
+    /// 필드 목적이 바뀐 직후 호출: 규칙 2 리셋 + 비밀번호 진입/이탈 알림.
+    ///
+    /// `prev`/`new` 는 `apply_content_type` 호출 **전·후** 의 엔진 목적(컨텍스트 없으면 None).
+    /// 엔진 재생성 경로(`reset_engine_and_capture_commit`)는 이 함수를 거치지 않으므로
+    /// 전이를 만들지 않는다.
+    fn on_content_type(
+        &mut self,
+        config: &Config,
+        context_id: u32,
+        prev: Option<ContentPurpose>,
+        new: Option<ContentPurpose>,
+    ) {
+        let (Some(prev), Some(new)) = (prev, new) else {
+            return;
+        };
+        if prev != new {
+            self.gate.on_purpose_change(context_id);
+        }
+        if let Some(ev) = purpose_transition_event(
+            prev,
+            new,
+            context_id,
+            config.engine.auto_typefix.enabled,
+        ) {
+            self.dispatch(vec![ev], new, config);
+        }
+    }
+}
+
+/// 필드 목적 전이 → 알림 이벤트 (`password_enter`: 비차단→차단, `password_leave`: 차단→비차단).
+/// 차단 상태(`should_block_hangul`)가 그대로면 None.
+fn purpose_transition_event(
+    prev: ContentPurpose,
+    new: ContentPurpose,
+    context_id: u32,
+    atf_on: bool,
+) -> Option<NotifyEvent> {
+    match (prev.should_block_hangul(), new.should_block_hangul()) {
+        (false, true) => Some(NotifyEvent::password_enter(context_id, atf_on)),
+        (true, false) => Some(NotifyEvent::password_leave(context_id)),
+        _ => None,
+    }
+}
+
 /// 입력 필드 목적 반영 (`SetContentType` / `SetContentTypeWithReply` 공용).
 ///
 /// 반환값: 비밀번호/PIN 진입으로 열려 있던 팝업을 **재커밋 없이** 닫았으면 true
@@ -963,21 +1056,30 @@ fn should_suppress_repeat(
 
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
 ///
+/// `notify_tx` 는 상황 알림 채널(NOTIFY_SPEC §3.2)의 송신 측이다 — 워커는 `try_send` 만 한다.
+///
 /// # Returns
 ///
 /// 엔진 워커에게 요청을 보낼 수 있는 `mpsc::Sender`
-pub fn spawn_engine_worker(config: Config) -> mpsc::Sender<EngineRequest> {
+pub fn spawn_engine_worker(
+    config: Config,
+    notify_tx: mpsc::Sender<NotifyOut>,
+) -> mpsc::Sender<EngineRequest> {
     let (tx, rx) = mpsc::channel::<EngineRequest>(256);
 
     thread::spawn(move || {
-        run_engine_worker(rx, config);
+        run_engine_worker(rx, config, notify_tx);
     });
 
     tx
 }
 
 /// 엔진 워커 메인 루프 (블로킹)
-fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) {
+fn run_engine_worker(
+    mut rx: mpsc::Receiver<EngineRequest>,
+    mut config: Config,
+    notify_tx: mpsc::Sender<NotifyOut>,
+) {
     let mut contexts: HashMap<u32, InputEngine> = HashMap::new();
     // 앱별 모드 저장: app_id -> InputCategory (PerApp 모드용)
     let mut app_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
@@ -1004,6 +1106,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     // 조합 중이라 재구성을 미뤄둔 컨텍스트. 조합이 끝나는 즉시(다음 요청 진입 시)
     // 적용한다 — 자세한 근거는 리로드 블록 주석 참조.
     let mut pending_korean_rebuild: HashSet<u32> = HashSet::new();
+    // 상황 알림: 게이트 + 알림 채널 (NOTIFY_SPEC §3.2). `notify.*` 설정은 `config` 를 그대로 따른다.
+    let mut notify = NotifyHub::new(notify_tx);
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -1176,6 +1280,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 undo_states.remove(&id);
                 recent_corrections.remove(&id);
                 last_key_presses.remove(&id);
+                // 알림 게이트: 컨텍스트별 1회·비밀번호 칸 기록 정리 (규칙 4 맵은 여기서만 지운다).
+                notify.gate.on_destroy(id);
                 if last_focused_context_id == Some(id) {
                     last_focused_context_id = None;
                 }
@@ -1237,6 +1343,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // engine 빌림 안에서 드레인해 여기 보관하고, config.auto_typefix 불변 대여가
                 // 끝난 뒤(borrow 해제 후) 반전·persist·통지한다(Risk 4 — 대여 충돌 회피).
                 let mut atf_toggle_pending: Option<AtfToggleKind> = None;
+                // 상황 알림: 이 요청에서 생긴 이벤트를 모아 응답 직후 `dispatch` 로 1회 심사한다
+                // (규칙 6 — 요청 단위 우선순위. NOTIFY_SPEC §3.2).
+                let mut notify_events: Vec<NotifyEvent> = Vec::new();
 
                 let mut resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
@@ -1345,6 +1454,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // 키 처리
                     let result = engine.press_key(key, modifier, &config);
+
+                    // 비밀번호/PIN 칸이라 한/영 전환을 거부했는가 — 직후에 읽어야 한다
+                    // (아래 ATF replay 의 press_key 가 플래그를 다시 리셋한다).
+                    if engine.last_toggle_blocked() {
+                        notify_events.push(NotifyEvent::mode_toggle_suppressed(context_id));
+                    }
 
                     // ATF 토글 단축키 드레인: press_key 가 매칭 시 pending 에 적재한다.
                     // 매칭이 없으면 None. config 반전은 atf_config 불변 대여 종료 후 수행.
@@ -1478,9 +1593,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             buf.word_mode = engine.is_word_mode();
 
                             // 방향에 따라 감지 (blacklist 억제 게이트 포함)
-                            let (fix, direction) = match current_mode {
+                            let (outcome, direction) = match current_mode {
                                 unim::config::InputCategory::English => (
-                                    auto_typefix::check_forward(
+                                    auto_typefix::check_forward_outcome(
                                         buf,
                                         atf_config,
                                         &config.engine.korean.layout,
@@ -1490,7 +1605,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Direction::Forward,
                                 ),
                                 unim::config::InputCategory::Korean => (
-                                    auto_typefix::check_reverse(
+                                    auto_typefix::check_reverse_outcome(
                                         buf,
                                         atf_config,
                                         &config.engine.korean.layout,
@@ -1501,6 +1616,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Direction::Reverse,
                                 ),
                             };
+                            // 억제 사유가 있으면 알림 이벤트로 남긴다(블랙리스트 적중). 단어는
+                            // `show_text=true` 일 때만 문구에 쓰이고, 비밀번호 칸은 ATF 자체가
+                            // 꺼져 여기 도달하지 않는다(이중 방어는 게이트 §2.3).
+                            if outcome.suppressed().is_some() {
+                                notify_events.push(NotifyEvent::atf_suppressed(
+                                    context_id,
+                                    &buf.to_ascii_string(&config.engine.english.layout),
+                                ));
+                            }
+                            let fix = outcome.into_fix();
 
                             // 재트리거 감지: 관찰창 내에서 동일 ASCII의 AutoTypeFix가
                             // 이미 rollback 관찰(BS/모드전환) 된 적 있으면, 이번 트리거를
@@ -1521,6 +1646,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 };
                                 if let Some((kl, el)) = retrigger_layouts {
                                     blacklist.add_or_hit_tentative(&key, direction, &kl, &el);
+                                    // 재트리거 분기는 `fix` 를 None 으로 바꾸므로 같은 키에서
+                                    // `atf_corrected_*` 와 상호 배타다(§2.1).
+                                    notify_events.push(NotifyEvent::blacklist_learned(
+                                        context_id,
+                                        &key,
+                                        atf_config.tentative_expiry_hours,
+                                    ));
                                     if let Err(e) = blacklist.save_to_default_path() {
                                         unim_log!(
                                             "ENGINE_WORKER",
@@ -1624,6 +1756,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // 버퍼 초기화 전에 ascii 미리 캡처
                                 // (역방향의 delete_chars 계산에 사용)
                                 let buf_ascii = buf.to_ascii_string(&config.engine.english.layout);
+
+                                // 상황 알림: 자동 교정 발동. 역방향은 `fix.original` 이 비어 있어
+                                // before 를 버퍼 ASCII 의 한글 환산(화면 글자의 근사치)으로 만든다.
+                                let notify_before = match direction {
+                                    Direction::Forward => fix.original.clone(),
+                                    Direction::Reverse => unim::typefix::eng_to_kor(
+                                        &buf_ascii,
+                                        &config.engine.korean.layout,
+                                        &config.engine.english.layout,
+                                    ),
+                                };
+                                notify_events.push(NotifyEvent::atf_corrected(
+                                    direction,
+                                    context_id,
+                                    &notify_before,
+                                    &fix.corrected,
+                                ));
 
                                 // Phase A2(순방향 word 라이브 조합 유지): word 모드일 때 전체 단어를
                                 // 하나의 라이브 조합으로 재구성하려면 전체 키스트로크가 필요하다
@@ -1849,6 +1998,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             crate::beep::announce_mode(is_korean);
                         }
                     }
+                    // 상황 알림 mode_changed — 같은 최종 소비 지점. ATF 유발 전환은 게이트
+                    // (`offer_batch`)가 교정 알림이 통과했을 때 제거한다(규칙 6).
+                    if let Some(is_korean) = mode_changed {
+                        notify_events.push(NotifyEvent::mode_changed(context_id, is_korean));
+                    }
 
                     EngineResponse {
                         consumed: result.consumed,
@@ -1936,6 +2090,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         new_value
                     );
                     resp.atf_toggled = Some((kind, new_value));
+                    notify_events.push(NotifyEvent::feature_toggled(context_id, kind, new_value));
                     // 전체 config JSON 동반 — service 가 config_changed_json 으로 방출해
                     // GNOME 확장(ConfigChangedJson 구독)까지 토글 피드백을 전달한다.
                     // 여기서 소유·persist 한 config 를 직렬화하므로 stale 위험이 없다.
@@ -1961,6 +2116,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 }
 
                 let _ = response.send(resp);
+
+                // 상황 알림: 응답을 먼저 돌려준 뒤 이 요청의 이벤트를 1회 심사·발송한다.
+                // (try_send 라 키 경로를 막지 않는다 — 가득 차면 폐기.)
+                if !notify_events.is_empty() {
+                    let purpose = contexts
+                        .get(&context_id)
+                        .map(|e| e.content_purpose())
+                        .unwrap_or_default();
+                    notify.dispatch(notify_events, purpose, &config);
+                }
 
                 // Global 모드에서 한/영 토글 발생 시 다른 활성 context 들에도 동일
                 // 모드 즉시 적용 — 같은 앱 안 여러 윈도우 / 다른 앱 무관하게 모드
@@ -2011,6 +2176,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 keystroke_buffers.remove(&context_id);
                 undo_states.remove(&context_id);
                 recent_corrections.remove(&context_id);
+                // 알림 규칙 2(컨텍스트당 1회) 리셋 — 규칙 4(비밀번호 칸 기록)는 건드리지 않는다.
+                notify.gate.on_focus_out(context_id);
 
                 // PerApp / Context-local 모드이면 엔진 초기화 후에도 이전 모드를 유지.
                 // Global 모드에서는 전역 default_category가 다시 적용되도록 preserve=false.
@@ -2086,6 +2253,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     if config.engine.toggle_announce_beep {
                         crate::beep::announce_mode(is_korean);
                     }
+                    // 상황 알림 mode_changed: 응답 채널·context_id 가 없는 단방향 요청이라
+                    // `context_id=0`(전역 표지)으로 만들되, 게이트(규칙 1·5)를 거친다.
+                    notify.dispatch(
+                        vec![NotifyEvent::mode_changed(0, is_korean)],
+                        ContentPurpose::Normal,
+                        &config,
+                    );
                 } else {
                     // [비프 ②SetGlobalMode — PerApp 분기 무음] PerApp 에서는 default_category
                     // 만 갱신되고 현재 포커스 컨텍스트의 입력 모드는 불변이다. 여기서 비프를
@@ -2390,6 +2564,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 purpose,
             } => {
+                let prev = contexts.get(&context_id).map(|e| e.content_purpose());
                 apply_content_type(
                     &mut contexts,
                     &mut keystroke_buffers,
@@ -2398,6 +2573,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     context_id,
                     purpose,
                 );
+                let new = contexts.get(&context_id).map(|e| e.content_purpose());
+                notify.on_content_type(&config, context_id, prev, new);
             }
 
             EngineRequest::SetContentTypeWithReply {
@@ -2405,6 +2582,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 purpose,
                 response,
             } => {
+                let prev = contexts.get(&context_id).map(|e| e.content_purpose());
                 let popup_closed = apply_content_type(
                     &mut contexts,
                     &mut keystroke_buffers,
@@ -2414,6 +2592,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     purpose,
                 );
                 let _ = response.send(popup_closed);
+                let new = contexts.get(&context_id).map(|e| e.content_purpose());
+                notify.on_content_type(&config, context_id, prev, new);
             }
 
             EngineRequest::SetSurroundingText {
@@ -3518,5 +3698,190 @@ mod tests {
         let mut recent = HashMap::new();
         let pw = ContentPurpose::Password as u32;
         assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 1, pw));
+    }
+
+    // ───────────── 상황 알림 허브 (NOTIFY_SPEC §2.2·§3.2) ─────────────
+
+    fn hub_with(cap: usize) -> (NotifyHub, mpsc::Receiver<NotifyOut>) {
+        let (tx, rx) = mpsc::channel(cap);
+        let hub = NotifyHub {
+            tx,
+            gate: NotifyGate::new(),
+            auto_lang: Lang::Ko,
+        };
+        (hub, rx)
+    }
+
+    fn cfg_with_events(events: &[&str]) -> Config {
+        let mut c = Config::default();
+        c.engine.notify.events = events.iter().map(|e| e.to_string()).collect();
+        c
+    }
+
+    fn kinds(rx: &mut mpsc::Receiver<NotifyOut>) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        while let Ok(o) = rx.try_recv() {
+            v.push(o.kind);
+        }
+        v
+    }
+
+    #[test]
+    fn purpose_transition_event_only_on_block_state_change() {
+        use ContentPurpose::*;
+        let kind = |p, n| purpose_transition_event(p, n, 1, true).map(|e| e.kind.as_str());
+        assert_eq!(kind(Normal, Password), Some("password_enter"));
+        assert_eq!(kind(Normal, Pin), Some("password_enter"));
+        assert_eq!(kind(Password, Normal), Some("password_leave"));
+        assert_eq!(kind(Pin, Normal), Some("password_leave"));
+        // 차단 상태 불변: 같은 목적 재설정·차단↔차단·비차단↔비차단은 전이가 아니다
+        assert_eq!(kind(Password, Password), None);
+        assert_eq!(kind(Password, Pin), None);
+        assert_eq!(kind(Normal, Normal), None);
+    }
+
+    #[test]
+    fn hub_password_enter_once_then_leave_after_filtered_record() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 같은 칸에서 다시 전이해도(10분 안) 진입 알림은 1회뿐
+        hub.on_content_type(&cfg, 5, Some(Password), Some(Normal));
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty(), "같은 칸 재진입은 10분 안엔 침묵");
+    }
+
+    #[test]
+    fn hub_password_transition_recorded_even_when_enter_filtered_out() {
+        // events 에 password_enter 가 없어도 진입 시각은 기록돼 leave 가 나간다(규칙 4·5)
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty());
+        hub.on_content_type(&cfg, 5, Some(Password), Some(Normal));
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+    }
+
+    #[test]
+    fn hub_destroy_context_clears_password_record() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 9, Some(Normal), Some(Password));
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 컨텍스트 파괴 → 진입 기록이 사라져 이후 leave 는 "들어온 적 없는 칸" 이라 침묵
+        hub.gate.on_destroy(9);
+        hub.on_content_type(&cfg, 9, Some(Password), Some(Normal));
+        assert!(kinds(&mut rx).is_empty(), "파괴 뒤엔 진입 기록이 없어 leave 미발화");
+    }
+
+    #[test]
+    fn hub_content_type_ignores_missing_context() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = Config::default();
+        hub.on_content_type(&cfg, 1, None, None);
+        hub.on_content_type(&cfg, 1, Some(ContentPurpose::Normal), None);
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    #[test]
+    fn hub_dispatch_applies_rule6_atf_corrected_drops_mode_changed() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["atf_corrected", "mode_changed"]);
+        let evs = vec![
+            NotifyEvent::atf_corrected(Direction::Forward, 1, "rkskek", "가나다"),
+            NotifyEvent::mode_changed(1, true),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["atf_corrected_forward"]);
+    }
+
+    #[test]
+    fn hub_dispatch_atf_corrected_filtered_lets_mode_changed_through() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        let evs = vec![
+            NotifyEvent::atf_corrected(Direction::Forward, 1, "rkskek", "가나다"),
+            NotifyEvent::mode_changed(1, true),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["mode_changed"]);
+    }
+
+    #[test]
+    fn hub_dispatch_global_mode_goes_through_gate_dedupe() {
+        // SetGlobalMode 경로: context_id=0, 게이트(규칙 1·5)를 우회하지 않는다
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        hub.dispatch(vec![NotifyEvent::mode_changed(0, true)], ContentPurpose::Normal, &cfg);
+        hub.dispatch(vec![NotifyEvent::mode_changed(0, true)], ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["mode_changed"], "3초 안 동일 키는 폐기");
+        // 기본 events 에는 mode_changed 가 없다 → 발송 0
+        hub.dispatch(
+            vec![NotifyEvent::mode_changed(0, false)],
+            ContentPurpose::Normal,
+            &Config::default(),
+        );
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    #[test]
+    fn hub_dispatch_never_blocks_when_channel_full() {
+        // 용량 1 채널에 2건 — 두 번째는 폐기되고 워커는 멈추지 않는다(try_send)
+        let (mut hub, mut rx) = hub_with(1);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        let evs = vec![
+            NotifyEvent::mode_changed(1, true),
+            NotifyEvent::mode_changed(1, false),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx).len(), 1);
+    }
+
+    #[test]
+    fn hub_dispatch_closed_channel_is_harmless() {
+        let (mut hub, rx) = hub_with(1);
+        drop(rx);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        hub.dispatch(vec![NotifyEvent::mode_changed(1, true)], ContentPurpose::Normal, &cfg);
+    }
+
+    #[test]
+    fn hub_dispatch_disabled_sends_nothing_and_password_discards_text() {
+        let (mut hub, mut rx) = hub_with(8);
+        let mut cfg = cfg_with_events(&["atf_corrected", "atf_suppressed"]);
+        // 비밀번호 상태에서는 텍스트 종류 폐기(§2.3 대책 3)
+        hub.dispatch(
+            vec![NotifyEvent::atf_suppressed(1, "secret")],
+            ContentPurpose::Password,
+            &cfg,
+        );
+        assert!(kinds(&mut rx).is_empty());
+        cfg.engine.notify.enabled = false;
+        hub.dispatch(
+            vec![NotifyEvent::atf_suppressed(2, "word")],
+            ContentPurpose::Normal,
+            &cfg,
+        );
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    /// 한/영 전환 차단은 엔진 getter 로 읽는다 — 워커가 `press_key` 직후 읽는 계약 확인.
+    #[test]
+    fn last_toggle_blocked_read_right_after_press_key_in_password_field() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_content_purpose(ContentPurpose::Password);
+        let m = ModifierState::default();
+        let toggle = KeyCode::from_evdev_keycode(100); // 오른쪽 Alt (한/영 기본 키)
+        assert!(e.is_toggle_key(toggle), "기본 설정에서 이 키가 한/영 토글이어야 한다");
+        e.press_key(toggle, m, &config);
+        assert!(e.last_toggle_blocked());
+        e.press_key(KeyCode::A, m, &config);
+        assert!(!e.last_toggle_blocked(), "다음 키에서 false 로 리셋");
     }
 }

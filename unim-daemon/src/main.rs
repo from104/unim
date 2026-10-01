@@ -380,6 +380,8 @@ fn spawn_popup_service_kickstart(conn: &Connection) {
 /// DBus 서비스를 시작합니다.
 async fn start_dbus_service(
     engine_tx: mpsc::Sender<unim_dbus::service::EngineRequest>,
+    notify_tx: mpsc::Sender<unim_dbus::notify_task::NotifyOut>,
+    notify_rx: mpsc::Receiver<unim_dbus::notify_task::NotifyOut>,
 ) -> zbus::Result<Connection> {
     let config = unim::config::Config::load_from_default_path();
 
@@ -432,7 +434,9 @@ async fn start_dbus_service(
     }
 
     // 서비스 객체 등록
-    let service = InputMethodService::new(config, engine_tx.clone(), connection.clone());
+    // 알림 전담 태스크·프런트엔드 등록자 감시는 서비스가 소유한 등록 목록을 공유해야 하므로 여기서 연결한다.
+    let service = InputMethodService::new(config, engine_tx.clone(), connection.clone())
+        .with_notify(notify_tx, notify_rx);
     connection
         .object_server()
         .at(INPUT_METHOD_PATH, service)
@@ -651,11 +655,14 @@ async fn main() {
     let pid_file_cleanup = pid_file.clone();
 
     // 엔진 워커 시작
-    let engine_tx = spawn_engine_worker(config);
+    // 상황 알림 채널(워커 → 알림 전담 태스크, NOTIFY_SPEC §3.2). 워커는 try_send 만 한다.
+    let (notify_tx, notify_rx) =
+        tokio::sync::mpsc::channel(unim_dbus::notify_task::NOTIFY_QUEUE_CAP);
+    let engine_tx = spawn_engine_worker(config, notify_tx.clone());
     unim_log!("DAEMON", "엔진 워커 시작됨");
 
     // DBus 서비스 시작
-    let _connection = match start_dbus_service(engine_tx).await {
+    let _connection = match start_dbus_service(engine_tx, notify_tx, notify_rx).await {
         Ok(conn) => {
             unim_log!("DAEMON", "[DBus] 서비스 시작 성공");
             conn

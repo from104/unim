@@ -679,7 +679,7 @@ korean:
 
 ## 5. Settings GUI Tour
 
-**`unim-settings`** (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the four pages below are **identical on both operating systems** — only the way you open the window differs.
+**`unim-settings`** (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the five pages below are **identical on both operating systems** — only the way you open the window differs.
 
 <!-- @platform:linux -->
 **🐧 Opening it on Linux** — the "UNIM Settings" app-menu item, the first-run wizard, and the tray menu all launch this same executable. You can also start it from a terminal.
@@ -711,7 +711,7 @@ unim-settings &
 > The **[Help]** button at the bottom of the sidebar opens this manual in your default browser.
 <!-- @endplatform -->
 
-Four pages (left-hand navigation):
+Five pages (left-hand navigation):
 
 ### 5.1 Page 1 — General
 
@@ -771,6 +771,25 @@ A single list shows **Tentative**, **Confirmed**, and **Inactive** suppressions 
 <!-- screenshot: settings-userdict -->
 
 Enter a **word** and an optional **note**, then **Add**, to register an English ↔ Korean-jamo-sequence mapping. E.g. `wave` ↔ `ㅈㅐㅍㅁ`. Select an entry below and **Delete** to remove it. Reverse correction prefers user-dict entries.
+
+### 5.5 Page 5 — Notifications (situation toasts)
+
+Short 1-2 second notifications for **input-method situations that are easy to miss**, such as auto-fix firing or the Korean/English toggle being blocked in a password field. They never take focus, disappear on their own and are not kept in the notification list (GNOME).
+
+| Item | Description |
+|------|-------------|
+| Enable situation notifications | Master switch (on by default). When off, none of the events below produce a notification |
+| Display duration | 500-5000 ms (default 2000). **Not applied to GNOME notification banners** (GNOME shows them for a time set by the shell) |
+| Notification language | `Auto` (decided from the locale variables `LC_ALL` > `LC_MESSAGES` > `LANG`) / `Korean` / `English`. The variables may be empty depending on the session, so choosing explicitly is more reliable |
+| Position | Windows only - the screen corner for the toast (default bottom-right) |
+| Show text before/after correction | **Off** by default (only "Auto-fixed" is shown). When on, `{before} → {after}` and the word are shown |
+| Notification events | Auto-fixed, auto-fix skipped, temporary exclusion learned, entered password field, left password field, language toggle blocked, mode changed, auto-fix turned on/off, feature results (GNOME extension). The first seven (except left password field and mode changed) are on by default |
+
+> ⚠️ **Turn on "Show text before/after correction" with care.** Where password fields cannot be detected, such as XIM, part of a password may appear on the notification, in the notification server and on the lock screen. In fields that are detected as password fields, no notification containing typed text is ever created, regardless of this switch.
+>
+> **The "entered password field" notification is shown once per field** and again after 10 minutes. In apps where one window is one input field (browsers), moving to another site's password field in the same window within 10 minutes of the first notification is not announced.
+
+The CLI works too: `unim-cli config set notify-enabled false`, `notify-duration-ms`, `notify-language`, `notify-show-text`, `notify-corner`, `notify-events` (comma-separated).
 
 ---
 

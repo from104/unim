@@ -761,6 +761,8 @@ fn forward_suppressed_by_tentative_blacklist() {
         result.is_none(),
         "tentative blacklist 엔트리는 forward를 억제해야 함"
     );
+    let outcome = check_forward_outcome(&buf, &config, "ko_2bulstd", "qwerty", &bl);
+    assert_eq!(outcome.suppressed(), Some(AtfSuppressReason::Blacklist));
 }
 
 #[test]
@@ -787,6 +789,8 @@ fn forward_suppressed_by_confirmed_blacklist() {
         result.is_none(),
         "confirmed blacklist 엔트리는 forward를 억제해야 함"
     );
+    let outcome = check_forward_outcome(&buf, &config, "ko_2bulstd", "qwerty", &bl);
+    assert_eq!(outcome.suppressed(), Some(AtfSuppressReason::Blacklist));
 }
 
 #[test]
@@ -859,6 +863,8 @@ fn reverse_suppressed_by_tentative_blacklist() {
 
     let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &bl, &EmptyUserDict);
     assert!(result.is_none(), "tentative reverse 엔트리는 억제해야 함");
+    let outcome = check_reverse_outcome(&buf, &config, "ko_2bulstd", "qwerty", &bl, &EmptyUserDict);
+    assert_eq!(outcome.suppressed(), Some(AtfSuppressReason::Blacklist));
 }
 
 #[test]
@@ -1263,4 +1269,41 @@ fn test_reverse_syllable_mode_no_replace_composition() {
         !r.replace_composition,
         "음절 모드는 기존 surrounding 삭제 경로(무회귀)"
     );
+}
+
+// === AtfOutcome: 억제(Suppressed)와 미해당(NoMatch)의 구분 ===
+
+#[test]
+fn outcome_distinguishes_fix_and_no_match() {
+    let config = AutoTypeFixConfig::default();
+    let mut buf = KeystrokeBuffer::new();
+    for key in [
+        KeyCode::G,
+        KeyCode::K,
+        KeyCode::S,
+        KeyCode::R,
+        KeyCode::M,
+        KeyCode::F,
+    ] {
+        buf.push(key, ModifierState::default());
+    }
+    let bl = empty_bl();
+    let fix = check_forward_outcome(&buf, &config, "ko_2bulstd", "qwerty", &bl);
+    assert!(fix.suppressed().is_none());
+    assert!(fix.into_fix().is_some(), "블랙리스트 없으면 Fix");
+
+    // 버퍼 1개(너무 짧음) → NoMatch (억제가 아니므로 알림 대상 아님)
+    let mut short = KeystrokeBuffer::new();
+    short.push(KeyCode::G, ModifierState::default());
+    let o = check_forward_outcome(&short, &config, "ko_2bulstd", "qwerty", &bl);
+    assert!(matches!(o, AtfOutcome::NoMatch));
+    assert!(o.suppressed().is_none());
+
+    // 순방향 꺼짐 → NoMatch
+    let off = AutoTypeFixConfig {
+        forward: false,
+        ..AutoTypeFixConfig::default()
+    };
+    let o = check_forward_outcome(&buf, &off, "ko_2bulstd", "qwerty", &bl);
+    assert!(matches!(o, AtfOutcome::NoMatch));
 }

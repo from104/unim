@@ -626,7 +626,7 @@ korean:
 </blockquote>
 <hr />
 <h3 id="user-guide--5-settings-gui-tour">5. Settings GUI Tour</h3>
-<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the four pages below are <strong>identical on both operating systems</strong> — only the way you open the window differs.</p>
+<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the five pages below are <strong>identical on both operating systems</strong> — only the way you open the window differs.</p>
 <p><strong>🪟 Opening it on Windows</strong> — three ways, whichever suits you.</p>
 <div class="tablewrap"><table><thead><tr><th>Route</th><th>Steps</th></tr></thead><tbody>
 <tr><td><strong>A. Language bar</strong> (recommended)</td><td><strong>Right-click</strong> the <code>한</code> / <code>A</code> indicator near the clock → <strong>Settings</strong></td></tr>
@@ -643,7 +643,7 @@ korean:
 <p><strong>One exception — if you are in the middle of composing a syllable when you switch layouts</strong>: the new layout applies <strong>after the current composition ends</strong> (not one syllable but until the underline disappears — up to the word boundary in word-commit mode). This is deliberate, so the switch never breaks the character you are typing. To see the change right away, end the composition with Space or <code>Esc</code> first.</p>
 <p>The <strong>[Help]</strong> button at the bottom of the sidebar opens this manual in your default browser.</p>
 </blockquote>
-<p>Four pages (left-hand navigation):</p>
+<p>Five pages (left-hand navigation):</p>
 <h4 id="user-guide--51-page-1--general">5.1 Page 1 — General</h4>
 <!-- screenshot: settings-general -->
 <div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
@@ -684,6 +684,22 @@ korean:
 <h4 id="user-guide--54-page-4--user-dictionary-reverse-whitelist">5.4 Page 4 — User Dictionary (reverse whitelist)</h4>
 <!-- screenshot: settings-userdict -->
 <p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers user-dict entries.</p>
+<h4 id="user-guide--55-page-5--notifications-situation-toasts">5.5 Page 5 — Notifications (situation toasts)</h4>
+<p>Short 1-2 second notifications for <strong>input-method situations that are easy to miss</strong>, such as auto-fix firing or the Korean/English toggle being blocked in a password field. They never take focus, disappear on their own and are not kept in the notification list (GNOME).</p>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>Description</th></tr></thead><tbody>
+<tr><td>Enable situation notifications</td><td>Master switch (on by default). When off, none of the events below produce a notification</td></tr>
+<tr><td>Display duration</td><td>500-5000 ms (default 2000). <strong>Not applied to GNOME notification banners</strong> (GNOME shows them for a time set by the shell)</td></tr>
+<tr><td>Notification language</td><td><code>Auto</code> (decided from the locale variables <code>LC_ALL</code> &gt; <code>LC_MESSAGES</code> &gt; <code>LANG</code>) / <code>Korean</code> / <code>English</code>. The variables may be empty depending on the session, so choosing explicitly is more reliable</td></tr>
+<tr><td>Position</td><td>Windows only - the screen corner for the toast (default bottom-right)</td></tr>
+<tr><td>Show text before/after correction</td><td><strong>Off</strong> by default (only "Auto-fixed" is shown). When on, <code>{before} → {after}</code> and the word are shown</td></tr>
+<tr><td>Notification events</td><td>Auto-fixed, auto-fix skipped, temporary exclusion learned, entered password field, left password field, language toggle blocked, mode changed, auto-fix turned on/off, feature results (GNOME extension). The first seven (except left password field and mode changed) are on by default</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>⚠️ <strong>Turn on "Show text before/after correction" with care.</strong> Where password fields cannot be detected, such as XIM, part of a password may appear on the notification, in the notification server and on the lock screen. In fields that are detected as password fields, no notification containing typed text is ever created, regardless of this switch.</p>
+<p><strong>The "entered password field" notification is shown once per field</strong> and again after 10 minutes. In apps where one window is one input field (browsers), moving to another site's password field in the same window within 10 minutes of the first notification is not announced.</p>
+</blockquote>
+<p>The CLI works too: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code> (comma-separated).</p>
 <hr />
 <h3 id="user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Not included on Windows yet.</strong> The layout viewer/editor (Keymap Studio) and the typing-practice tool ship only with the Linux packages for now. The Windows installer (MSI) contains just the input method, the settings window, and the popup renderer.</p>

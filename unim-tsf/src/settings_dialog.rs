@@ -25,7 +25,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use unim::config::{
-    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode, NotifyCorner,
+    NotifyLanguage, NOTIFY_DURATION_MAX, NOTIFY_DURATION_MIN, NOTIFY_EVENT_NAMES,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -60,6 +61,7 @@ const TAB_GENERAL: i32 = 0;
 const TAB_TYPEFIX: i32 = 1;
 const TAB_BLACKLIST: i32 = 2;
 const TAB_USERDICT: i32 = 3;
+const TAB_NOTIFY: i32 = 4;
 
 // ─── 컨트롤 ID 상수 ─────────────────────────────────────────────────────────
 // 일반 탭 (1xxx, 4xxx, 5xxx)
@@ -86,6 +88,16 @@ const ID_EDT_AUTO_ENG_TRIGGERS: u32 = 5021;
 const ID_CHK_TOGGLE_BEEP: u32 = 5030;
 // 조합키 자동반복 억제 (접근성, 지체장애)
 const ID_CHK_IGNORE_REPEAT: u32 = 5031;
+
+// 알림 탭 (상황 알림/토스트, NOTIFY_SPEC §5)
+const ID_CHK_NOTIFY_ENABLED: u32 = 5040;
+const ID_TRK_NOTIFY_DURATION: u32 = 5041;
+const ID_LBL_NOTIFY_DURATION: u32 = 5042;
+const ID_CMB_NOTIFY_LANGUAGE: u32 = 5043;
+const ID_CMB_NOTIFY_CORNER: u32 = 5044;
+const ID_CHK_NOTIFY_SHOW_TEXT: u32 = 5045;
+/// 이벤트 체크박스 — `NOTIFY_EVENT_NAMES[i]` 의 ID 는 `ID_CHK_NOTIFY_EVENT_BASE + i`.
+const ID_CHK_NOTIFY_EVENT_BASE: u32 = 5050;
 
 // 오타 교정 탭 (1xxx, 2xxx, 3xxx)
 
@@ -269,6 +281,8 @@ struct DlgState {
     hwnd_page_blacklist: HWND,
     /// 탭4 "사용자 사전" 페이지 컨테이너
     hwnd_page_userdict: HWND,
+    /// 탭5 "알림" 페이지 컨테이너
+    hwnd_page_notify: HWND,
     /// 현재 선택된 탭 인덱스
     cur_tab: i32,
     /// 동적 룰셋 체크박스 목록 (일반 탭)
@@ -845,6 +859,94 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
     let _ = y;
 }
 
+// ─── 탭5 "알림" 페이지 컨트롤 생성 ─────────────────────────────────────────
+
+/// 이벤트 설정명(`NOTIFY_EVENT_NAMES`)의 체크박스 라벨 — 순서가 `NOTIFY_EVENT_NAMES` 와 같다.
+const NOTIFY_EVENT_LABELS: [&str; 9] = [
+    "자동 교정됨",
+    "자동 교정 건너뜀",
+    "임시 제외 학습",
+    "비밀번호 칸 진입 (칸당 1회, 10분 뒤 재알림)",
+    "비밀번호 칸 벗어남",
+    "한/영 전환 막힘 (비밀번호 칸)",
+    "한/영 모드 변경",
+    "자동 교정 켜짐/꺼짐",
+    "기능 결과 (GNOME 확장 전용)",
+];
+
+unsafe fn build_page_notify(page: HWND, config: &Config) {
+    let n = &config.engine.notify;
+    let lm = 12i32;
+    let mut y = 10i32;
+    let row_h = 22i32;
+    let gap = 6i32;
+    let trk_w = 300i32;
+    let trk_h = 26i32;
+    let lbl_val_w = 50i32;
+    let lbl_w = 120i32;
+    let cmb_w = 180i32;
+    let chk_w = PAGE_W - lm * 2;
+    let lbl_x = lm + trk_w + gap;
+
+    create_static(page, "[ 상황 알림 ]", lm, y, 350, row_h);
+    y += row_h + gap;
+    create_checkbox(page, "상황 알림 사용", ID_CHK_NOTIFY_ENABLED,
+        lm + 10, y, chk_w - 10, row_h, n.enabled);
+    y += row_h + gap * 2;
+
+    // 표시 시간 슬라이더 (ms)
+    create_static(page, "표시 시간 (ms, 500~5000)", lm, y, 280, row_h);
+    create_value_label(page, ID_LBL_NOTIFY_DURATION, &n.duration_ms.to_string(),
+        lbl_x, y, lbl_val_w, row_h);
+    y += row_h;
+    create_trackbar(page, ID_TRK_NOTIFY_DURATION, lm, y, trk_w, trk_h,
+        NOTIFY_DURATION_MIN as i32, NOTIFY_DURATION_MAX as i32, n.duration_ms as i32);
+    y += trk_h + gap * 2;
+
+    // 언어
+    create_static(page, "알림 언어:", lm, y, lbl_w, row_h);
+    let lang_sel = match n.language {
+        NotifyLanguage::Auto => 0,
+        NotifyLanguage::Ko => 1,
+        NotifyLanguage::En => 2,
+    };
+    create_combobox(page, ID_CMB_NOTIFY_LANGUAGE, lm + lbl_w + 4, y, cmb_w, 120,
+        &["자동", "한국어", "영어"], lang_sel);
+    y += row_h + gap;
+
+    // 표시 모서리 (Windows 렌더러가 사용)
+    create_static(page, "표시 위치:", lm, y, lbl_w, row_h);
+    let corner_sel = match n.corner {
+        NotifyCorner::Auto => 0,
+        NotifyCorner::TopRight => 1,
+        NotifyCorner::BottomRight => 2,
+        NotifyCorner::TopLeft => 3,
+        NotifyCorner::BottomLeft => 4,
+    };
+    create_combobox(page, ID_CMB_NOTIFY_CORNER, lm + lbl_w + 4, y, cmb_w, 150,
+        &["자동 (우하단)", "우상단", "우하단", "좌상단", "좌하단"], corner_sel);
+    y += row_h + gap * 2;
+
+    // 교정 전후 텍스트 표시 — 민감정보 경고(D1).
+    create_checkbox(page, "교정 전후 텍스트 표시", ID_CHK_NOTIFY_SHOW_TEXT,
+        lm + 10, y, chk_w - 10, row_h, n.show_text);
+    y += row_h + 2;
+    create_static(page,
+        "※ 감지 못 한 비밀번호 칸에서 입력 일부가 알림에 보일 수 있습니다.",
+        lm + 30, y, chk_w - 30, row_h);
+    y += row_h + gap * 2;
+
+    // 이벤트별 스위치
+    create_static(page, "[ 알림 이벤트 ]", lm, y, 200, row_h);
+    y += row_h + 2;
+    for (i, label) in NOTIFY_EVENT_LABELS.iter().enumerate() {
+        create_checkbox(page, label, ID_CHK_NOTIFY_EVENT_BASE + i as u32,
+            lm + 10, y, chk_w - 10, row_h, n.event_enabled(NOTIFY_EVENT_NAMES[i]));
+        y += row_h + 2;
+    }
+    let _ = y;
+}
+
 // ─── 탭2 "오타 교정" 페이지 컨트롤 생성 ────────────────────────────────────
 
 unsafe fn build_page_typefix(page: HWND, config: &Config) {
@@ -1135,6 +1237,7 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
     tab_insert(hwnd_tab, 1, "오타 교정");
     tab_insert(hwnd_tab, 2, "억제 단어");
     tab_insert(hwnd_tab, 3, "사용자 사전");
+    tab_insert(hwnd_tab, 4, "알림");
 
     // ── 탭1 페이지 컨테이너 ──────────────────────────────────────────────────
     let hwnd_page_general = CreateWindowExW(
@@ -1192,6 +1295,20 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
     ).unwrap_or_default();
     state.hwnd_page_userdict = hwnd_page_userdict;
 
+    // ── 탭5 페이지 컨테이너 ──────────────────────────────────────────────────
+    let hwnd_page_notify = CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        PAGE_CLASS_NAME,
+        PCWSTR::null(),
+        WS_CHILD | WS_CLIPSIBLINGS,  // 초기에는 숨김
+        PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
+        Some(hwnd_tab),
+        None,
+        Some(crate::dll_instance().into()),
+        None,
+    ).unwrap_or_default();
+    state.hwnd_page_notify = hwnd_page_notify;
+
     // ── 일반 탭 컨트롤 배치 ──────────────────────────────────────────────────
     let rule_sets_start_y = build_page_general(hwnd_page_general, &state.config);
     // chord_slider_y 에 rule_sets_start_y 를 보존 — 자판 변경 시 rebuild_rule_sets 에서 재사용
@@ -1208,6 +1325,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
 
     // ── 사용자 사전 탭 컨트롤 배치 ──────────────────────────────────────────
     build_page_userdict(hwnd_page_userdict, &state.userdict);
+
+    // ── 알림 탭 컨트롤 배치 ──────────────────────────────────────────────────
+    build_page_notify(hwnd_page_notify, &state.config);
 
     // ── 하단 버튼 (메인 창 자식) ─────────────────────────────────────────────
     let btn_y = DLG_H - 44;
@@ -1226,6 +1346,7 @@ unsafe fn switch_tab(state: &mut DlgState, tab_idx: i32) {
         (state.hwnd_page_typefix,   TAB_TYPEFIX),
         (state.hwnd_page_blacklist, TAB_BLACKLIST),
         (state.hwnd_page_userdict,  TAB_USERDICT),
+        (state.hwnd_page_notify,    TAB_NOTIFY),
     ];
 
     for &(hwnd_page, idx) in pages {
@@ -1374,9 +1495,48 @@ unsafe fn collect_typefix(state: &mut DlgState) {
     state.config.engine.auto_typefix.observation_timeout_secs  = trk(ID_TRK_OBS_TIMEOUT) as u8;
 }
 
+unsafe fn collect_notify(state: &mut DlgState) {
+    let pg = state.hwnd_page_notify;
+    let n = &mut state.config.engine.notify;
+
+    if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_ENABLED) {
+        n.enabled = checkbox_checked(h);
+    }
+    if let Some(h) = get_ctrl(pg, ID_TRK_NOTIFY_DURATION) {
+        n.duration_ms = (trackbar_get_pos(h).max(0) as u32)
+            .clamp(NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX);
+    }
+    if let Some(h) = get_ctrl(pg, ID_CMB_NOTIFY_LANGUAGE) {
+        n.language = match combobox_get_sel(h) {
+            1 => NotifyLanguage::Ko,
+            2 => NotifyLanguage::En,
+            _ => NotifyLanguage::Auto,
+        };
+    }
+    if let Some(h) = get_ctrl(pg, ID_CMB_NOTIFY_CORNER) {
+        n.corner = match combobox_get_sel(h) {
+            1 => NotifyCorner::TopRight,
+            2 => NotifyCorner::BottomRight,
+            3 => NotifyCorner::TopLeft,
+            4 => NotifyCorner::BottomLeft,
+            _ => NotifyCorner::Auto,
+        };
+    }
+    if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_SHOW_TEXT) {
+        n.show_text = checkbox_checked(h);
+    }
+    // 이벤트 체크박스 → events 리스트 (미지 원소는 보존).
+    for (i, name) in NOTIFY_EVENT_NAMES.iter().enumerate() {
+        if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_EVENT_BASE + i as u32) {
+            n.set_event(name, checkbox_checked(h));
+        }
+    }
+}
+
 unsafe fn collect_all(state: &mut DlgState) {
     collect_general(state);
     collect_typefix(state);
+    collect_notify(state);
 }
 
 // ─── 저장 시도 ───────────────────────────────────────────────────────────────
@@ -1453,6 +1613,12 @@ unsafe fn handle_hscroll(hwnd_dlg: HWND, hwnd_ctrl: HWND) {
     if let Some(lbl_id) = typefix_lbl {
         let pos = trackbar_get_pos(hwnd_ctrl);
         update_value_label(hwnd_dlg, lbl_id, pos);
+        return;
+    }
+
+    // 알림 탭 슬라이더
+    if ctrl_id == ID_TRK_NOTIFY_DURATION {
+        update_value_label(hwnd_dlg, ID_LBL_NOTIFY_DURATION, trackbar_get_pos(hwnd_ctrl));
         return;
     }
 
@@ -1739,6 +1905,7 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             hwnd_page_typefix: HWND::default(),
             hwnd_page_blacklist: HWND::default(),
             hwnd_page_userdict: HWND::default(),
+            hwnd_page_notify: HWND::default(),
             cur_tab: TAB_GENERAL,
             rule_set_entries: Vec::new(),
             chord_slider_y: 0,

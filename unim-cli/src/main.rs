@@ -8,14 +8,15 @@ use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
     normalize_korean_layout_name, CommitUnit, Config as UnimConfig, HanjaOutputFormat,
-    InputCategory, KoreanConfig, ModeSharingMode,
+    InputCategory, KoreanConfig, ModeSharingMode, NotifyCorner, NotifyLanguage,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN, ENGLISH_LAYOUT_BUILTINS,
     KOREAN_LAYOUT_BUILTINS, KOREAN_LAYOUT_DUBEOLSIK, KOREAN_LAYOUT_SEBEOLSIK_390,
-    KOREAN_LAYOUT_SEBEOLSIK_391, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+    KOREAN_LAYOUT_SEBEOLSIK_391, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT, NOTIFY_DURATION_MAX,
+    NOTIFY_DURATION_MIN, NOTIFY_EVENT_NAMES,
 };
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
@@ -641,6 +642,24 @@ enum ConfigKey {
     /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows·Linux 공통 집행.
     #[value(name = "ignore-key-repeat", help = h("help_ck_ignore_key_repeat"))]
     IgnoreKeyRepeat,
+    /// 상황 알림(토스트) 전체 켜기/끄기 (true, false)
+    #[value(name = "notify-enabled", help = h("help_ck_notify_enabled"))]
+    NotifyEnabled,
+    /// 상황 알림 표시 시간 (ms, 500~5000). GNOME 알림 배너에는 적용되지 않음.
+    #[value(name = "notify-duration-ms", help = h("help_ck_notify_duration_ms"))]
+    NotifyDurationMs,
+    /// 상황 알림 문구 언어 (auto, ko, en)
+    #[value(name = "notify-language", help = h("help_ck_notify_language"))]
+    NotifyLanguage,
+    /// 알림에 교정 전후 텍스트·단어 표시 (true, false). 기본 false(가림).
+    #[value(name = "notify-show-text", help = h("help_ck_notify_show_text"))]
+    NotifyShowText,
+    /// 알림 표시 모서리 (auto, top_right, bottom_right, top_left, bottom_left). Windows 전용.
+    #[value(name = "notify-corner", help = h("help_ck_notify_corner"))]
+    NotifyCorner,
+    /// 켤 알림 이벤트 목록 (쉼표 구분)
+    #[value(name = "notify-events", help = h("help_ck_notify_events"))]
+    NotifyEvents,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1011,6 +1030,37 @@ fn config_show() {
         t!("ignore_key_repeat_label"),
         ignore_repeat_status
     );
+    {
+        let n = &config.engine.notify;
+        println!(
+            "{}: {}",
+            t!("notify_label"),
+            if n.enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            }
+        );
+        if n.enabled {
+            println!(
+                "{}",
+                t!(
+                    "config_notify_line",
+                    ms = n.duration_ms.to_string(),
+                    lang = n.language.as_str(),
+                    show = if n.show_text { "ON" } else { "OFF" },
+                    corner = n.corner.as_str()
+                )
+            );
+            println!(
+                "{}",
+                t!(
+                    "config_notify_events_line",
+                    events = display_keys(&n.events)
+                )
+            );
+        }
+    }
     println!(
         "{}: {}",
         t!("app_rules_label"),
@@ -1202,6 +1252,15 @@ fn auto_english_key_warnings(keys: &[String]) -> (Vec<String>, bool) {
 /// ATF 토글 3종은 빈 목록이 정상 옵트아웃이므로 이 검사를 적용하지 않는다.
 fn all_keys_invalid(keys: &[String], is_valid: impl Fn(&str) -> bool) -> bool {
     !keys.is_empty() && keys.iter().all(|k| !is_valid(k))
+}
+
+/// `true|on|1|yes` / `false|off|0|no` 를 bool 로 해석한다.
+fn parse_bool_value(value: &str) -> Result<bool, String> {
+    match value.to_lowercase().as_str() {
+        "true" | "on" | "1" | "yes" => Ok(true),
+        "false" | "off" | "0" | "no" => Ok(false),
+        _ => Err(format!("Invalid bool: {}", value)),
+    }
 }
 
 fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
@@ -1806,9 +1865,99 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 if enabled { t!("enabled") } else { t!("disabled") }
             );
         }
+        ConfigKey::NotifyEnabled => {
+            let enabled = parse_bool_value(value)?;
+            config.engine.notify.enabled = enabled;
+            println!(
+                "{}: {}",
+                t!("notify_label"),
+                if enabled {
+                    t!("enabled")
+                } else {
+                    t!("disabled")
+                }
+            );
+        }
+        ConfigKey::NotifyDurationMs => {
+            let v: u32 = value
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", value))?;
+            if !(NOTIFY_DURATION_MIN..=NOTIFY_DURATION_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX, v
+                ));
+            }
+            config.engine.notify.duration_ms = v;
+            println!("{}: {}ms", t!("notify_duration_label"), v);
+        }
+        ConfigKey::NotifyLanguage => {
+            let lang = NotifyLanguage::parse(value).ok_or_else(|| {
+                t!(
+                    "error_invalid_notify_value",
+                    value = value,
+                    allowed = "auto, ko, en"
+                )
+                .to_string()
+            })?;
+            config.engine.notify.language = lang;
+            println!("{}: {}", t!("notify_language_label"), lang.as_str());
+        }
+        ConfigKey::NotifyShowText => {
+            let enabled = parse_bool_value(value)?;
+            config.engine.notify.show_text = enabled;
+            println!(
+                "{}: {}",
+                t!("notify_show_text_label"),
+                if enabled {
+                    t!("enabled")
+                } else {
+                    t!("disabled")
+                }
+            );
+            if enabled {
+                println!("{}", t!("notify_show_text_warning"));
+            }
+        }
+        ConfigKey::NotifyCorner => {
+            let corner = NotifyCorner::parse(value).ok_or_else(|| {
+                t!(
+                    "error_invalid_notify_value",
+                    value = value,
+                    allowed = "auto, top_right, bottom_right, top_left, bottom_left"
+                )
+                .to_string()
+            })?;
+            config.engine.notify.corner = corner;
+            println!("{}: {}", t!("notify_corner_label"), corner.as_str());
+        }
+        ConfigKey::NotifyEvents => {
+            // 빈 문자열은 유효(= 모든 이벤트 끔). 알 수 없는 이름은 거부(오타 방지).
+            let mut events: Vec<String> = Vec::new();
+            for name in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !NOTIFY_EVENT_NAMES.contains(&name) {
+                    return Err(t!(
+                        "error_invalid_notify_value",
+                        value = name,
+                        allowed = NOTIFY_EVENT_NAMES.join(", ")
+                    )
+                    .to_string());
+                }
+                if !events.iter().any(|e| e == name) {
+                    events.push(name.to_string());
+                }
+            }
+            config.engine.notify.events = events;
+            println!(
+                "{}: {}",
+                t!("notify_events_label"),
+                display_keys(&config.engine.notify.events)
+            );
+        }
     }
 
     config.engine.auto_typefix.clamp_ranges();
+    config.engine.notify.clamp_ranges();
 
     config
         .save_to_default_path()

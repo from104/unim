@@ -570,6 +570,190 @@ impl AutoTypeFixConfig {
     }
 }
 
+/// 상황 알림(토스트) 값 범위 상수
+pub const NOTIFY_DURATION_MIN: u32 = 500;
+pub const NOTIFY_DURATION_MAX: u32 = 5000;
+
+/// `notify.events` 에 쓸 수 있는 이벤트 설정명 9종 (NOTIFY_SPEC §2.1 "설정명" 열).
+///
+/// 미지 원소는 게이트가 무시한다. `password_leave`·`mode_changed` 는 기본 목록에서 제외.
+pub const NOTIFY_EVENT_NAMES: [&str; 9] = [
+    "atf_corrected",
+    "atf_suppressed",
+    "blacklist_learned",
+    "password_enter",
+    "password_leave",
+    "mode_toggle_suppressed",
+    "mode_changed",
+    "feature_toggled",
+    "feature_result",
+];
+
+fn default_notify_enabled() -> bool {
+    true
+}
+fn default_notify_duration_ms() -> u32 {
+    2000
+}
+fn default_notify_show_text() -> bool {
+    false
+}
+fn default_notify_events() -> Vec<String> {
+    // 기본 ON 7종. 리스트를 한 번 저장한 사용자에게 새 이벤트가 자동으로 켜지지 않는 것은
+    // 의도된 보수적 동작이다(NOTIFY_SPEC §5).
+    [
+        "atf_corrected",
+        "atf_suppressed",
+        "blacklist_learned",
+        "password_enter",
+        "mode_toggle_suppressed",
+        "feature_toggled",
+        "feature_result",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// 알림 문구 언어 선택
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotifyLanguage {
+    /// 로케일 환경변수로 판정 (호출자가 결정해 코어에 넘긴다)
+    #[default]
+    Auto,
+    /// 한국어 고정
+    Ko,
+    /// 영어 고정
+    En,
+}
+
+impl NotifyLanguage {
+    /// 설정 문자열(`auto|ko|en`)에서 변환합니다. 대소문자 무시, 미지 값은 `None`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "ko" => Some(Self::Ko),
+            "en" => Some(Self::En),
+            _ => None,
+        }
+    }
+
+    /// 설정 문자열 표기를 반환합니다.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Ko => "ko",
+            Self::En => "en",
+        }
+    }
+}
+
+/// 토스트 표시 모서리 (Windows 전용 — 그 외 플랫폼은 무시)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotifyCorner {
+    /// 플랫폼 기본 (Windows: 우하단)
+    #[default]
+    Auto,
+    TopRight,
+    BottomRight,
+    TopLeft,
+    BottomLeft,
+}
+
+impl NotifyCorner {
+    /// 설정 문자열(`auto|top_right|bottom_right|top_left|bottom_left`)에서 변환합니다.
+    /// 대소문자 무시, `-` 도 `_` 로 받는다. 미지 값은 `None`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "auto" => Some(Self::Auto),
+            "top_right" => Some(Self::TopRight),
+            "bottom_right" => Some(Self::BottomRight),
+            "top_left" => Some(Self::TopLeft),
+            "bottom_left" => Some(Self::BottomLeft),
+            _ => None,
+        }
+    }
+
+    /// 설정 문자열 표기를 반환합니다.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::TopRight => "top_right",
+            Self::BottomRight => "bottom_right",
+            Self::TopLeft => "top_left",
+            Self::BottomLeft => "bottom_left",
+        }
+    }
+}
+
+/// 상황 알림(토스트) 설정 — `engine.notify` (NOTIFY_SPEC §5)
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotifyConfig {
+    /// 전역 스위치. false 면 이벤트를 만들지 않는다(게이트 전체 정지).
+    #[serde(default = "default_notify_enabled")]
+    pub enabled: bool,
+    /// 표시 시간 (ms, 500~5000). GNOME 알림 배너는 셸 고정 시간이라 무시한다.
+    #[serde(default = "default_notify_duration_ms")]
+    pub duration_ms: u32,
+    /// 문구 언어 (`auto|ko|en`)
+    #[serde(default)]
+    pub language: NotifyLanguage,
+    /// 교정 전후 텍스트·단어를 표시할지 (기본 false = 가림).
+    ///
+    /// 목적(비밀번호 칸 등)을 감지 못 하는 환경에서 입력 일부가 화면·알림 서버로 샐 수
+    /// 있으므로 기본 false 로 둔다.
+    #[serde(default = "default_notify_show_text")]
+    pub show_text: bool,
+    /// 표시 모서리 (Windows 전용)
+    #[serde(default)]
+    pub corner: NotifyCorner,
+    /// 켤 이벤트 설정명 목록 ([`NOTIFY_EVENT_NAMES`] 의 부분집합, 미지 원소는 무시)
+    #[serde(default = "default_notify_events")]
+    pub events: Vec<String>,
+}
+
+impl Default for NotifyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_notify_enabled(),
+            duration_ms: default_notify_duration_ms(),
+            language: NotifyLanguage::default(),
+            show_text: default_notify_show_text(),
+            corner: NotifyCorner::default(),
+            events: default_notify_events(),
+        }
+    }
+}
+
+impl NotifyConfig {
+    /// 값 범위를 허용 범위로 강제 보정합니다 (`duration_ms` 500~5000).
+    pub fn clamp_ranges(&mut self) {
+        self.duration_ms = self
+            .duration_ms
+            .clamp(NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX);
+    }
+
+    /// 설정명(`atf_corrected` 등)이 켜져 있는지 확인합니다.
+    pub fn event_enabled(&self, setting_name: &str) -> bool {
+        self.events.iter().any(|e| e == setting_name)
+    }
+
+    /// 이벤트 설정명을 켜거나 끕니다(GUI 이벤트 스위치용). 이미 같은 상태면 무변경이고,
+    /// 켤 때는 목록 끝에 추가한다. 미지 원소 등 다른 항목은 건드리지 않는다.
+    pub fn set_event(&mut self, setting_name: &str, on: bool) {
+        if on {
+            if !self.event_enabled(setting_name) {
+                self.events.push(setting_name.to_string());
+            }
+        } else {
+            self.events.retain(|e| e != setting_name);
+        }
+    }
+}
+
 fn default_auto_english_enabled() -> bool {
     false
 }
@@ -1028,6 +1212,8 @@ pub struct EngineConfig {
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
     pub auto_english: AutoEnglishConfig,
+    /// 상황 알림(토스트) 설정 (NOTIFY_SPEC)
+    pub notify: NotifyConfig,
     /// 한/영 전환 시 짧은 비프음으로 현재 모드를 알린다 (접근성, 기본 false).
     ///
     /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이로
@@ -1063,6 +1249,7 @@ impl Default for EngineConfig {
             app_rules: Vec::new(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
+            notify: NotifyConfig::default(),
             toggle_announce_beep: false,
             ignore_key_repeat: false,
         }
@@ -1341,6 +1528,7 @@ impl Config {
             serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
         // 구(舊) time_window_ms 필드 역호환: forward/reverse에 주입 + 범위 clamp.
         config.engine.auto_typefix.clamp_ranges();
+        config.engine.notify.clamp_ranges();
         config.last_modified = mtime;
         config.last_checked = Some(SystemTime::now());
         Ok(config)
@@ -2787,5 +2975,129 @@ engine:
 
         let e = ConfigError::SerializeError("err".to_string());
         assert!(e.to_string().contains("err"));
+    }
+
+    // ─────────────────────────────────────────────
+    // engine.notify (상황 알림, NOTIFY_SPEC §5) — 기본값·직렬화·clamp
+    // ─────────────────────────────────────────────
+
+    /// 기본값: 켜짐·2000ms·auto·가림·auto 모서리·ON 7종(password_leave/mode_changed 제외).
+    #[test]
+    fn notify_defaults() {
+        let n = NotifyConfig::default();
+        assert!(n.enabled);
+        assert_eq!(n.duration_ms, 2000);
+        assert_eq!(n.language, NotifyLanguage::Auto);
+        assert!(!n.show_text, "D1: 기본 가림");
+        assert_eq!(n.corner, NotifyCorner::Auto);
+        assert_eq!(n.events.len(), 7);
+        assert!(n.event_enabled("atf_corrected"));
+        assert!(n.event_enabled("password_enter"));
+        assert!(!n.event_enabled("password_leave"));
+        assert!(!n.event_enabled("mode_changed"));
+        for ev in &n.events {
+            assert!(NOTIFY_EVENT_NAMES.contains(&ev.as_str()), "{ev}");
+        }
+        assert_eq!(Config::default().engine.notify, n);
+    }
+
+    /// 6개 키 모두 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn notify_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.notify = NotifyConfig {
+            enabled: false,
+            duration_ms: 3500,
+            language: NotifyLanguage::Ko,
+            show_text: true,
+            corner: NotifyCorner::TopLeft,
+            events: vec!["mode_changed".to_string(), "password_leave".to_string()],
+        };
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("corner: top_left"), "{yaml}");
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.engine.notify, config.engine.notify);
+    }
+
+    /// 레거시 YAML(notify 섹션 부재) → 기본값 (기존 config.yaml 무회귀).
+    /// 일부 키만 있어도 나머지는 기본값.
+    #[test]
+    fn notify_legacy_and_partial_yaml_use_defaults() {
+        let cfg: Config = serde_yaml::from_str("engine:\n  toggle_keys: [Korean]\n").unwrap();
+        assert_eq!(cfg.engine.notify, NotifyConfig::default());
+
+        let cfg: Config =
+            serde_yaml::from_str("engine:\n  notify:\n    show_text: true\n    language: en\n")
+                .unwrap();
+        assert!(cfg.engine.notify.show_text);
+        assert_eq!(cfg.engine.notify.language, NotifyLanguage::En);
+        assert!(cfg.engine.notify.enabled);
+        assert_eq!(cfg.engine.notify.duration_ms, 2000);
+        assert_eq!(cfg.engine.notify.events, default_notify_events());
+    }
+
+    /// `duration_ms` 는 500~5000 으로 clamp.
+    #[test]
+    fn notify_clamp_duration() {
+        let mut n = NotifyConfig {
+            duration_ms: 10,
+            ..NotifyConfig::default()
+        };
+        n.clamp_ranges();
+        assert_eq!(n.duration_ms, NOTIFY_DURATION_MIN);
+        n.duration_ms = 99_999;
+        n.clamp_ranges();
+        assert_eq!(n.duration_ms, NOTIFY_DURATION_MAX);
+        n.duration_ms = 2500;
+        n.clamp_ranges();
+        assert_eq!(n.duration_ms, 2500);
+    }
+
+    /// 파일 로드 경로도 clamp 를 적용한다.
+    #[test]
+    fn notify_load_from_path_clamps() {
+        let dir = std::env::temp_dir().join(format!("unim-notify-clamp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+        std::fs::write(&path, "engine:\n  notify:\n    duration_ms: 90000\n").unwrap();
+        let cfg = Config::load_from_path(&path).unwrap();
+        assert_eq!(cfg.engine.notify.duration_ms, NOTIFY_DURATION_MAX);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `set_event` 는 멱등이고 다른 원소(미지 원소 포함)를 보존한다.
+    #[test]
+    fn notify_set_event_toggles_idempotently() {
+        let mut n = NotifyConfig {
+            events: vec!["future_event".to_string()],
+            ..NotifyConfig::default()
+        };
+        n.set_event("mode_changed", true);
+        n.set_event("mode_changed", true);
+        assert_eq!(n.events, vec!["future_event", "mode_changed"]);
+        n.set_event("mode_changed", false);
+        n.set_event("mode_changed", false);
+        assert_eq!(n.events, vec!["future_event"]);
+    }
+
+    /// 열거형 파서: 대소문자·`-` 허용, 미지 값 None.
+    #[test]
+    fn notify_enum_parsers() {
+        assert_eq!(NotifyLanguage::parse("KO"), Some(NotifyLanguage::Ko));
+        assert_eq!(NotifyLanguage::parse("fr"), None);
+        assert_eq!(
+            NotifyCorner::parse("top-right"),
+            Some(NotifyCorner::TopRight)
+        );
+        assert_eq!(NotifyCorner::parse("center"), None);
+        for c in [
+            NotifyCorner::Auto,
+            NotifyCorner::TopRight,
+            NotifyCorner::BottomRight,
+            NotifyCorner::TopLeft,
+            NotifyCorner::BottomLeft,
+        ] {
+            assert_eq!(NotifyCorner::parse(c.as_str()), Some(c));
+        }
     }
 }

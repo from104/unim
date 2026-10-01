@@ -65,6 +65,7 @@ impl InputEngine {
         modifier: ModifierState,
         config: &Config,
     ) -> InputResult {
+        self.last_toggle_blocked = false;
         let before_len = self.commit_buffer.len();
         // 한자키 분기가 같은 키 안의 chord 확정 델타를 중간 흡수하는 기준점.
         self.recent_mark = before_len;
@@ -145,6 +146,7 @@ impl InputEngine {
                         "한/영 전환 차단: content_purpose={:?}",
                         self.content_purpose
                     );
+                    self.last_toggle_blocked = true;
                     return InputResult::consumed();
                 }
 

@@ -246,6 +246,15 @@ export global Tr {
     out property <string> cat-korean: @tr("한글로 시작");
     out property <string> share-global: @tr("전역 공유");
     out property <string> share-perapp: @tr("앱별 분리");
+    // 알림 언어·모서리 콤보 — main.rs 가 notify-language-options / notify-corner-options 모델로 주입.
+    out property <string> notify-lang-auto: @tr("자동");
+    out property <string> notify-lang-ko: @tr("한국어");
+    out property <string> notify-lang-en: @tr("영어");
+    out property <string> notify-corner-auto: @tr("자동 (우하단)");
+    out property <string> notify-corner-top-right: @tr("우상단");
+    out property <string> notify-corner-bottom-right: @tr("우하단");
+    out property <string> notify-corner-top-left: @tr("좌상단");
+    out property <string> notify-corner-bottom-left: @tr("좌하단");
     // 앱별 강제 모드 콤보(짧은 라벨) — main.rs 가 app-rule-category-options 모델로 주입.
     out property <string> mode-english: @tr("영문");
     out property <string> mode-korean: @tr("한글");
@@ -343,6 +352,25 @@ export component SettingsWindow inherits Window {
     in-out property <string> auto-english-keys;
     in-out property <bool> toggle-announce-beep;
     in-out property <bool> ignore-key-repeat;
+    // ── 상황 알림(토스트) — config engine.notify (NOTIFY_SPEC §5) ──
+    in-out property <bool> notify-enabled;
+    // 표시 시간(ms) 슬라이더(float) — Rust 가 반올림해 500~5000 으로 clamp 저장.
+    in-out property <float> notify-duration;
+    in-out property <int> notify-language-index;
+    in-out property <[string]> notify-language-options;
+    in-out property <int> notify-corner-index;
+    in-out property <[string]> notify-corner-options;
+    in-out property <bool> notify-show-text;
+    // 이벤트별 스위치 9개 — engine.notify.events 리스트로 직렬화(NOTIFY_EVENT_NAMES 순).
+    in-out property <bool> notify-ev-atf-corrected;
+    in-out property <bool> notify-ev-atf-suppressed;
+    in-out property <bool> notify-ev-blacklist-learned;
+    in-out property <bool> notify-ev-password-enter;
+    in-out property <bool> notify-ev-password-leave;
+    in-out property <bool> notify-ev-mode-toggle-suppressed;
+    in-out property <bool> notify-ev-mode-changed;
+    in-out property <bool> notify-ev-feature-toggled;
+    in-out property <bool> notify-ev-feature-result;
     // 앱별 강제 모드 규칙(config.engine.app_rules) — 행 리스트 + 모드 콤보 옵션(영문/한글).
     in-out property <[AppRuleItem]> app-rule-items;
     in-out property <[string]> app-rule-category-options;
@@ -561,7 +589,7 @@ export component SettingsWindow inherits Window {
                             root.current-page = Math.max(0, root.current-page - 1);
                             accept
                         } else if event.text == Key.DownArrow {
-                            root.current-page = Math.min(3, root.current-page + 1);
+                            root.current-page = Math.min(4, root.current-page + 1);
                             accept
                         } else {
                             reject
@@ -573,7 +601,7 @@ export component SettingsWindow inherits Window {
                         // 페이지 전환용 NavItem 묶음(위)과 사이드바 하단 고정 [도움말]
                         // 사이를 스페이서로 벌린다. NavItem 은 "현재 페이지" 의미론이라
                         // 외부 브라우저를 여는 도움말을 여기 섞으면 안 된다(위 nav-scope
-                        // 의 Math.min(3, ...) 상한도 함께 깨진다).
+                        // 의 Math.min(4, ...) 상한도 함께 깨진다).
                         VerticalLayout {
                             vertical-stretch: 0;
                             spacing: Tokens.space-1;
@@ -604,6 +632,12 @@ export component SettingsWindow inherits Window {
                                 selected: root.current-page == 3;
                                 focused: root.current-page == 3 && nav-scope.has-focus;
                                 clicked => { root.current-page = 3; }
+                            }
+                            NavItem {
+                                label: @tr("알림");
+                                selected: root.current-page == 4;
+                                focused: root.current-page == 4 && nav-scope.has-focus;
+                                clicked => { root.current-page = 4; }
                             }
                         }
                         // 스페이서 — 아래 [도움말] 을 사이드바 바닥에 고정한다.
@@ -1326,6 +1360,181 @@ export component SettingsWindow inherits Window {
                             Button {
                                 text: @tr("선택 삭제");
                                 clicked => { root.userdict-remove(root.userdict-selected); }
+                            }
+                        }
+                    }
+
+                    // ── 페이지 4: 알림 (상황 알림/토스트, NOTIFY_SPEC) ──
+                    if root.current-page == 4: Card {
+                        title: @tr("상황 알림");
+                        Text {
+                            text: @tr("자동 교정 발동·비밀번호 칸 진입 같은 입력기 상황을 짧은 알림으로 알립니다. 포커스를 가져가지 않고 자동으로 사라집니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        SettingRow {
+                            title: @tr("상황 알림 사용");
+                            description: @tr("끄면 아래 이벤트가 모두 알림을 내지 않습니다.");
+                            Switch {
+                                checked <=> root.notify-enabled;
+                                accessible-label: @tr("상황 알림 사용");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("알림 표시 시간 (ms)");
+                            description: @tr("알림이 화면에 머무는 시간입니다. GNOME 알림 배너에는 적용되지 않습니다(GNOME 은 셸 고정 시간).");
+                            row-enabled: root.notify-enabled;
+                            NumSlider {
+                                enabled: root.notify-enabled;
+                                minimum: 500;
+                                maximum: 5000;
+                                step: 100;
+                                suffix: "ms";
+                                value <=> root.notify-duration;
+                                a11y: @tr("알림 표시 시간");
+                                released(v) => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("알림 언어");
+                            description: @tr("자동은 로케일 환경변수(LC_ALL > LC_MESSAGES > LANG)로 판정합니다. 세션 환경에 따라 비어 있을 수 있어 직접 선택을 권장합니다.");
+                            row-enabled: root.notify-enabled;
+                            ComboBox {
+                                min-width: 200px;
+                                enabled: root.notify-enabled;
+                                model: root.notify-language-options;
+                                current-index <=> root.notify-language-index;
+                                accessible-label: @tr("알림 언어");
+                                selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("알림 표시 위치 (Windows 전용)");
+                            description: @tr("알림을 띄울 화면 모서리입니다. Linux 에서는 알림 서버가 위치를 정합니다.");
+                            row-enabled: root.notify-enabled;
+                            ComboBox {
+                                min-width: 200px;
+                                enabled: root.notify-enabled;
+                                model: root.notify-corner-options;
+                                current-index <=> root.notify-corner-index;
+                                accessible-label: @tr("알림 표시 위치");
+                                selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("교정 전후 텍스트 표시");
+                            description: @tr("기본은 꺼짐(가림)입니다. 켜면 비밀번호 칸을 감지하지 못하는 환경(XIM 등)에서 입력 일부가 알림 화면·알림 서버·잠금 화면에 보일 수 있습니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-show-text;
+                                accessible-label: @tr("교정 전후 텍스트 표시");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 4: Card {
+                        title: @tr("알림 이벤트");
+                        SettingRow {
+                            title: @tr("자동 교정됨");
+                            description: @tr("영→한 / 한→영 자동 교정이 발동했을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-atf-corrected;
+                                accessible-label: @tr("자동 교정됨");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("자동 교정 건너뜀");
+                            description: @tr("교정 억제 단어라서 교정하지 않았을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-atf-suppressed;
+                                accessible-label: @tr("자동 교정 건너뜀");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("임시 제외 학습");
+                            description: @tr("되돌린 교정을 학습해 단어를 임시 제외했을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-blacklist-learned;
+                                accessible-label: @tr("임시 제외 학습");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("비밀번호 칸 진입");
+                            description: @tr("같은 칸에서는 한 번만 알리고 10분이 지나면 다시 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-password-enter;
+                                accessible-label: @tr("비밀번호 칸 진입");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("비밀번호 칸 벗어남");
+                            description: @tr("비밀번호 칸에서 나왔을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-password-leave;
+                                accessible-label: @tr("비밀번호 칸 벗어남");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("한/영 전환 막힘");
+                            description: @tr("비밀번호 칸이라 한/영 전환이 거부됐을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-mode-toggle-suppressed;
+                                accessible-label: @tr("한/영 전환 막힘");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("한/영 모드 변경");
+                            description: @tr("한글/영문 모드가 바뀔 때 알립니다(소리 알림과는 별개).");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-mode-changed;
+                                accessible-label: @tr("한/영 모드 변경");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("자동 교정 켜짐/꺼짐");
+                            description: @tr("토글 단축키로 자동 교정을 켜거나 껐을 때 알립니다.");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-feature-toggled;
+                                accessible-label: @tr("자동 교정 켜짐/꺼짐");
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("기능 결과 (GNOME 확장)");
+                            description: @tr("TypeFIX 수동 변환·사전 등록 결과를 알립니다(GNOME 확장 알림).");
+                            row-enabled: root.notify-enabled;
+                            Switch {
+                                enabled: root.notify-enabled;
+                                checked <=> root.notify-ev-feature-result;
+                                accessible-label: @tr("기능 결과 (GNOME 확장)");
+                                toggled => { root.auto-save(); }
                             }
                         }
                     }

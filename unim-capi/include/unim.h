@@ -290,6 +290,12 @@ void unim_engine_remove_preedit(UnimEngine *engine);
 bool unim_engine_is_composing(const UnimEngine *engine);
 
 /**
+ * Checks whether the previous unim_engine_press_key refused a Korean/English
+ * toggle because of a password field (out-of-band; UnimInputResult is unchanged).
+ */
+bool unim_engine_last_toggle_blocked(const UnimEngine *engine);
+
+/**
  * Checks ready state (for frontend compatibility).
  */
 bool unim_engine_check_ready(const UnimEngine *engine);
