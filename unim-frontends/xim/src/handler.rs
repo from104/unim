@@ -196,6 +196,10 @@ impl UnimHandler {
         if display.is_null() {
             return Err("XOpenDisplay failed: X11 서버에 연결할 수 없습니다".to_string());
         }
+        // 비치명 X 에러로 서버가 죽지 않게 기본 핸들러를 기록형으로 바꾼다([`log_x_error`]).
+        unsafe {
+            x11::xlib::XSetErrorHandler(Some(log_x_error));
+        }
 
         let hanja_keysyms = config
             .engine
@@ -607,7 +611,9 @@ impl UnimHandler {
                     // 첫 BS 1개만 주입한다. 나머지는 직전 BS 의 ForwardEvent 가 앱으로
                     // 되돌아간 뒤 메인 루프에서 하나씩(`self_backspace_inject_next` 문서).
                     self.self_backspace_inject_next = false;
-                    self.inject_self_backspace();
+                    if !self.inject_self_backspace() {
+                        self.abandon_autofix();
+                    }
                 } else {
                     unim_log!("XIM_HANDLER", "AutoTypeFix: 활성 IC 없음, 무시");
                 }
@@ -667,13 +673,38 @@ impl UnimHandler {
     /// AutoTypeFix 자가 주입 BackSpace 1개(KeyPress+KeyRelease)를 XTest 로 넣는다.
     /// XSendEvent 는 send_event=True 라 modern app 이 무시하므로 XTestFakeKeyEvent
     /// (실제 하드웨어 이벤트로 인식)를 쓴다.
-    fn inject_self_backspace(&self) {
+    ///
+    /// 키코드는 매번 서버에서 새로 읽는다([`fresh_backspace_keycode`]). 찾지 못하면
+    /// 주입하지 않고 `false` — 키코드 0 으로 XTestFakeInput 을 보내면 BadValue 다.
+    fn inject_self_backspace(&self) -> bool {
         unsafe {
-            let bs_keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
+            let bs_keycode = fresh_backspace_keycode(self.display);
+            let cached = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
+            if cached != bs_keycode {
+                unim_log!(
+                    "XIM_HANDLER",
+                    "BackSpace 키코드 불일치: Xlib 캐시={}, 서버={}",
+                    cached,
+                    bs_keycode
+                );
+            }
+            if bs_keycode == 0 {
+                unim_log!("XIM_HANDLER", "BackSpace 키코드 없음 — 자가 주입 생략");
+                return false;
+            }
             x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 1, 0);
             x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 0, 0);
             x11::xlib::XFlush(self.display);
         }
+        true
+    }
+
+    /// 자가 주입이 불가능할 때 진행 중인 AutoTypeFix 상태를 버린다(교정 포기, 원문 유지).
+    fn abandon_autofix(&mut self) {
+        self.deferred_autofix = None;
+        self.self_backspace_pending = 0;
+        self.self_backspace_inject_next = false;
+        self.autofix_context_path = None;
     }
 
     /// GTK3의 g_idle_add 패턴 적용:
@@ -695,7 +726,9 @@ impl UnimHandler {
                 if let Ok(cookie) = server.conn().get_input_focus() {
                     let _ = cookie.reply();
                 }
-                self.inject_self_backspace();
+                if !self.inject_self_backspace() {
+                    self.abandon_autofix();
+                }
             }
             return;
         }
@@ -1088,7 +1121,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     .last_ime_spot
                     .is_some_and(|(px, py)| cursor_y != py || cursor_x < px);
 
-                if (!spot_was_expected || jumped) && !self.spot_reset_sent {
+                // AutoTypeFix 교체 중에는 판정하지 않는다 — 자가 주입 BackSpace 가
+                // 캐럿을 매번 후퇴시키므로 위 "후퇴" 신호가 그대로 걸려, 교체 도중
+                // Reset 이 엔진을 비우고 preedit 을 조기 커밋한다(교정이 'e대ㄴ민' 으로 깨짐).
+                let autofix_in_progress =
+                    self.self_backspace_pending > 0 || self.deferred_autofix.is_some();
+                if (!spot_was_expected || jumped) && !self.spot_reset_sent && !autofix_in_progress
+                {
                     unim_log!(
                         "XIM_HANDLER",
                         "스팟 점프 Reset: expected={}, jumped={}, spot=({},{})",
@@ -1451,6 +1490,53 @@ static X_ERROR_SEEN: AtomicBool = AtomicBool::new(false);
 ///
 /// 에러를 삼키되 **삼켰다는 사실은 남긴다** — 호출자가 '진짜 에러' 와
 /// '에러 아닌 0 반환(다른 스크린)' 을 구별해야 하기 때문이다.
+/// BackSpace 키코드를 Xlib 키맵 캐시(`XKeysymToKeycode` 가 쓰는 `dpy->keysyms`)를 거치지
+/// 않고 서버에서 새로 읽는다. 이 연결은 이벤트를 읽지 않아 MappingNotify 로 캐시가
+/// 갱신되지 않는다 — 키맵이 바뀐 뒤(xdotool 의 임시 키코드 재배치 등)에는 캐시가
+/// 낡을 수 있다. 못 찾으면 0.
+unsafe fn fresh_backspace_keycode(display: *mut x11::xlib::Display) -> u8 {
+    let (mut min, mut max) = (0 as c_int, 0 as c_int);
+    x11::xlib::XDisplayKeycodes(display, &mut min, &mut max);
+    if min <= 0 || max < min {
+        return 0;
+    }
+    let mut per: c_int = 0;
+    let syms = x11::xlib::XGetKeyboardMapping(display, min as u8, max - min + 1, &mut per);
+    if syms.is_null() {
+        return 0;
+    }
+    let mut found = 0u8;
+    if per > 0 {
+        let total = ((max - min + 1) * per) as usize;
+        let table = std::slice::from_raw_parts(syms, total);
+        if let Some(i) = table.iter().position(|&s| s == 0xff08) {
+            found = (min + i as c_int / per) as u8;
+        }
+    }
+    x11::xlib::XFree(syms as *mut _);
+    found
+}
+
+/// 기본 X 에러 핸들러 — Xlib 기본값은 프로세스를 끝내므로(BadValue 하나에 XIM 서버
+/// 전체가 죽고 모든 앱의 입력이 끊긴다) 기록만 하고 계속한다. 국소 처리가 필요한 곳은
+/// 기존처럼 잠시 [`ignore_x_error`] 로 바꿨다가 이 핸들러로 되돌린다.
+unsafe extern "C" fn log_x_error(
+    _display: *mut x11::xlib::Display,
+    event: *mut x11::xlib::XErrorEvent,
+) -> c_int {
+    if let Some(e) = event.as_ref() {
+        unim_log!(
+            "XIM_HANDLER",
+            "X 에러 무시: error_code={}, request={}.{}, resource=0x{:x}",
+            e.error_code,
+            e.request_code,
+            e.minor_code,
+            e.resourceid
+        );
+    }
+    0
+}
+
 unsafe extern "C" fn ignore_x_error(
     _display: *mut x11::xlib::Display,
     _event: *mut x11::xlib::XErrorEvent,
