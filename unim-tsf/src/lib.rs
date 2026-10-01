@@ -6,6 +6,8 @@
 pub mod globals;
 /// 플랫폼 중립 키 소비 판정(순수 로직) — Linux 에서도 단위 테스트 가능하도록 cfg 미게이트.
 pub mod key_gate;
+/// 상황 알림(토스트) 순수 로직 — 게이트·문구·보류 슬롯. Linux 에서도 단위 테스트 가능하도록 cfg 미게이트.
+pub mod toast_bridge;
 
 #[cfg(windows)]
 mod app_tiers;

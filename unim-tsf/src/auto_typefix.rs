@@ -9,6 +9,7 @@ use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{Config, InputCategory};
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
+use unim::notify::NotifyEvent;
 use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
@@ -73,6 +74,13 @@ pub struct AutoTypeFixState {
     recent_corrections: Vec<RecentCorrection>,
     blacklist: Blacklist,
     user_dict: UserDictionary,
+    /// 이번 키 처리에서 생긴 상황 알림 이벤트(NOTIFY_SPEC §2.1; ATF 교정·억제·학습과 한/영 전환 차단의
+    /// 출력함) — 호출자(text_service)가 키마다
+    /// [`Self::take_notify_events`] 로 비우고 `TsfNotify` 게이트에 넘긴다. 입력 텍스트가 실릴 수
+    /// 있어 로그 금지, 비밀번호 진입 시 [`Self::clear_sensitive`] 가 비운다.
+    notify_events: Vec<NotifyEvent>,
+    /// 알림 이벤트의 `context_id`(= 포커스 문서 id) — 호출자가 키 처리 전에 갱신한다.
+    notify_ctx: u32,
 }
 
 impl AutoTypeFixState {
@@ -83,7 +91,25 @@ impl AutoTypeFixState {
             recent_corrections: Vec::new(),
             blacklist: Blacklist::load_from_default_path(),
             user_dict: UserDictionary::load_from_default_path(),
+            notify_events: Vec::new(),
+            notify_ctx: 0,
         }
+    }
+
+    /// 알림 이벤트에 붙일 컨텍스트(문서) id 설정 — `process_after_key` 호출 전에.
+    pub fn set_notify_context(&mut self, context_id: u32) {
+        self.notify_ctx = context_id;
+    }
+
+    /// 비밀번호 칸이라 한/영 전환이 거부됐음을 알림 이벤트로 남긴다(`last_toggle_blocked`).
+    pub fn note_toggle_blocked(&mut self) {
+        self.notify_events
+            .push(NotifyEvent::mode_toggle_suppressed(self.notify_ctx));
+    }
+
+    /// 쌓인 알림 이벤트를 모두 꺼낸다(생성 순서).
+    pub fn take_notify_events(&mut self) -> Vec<NotifyEvent> {
+        std::mem::take(&mut self.notify_events)
     }
 
     /// config reload 시 blacklist/user_dict 재로드 (mtime 기반).
@@ -99,6 +125,7 @@ impl AutoTypeFixState {
         self.buf.clear();
         self.undo = None;
         self.recent_corrections.clear();
+        self.notify_events.clear();
     }
 
     /// 비밀번호/PIN 필드 진입 시 민감 잔류 제거.
@@ -113,6 +140,8 @@ impl AutoTypeFixState {
         self.buf.clear();
         self.undo = None;
         self.recent_corrections.clear();
+        // 보류 알림 이벤트에도 직전 입력 단어가 실려 있을 수 있다.
+        self.notify_events.clear();
     }
 
     /// Excel 셀 첫타 ATF 유실 게이트용 — 현재 키스트로크 버퍼 길이.
@@ -296,10 +325,10 @@ pub fn process_after_key(
         // 아래 교정 후 engine.reset()/set_word_mode 이전이라 현재 포커스의 word 모드가 그대로다.
         state.buf.word_mode = engine.is_word_mode();
 
-        // 방향별 check
-        let (fix_opt, direction) = match current_mode {
+        // 방향별 check — 3분 판정(교정/억제/미해당). 억제 사유는 상황 알림 대상이다.
+        let (outcome, direction) = match current_mode {
             InputCategory::English => (
-                auto_typefix::check_forward(
+                auto_typefix::check_forward_outcome(
                     &state.buf,
                     atf_config,
                     &config.engine.korean.layout,
@@ -309,7 +338,7 @@ pub fn process_after_key(
                 Direction::Forward,
             ),
             InputCategory::Korean => (
-                auto_typefix::check_reverse(
+                auto_typefix::check_reverse_outcome(
                     &state.buf,
                     atf_config,
                     &config.engine.korean.layout,
@@ -320,6 +349,15 @@ pub fn process_after_key(
                 Direction::Reverse,
             ),
         };
+        // 학습 규칙(블랙리스트)이 막은 경우 → atf_suppressed. 단어는 show_text=true 일 때만 문구에
+        // 쓰이고(코어 render), 비밀번호 칸은 ATF 자체가 꺼져 여기 도달하지 않는다(게이트가 이중 방어).
+        if outcome.suppressed().is_some() {
+            state.notify_events.push(NotifyEvent::atf_suppressed(
+                state.notify_ctx,
+                &state.buf.to_ascii_string(&config.engine.english.layout),
+            ));
+        }
+        let fix_opt = outcome.into_fix();
 
         // [진단] 역방향 체크 상태 — 항상 켜진 dbg_log 로 출력(unim_log 는 UNIM_DEVELOP 전용이라
         // 배포 DLL 에서 NO-OP). 역방향 미발동/조건 탈락 원인을 실측하기 위함.
@@ -364,6 +402,12 @@ pub fn process_after_key(
                         && r.ascii == suppression_key
                         && rollback_threshold_met(r))
                 });
+                // 상황 알림: 롤백 패턴을 학습해 단어를 임시 제외 등록함(교정 알림과 상호 배타).
+                state.notify_events.push(NotifyEvent::blacklist_learned(
+                    state.notify_ctx,
+                    &suppression_key,
+                    atf_config.tentative_expiry_hours,
+                ));
                 unim_log!(
                     "TSF_ATF",
                     "[TSF AutoTypeFix] 재트리거 감지({:?}) → 억제 + blacklist tentative: '{}'",
@@ -433,6 +477,23 @@ pub fn process_after_key(
                 current_mode,
                 new_mode
             );
+
+            // 상황 알림: 자동 교정 발동. 역방향은 `fix.original` 이 비어 있어 before 를 버퍼 ASCII 의
+            // 한글 환산(화면 글자의 근사치)으로 만든다. 버퍼를 비우기 전에 캡처한다.
+            let notify_before = match direction {
+                Direction::Forward => fix.original.clone(),
+                Direction::Reverse => unim::typefix::eng_to_kor(
+                    &state.buf.to_ascii_string(&config.engine.english.layout),
+                    &config.engine.korean.layout,
+                    &config.engine.english.layout,
+                ),
+            };
+            state.notify_events.push(NotifyEvent::atf_corrected(
+                direction,
+                state.notify_ctx,
+                &notify_before,
+                &fix.corrected,
+            ));
 
             // 버퍼 초기화
             state.buf.clear();

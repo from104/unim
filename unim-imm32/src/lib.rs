@@ -15,6 +15,12 @@
 //! all `WPARAM/LPARAM` payloads use `usize`/`isize` and IMCC offsets are computed
 //! with `offset_of!`, so bitness is handled structurally.
 
+// TODO(NOTIFY P4 후속): 상황 알림(토스트, docs/dev/specs/NOTIFY_SPEC.md §3.4)은 v1 에서 TSF 경로만
+// 다룬다 — IMM32 `.ime` 는 범위 밖이다(NOTIFY_SPEC §3.4 마지막 항목). 붙이려면 TSF 의
+// `unim_tsf::toast_bridge`(게이트·문구) 와 `popup_ipc` 의 `cmd="toast"` 와이어를 재사용하되, 키 경로는
+// `ImeProcessKey/ToAsciiEx` 직후 `last_toggle_blocked()`·ATF outcome 을 읽고, 전송은 별도 스레드로
+// 비차단 처리해야 한다(IMM32 DLL 도 UI 를 직접 만들지 않는다).
+
 #![cfg(windows)]
 
 mod composition;

@@ -57,7 +57,11 @@ unsafe extern "system" {
 use unim::config::{Config, InputCategory};
 use unim::input_engine::InputEngine;
 
+use unim::notify::NotifyEvent;
+
 use crate::globals;
+use crate::popup_ipc::PopupClient;
+use crate::toast_bridge::TsfNotify;
 
 /// 작업표시줄/시스템이 다크 테마인지 조회한다.
 ///
@@ -579,6 +583,10 @@ pub struct UnimLangBarButton {
     engine: Arc<Mutex<InputEngine>>,
     /// 갭2: set_input_category 호출 시 필요한 Config.
     config: Arc<Mutex<Config>>,
+    /// 상황 알림 게이트(text_service 와 공유) — 클릭 전환의 `mode_changed` 심사용.
+    notify: Arc<Mutex<TsfNotify>>,
+    /// 렌더러 IPC(text_service 와 공유) — 통과한 토스트 전송용.
+    popup_ipc: Arc<Mutex<PopupClient>>,
     /// AdviseSink 쿠키 (UnadviseSink 용).
     sink_cookie: Mutex<u32>,
 }
@@ -589,11 +597,15 @@ impl UnimLangBarButton {
         state: Arc<LangBarState>,
         engine: Arc<Mutex<InputEngine>>,
         config: Arc<Mutex<Config>>,
+        notify: Arc<Mutex<TsfNotify>>,
+        popup_ipc: Arc<Mutex<PopupClient>>,
     ) -> Self {
         Self {
             state,
             engine,
             config,
+            notify,
+            popup_ipc,
             sink_cookie: Mutex::new(0),
         }
     }
@@ -759,11 +771,13 @@ impl UnimLangBarButton_Impl {
     ///
     /// - engine.lock() → set_input_category() (반대 카테고리)
     /// - state.update(new_is_korean) → OnUpdate 발사
+    /// - 상황 알림 `mode_changed` 를 키 경로와 같은 게이트·`popup_ipc` 로 보낸다(규칙 6 은 한 키
+    ///   묶음 안의 규칙이라 단독 이벤트인 이 경로엔 해당 없음).
     ///
     /// 호출 컨텍스트: TSF STA 스레드 (OnClick · OnMenuSelect).
     /// text_service 의 OnKeyDown 과 동일 스레드이므로 재진입 없음.
     fn toggle_engine_mode(&self) {
-        let (new_is_korean, announce_beep) = {
+        let (new_is_korean, announce_beep, purpose, notify_cfg) = {
             let mut eng = self.engine.lock().unwrap();
             let cfg = self.config.lock().unwrap();
             let current = eng.input_category();
@@ -774,10 +788,30 @@ impl UnimLangBarButton_Impl {
             };
             eng.set_input_category(next);
             let announce_beep = cfg.engine.toggle_announce_beep;
+            let notify_cfg = cfg.engine.notify.clone();
             drop(cfg); // config 참조를 명시적으로 해제
-            (next == InputCategory::Korean, announce_beep)
+            (
+                next == InputCategory::Korean,
+                announce_beep,
+                eng.content_purpose(),
+                notify_cfg,
+            )
         };
         self.state.update(new_is_korean, announce_beep);
+
+        // 상황 알림: engine·config 락을 모두 푼 뒤 notify → popup_ipc 를 **차례로** 잡는다(중첩 없음 —
+        // 키 경로는 popup_ipc 를 쥔 채 notify 를 잡으므로 여기서 겹쳐 잡으면 순서가 뒤집힌다).
+        let outs = {
+            let mut n = self.notify.lock().unwrap();
+            let ev = NotifyEvent::mode_changed(n.focus_id(), new_is_korean);
+            n.dispatch(vec![ev], purpose, &notify_cfg, std::time::Instant::now())
+        };
+        if !outs.is_empty() {
+            let mut popup = self.popup_ipc.lock().unwrap();
+            for o in &outs {
+                popup.send_toast(o);
+            }
+        }
     }
 
     /// 메뉴 항목 선택을 처리한다. InitMenu/OnMenuSelect(플로팅 바) 경로와

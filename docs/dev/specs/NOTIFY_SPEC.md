@@ -404,3 +404,4 @@ GNOME gschema 에는 추가하지 않는다(GEMINI.md). 확장은 `ConfigChanged
 | 2026-10-01 | v2-draft | opus 재검증 10건(REVISE 경미)·결정 E1~E5 반영: 등록자 추적+`NameOwnerChanged`, 비번 알림 10분 재알림, 워커→알림 전담 태스크 채널(우선순위 규칙 6), C ABI 무변경(getter `unim_engine_last_toggle_blocked`), L3 XIM 단언, Lang POSIX 순서, CHANGELOG 가시 변화. 미결 없음 |
 | 2026-10-01 | v2.1-draft | opus 재검증(PASS) LOW 7건 반영: SetGlobalMode 게이트 경유, 규칙 5·6 순서, ProcessKey `offer_batch` 1회, 전이 기록과 `events` 필터 분리, capi 예제 컴파일 수단 정정, NameOwnerChanged 문구·한계, 등록 헬퍼 분리. P0 SPEC.md §5.2·§5.4·§5.5·§5.6 동시 갱신 |
 | 2026-10-02 | v2.2-draft | P2 구현 실측 반영: `password_enter`/`leave` 발화 조건을 포커스된 컨텍스트 기준 전이로 정정(GTK 의 포커스 전 목적 선전송 오발 방지), L3 XIM `password-no-atf` 단언을 알림 0건으로 정정 |
+| 2026-10-02 | v2.3-draft | P4 Windows 구현 반영: 와이어 `ToastPayload`(§3.4)는 설계서 `popup-renderer-design.md` §12 에 동결, TSF 순수 로직 `unim-tsf/src/toast_bridge.rs`, 렌더러 `toast.rs`·`toast_logic.rs`. VM 검증 항목은 §6 P4 행 그대로 |

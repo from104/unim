@@ -596,6 +596,12 @@ pub fn handle_key_down(
     let was_composing = engine.is_composing();
     let prev_mode = engine.input_category();
     let result = engine.press_key(keycode, modifiers, config);
+    // 상황 알림: 비밀번호 칸이라 한/영 전환이 거부됐다면 이벤트를 남긴다(NOTIFY_SPEC §2.1 E4).
+    // `last_toggle_blocked` 는 다음 press_key 진입 때 false 로 돌아가므로(ATF replay 의 press_key 포함)
+    // **반드시 이 키의 press_key 직후**에 읽는다. 게이트·표시는 호출자(text_service)가 한다.
+    if engine.last_toggle_blocked() {
+        atf_state.note_toggle_blocked();
+    }
     // 한자키가 읽어 넣은 문서 평문·선택은 대상 해석(press_key) 직후 비운다 — 팝업 확정은
     // surrounding 을 쓰지 않고 Q7(a) 재타는 다시 읽는다. 공용 엔진에 남기면 다른 앱·
     // 수동 typefix 가 stale 선택을 쓰게 된다. 빈 값이라도 surrounding_seen 은 유지된다.

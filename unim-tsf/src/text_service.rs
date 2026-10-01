@@ -10,8 +10,9 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::TextServices::*;
 
-use unim::config::{CommitUnit, Config, InputCategory};
+use unim::config::{CommitUnit, Config, ContentPurpose, InputCategory};
 use unim::input_engine::{AtfToggleKind, InputEngine};
+use unim::notify::{Lang, NotifyEvent};
 
 use crate::auto_typefix::AutoTypeFixState;
 use crate::compartment;
@@ -20,6 +21,7 @@ use crate::key_handler;
 use crate::lang_bar::{LangBarState, UnimLangBarButton};
 use crate::popup_ipc::{PopupClient, RevChannel, WM_UNIM_REV};
 use crate::preedit_window::PreeditWindow;
+use crate::toast_bridge::{doc_id_from_ptr, ToastOut, TsfNotify};
 use crate::ui_element::{CandidateSnapshot, UiElements};
 
 #[implement(
@@ -66,6 +68,9 @@ pub struct UnimTextService {
     /// AutoTypeFix 오케스트레이션 상태 (키스트로크 버퍼·undo·blacklist).
     /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유 (교체 후 버퍼 폐기).
     pub(crate) atf_state: Arc<Mutex<AutoTypeFixState>>,
+    /// 상황 알림(토스트) 게이트 + 포커스 문서 추적(NOTIFY_SPEC §3.4). 표시는 하지 않는다 —
+    /// 통과분을 `popup_ipc` 로 렌더러에 보낸다(DLL UI 금지). 락 순서: config → notify(리프).
+    pub(crate) notify: Arc<Mutex<TsfNotify>>,
     /// 랭귀지바 버튼 (ActivateEx 에서 AddItem, Deactivate 에서 RemoveItem).
     /// ITfLangBarItem 으로 보관해 RemoveItem 시 재사용.
     pub(crate) langbar_item: Mutex<Option<ITfLangBarItem>>,
@@ -178,6 +183,16 @@ const WM_UNIM_FLUSH2: u32 = 0x8000 + 0x23;
 /// (REV=+0x21, FLUSH=+0x22, FLUSH2=+0x23).
 const WM_UNIM_TAIL: u32 = 0x8000 + 0x24;
 
+/// `notify.language=auto` 일 때 쓸 문구 언어 — OS UI 언어(`GetUserDefaultUILanguage`)가 한국어면 ko,
+/// 아니면 en. 설정앱·랭귀지바의 도움말 언어와 같은 판정(`unim_windows_common::help`)을 재사용한다.
+fn detect_notify_lang() -> Lang {
+    if unim_windows_common::help::ui_language_is_korean() {
+        Lang::Ko
+    } else {
+        Lang::En
+    }
+}
+
 impl UnimTextService {
     pub fn new() -> Self {
         // UWP(AppContainer) 경로 리다이렉트 우회: config 로드 전에 실제
@@ -209,6 +224,7 @@ impl UnimTextService {
             rev_window: Mutex::new(None),
             preedit_window: Arc::new(Mutex::new(None)),
             atf_state: Arc::new(Mutex::new(AutoTypeFixState::new())),
+            notify: Arc::new(Mutex::new(TsfNotify::new(detect_notify_lang()))),
             langbar_item: Mutex::new(None),
             langbar_btn: Mutex::new(None),
             langbar_state: Mutex::new(Some(LangBarState::new(is_korean))),
@@ -224,6 +240,46 @@ impl UnimTextService {
             last_key_proc: Mutex::new(None),
             ui_elements: Mutex::new(UiElements::new()),
             app_tiers: Mutex::new(crate::app_tiers::AppTierCache::load()),
+        }
+    }
+
+    /// 포커스 문서가 바뀐 직후 비밀번호 진입/이탈 토스트를 처리한다(`new=None` 은 포커스 소실).
+    /// 엔진 락을 쥔 채 호출하지 않는다(config → notify 순으로 짧게 잡는다).
+    fn notify_focus_change(&self, new: Option<(u32, ContentPurpose)>) {
+        let (cfg, atf_on) = {
+            let c = self.config.lock().unwrap();
+            (c.engine.notify.clone(), c.engine.auto_typefix.enabled)
+        };
+        let outs = self
+            .notify
+            .lock()
+            .unwrap()
+            .on_focus(new, atf_on, &cfg, Instant::now());
+        self.send_toasts(&outs);
+    }
+
+    /// 재포커스 없이 목적이 바뀐 경우(OnEndEdit InputScope 변경)의 토스트.
+    fn notify_purpose_change(&self, new: ContentPurpose) {
+        let (cfg, atf_on) = {
+            let c = self.config.lock().unwrap();
+            (c.engine.notify.clone(), c.engine.auto_typefix.enabled)
+        };
+        let outs = self
+            .notify
+            .lock()
+            .unwrap()
+            .on_purpose_change(new, atf_on, &cfg, Instant::now());
+        self.send_toasts(&outs);
+    }
+
+    /// 통과한 토스트를 렌더러로 보낸다 — `try_send` 뿐이라 키/포커스 경로를 막지 않는다.
+    fn send_toasts(&self, outs: &[ToastOut]) {
+        if outs.is_empty() {
+            return;
+        }
+        let mut popup = self.popup_ipc.lock().unwrap();
+        for o in outs {
+            popup.send_toast(o);
         }
     }
 
@@ -728,11 +784,15 @@ impl UnimTextService_Impl {
         } else {
             unim::config::ContentPurpose::Normal
         };
-        let mut engine = self.engine.lock().unwrap();
-        engine.set_content_purpose(purpose);
+        {
+            let mut engine = self.engine.lock().unwrap();
+            engine.set_content_purpose(purpose);
+        }
         crate::register::dbg_log(&format!(
             "content_purpose mid-focus 갱신(OnEndEdit): is_password={is_password}"
         ));
+        // 상황 알림: 비밀번호 칸 진입/이탈 전이(엔진 락은 위에서 이미 놓았다).
+        self.notify_purpose_change(purpose);
     }
 }
 
@@ -778,6 +838,8 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                         state_arc,
                         Arc::clone(&self.engine),
                         Arc::clone(&self.config),
+                        Arc::clone(&self.notify),
+                        Arc::clone(&self.popup_ipc),
                     );
                     // ITfLangBarItemButton → ITfLangBarItem (계층 관계) 으로 캐스팅
                     let btn_button: ITfLangBarItemButton = btn.into();
@@ -1344,6 +1406,12 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 갭1: 키 처리 전후 모드 비교를 위해 이전 카테고리 저장.
         let prev_category = engine.input_category();
 
+        // 상황 알림: 이 키에서 생기는 이벤트(ATF 교정·억제·학습, 한/영 전환 차단)의 문서 id 를
+        // 키 처리 전에 알려 둔다. notify 락은 리프(다른 락을 안 잡는다)라 중첩 취득해도 안전하다.
+        atf_state.set_notify_context(self.notify.lock().unwrap().focus_id());
+        // 이 키의 나머지 알림 이벤트(기능 토글·모드 변경) — 끝에서 ATF 쪽 이벤트와 한 묶음으로 심사한다.
+        let mut notify_evs: Vec<NotifyEvent> = Vec::new();
+
         let outcome = key_handler::handle_key_down(
             &mut engine,
             &config,
@@ -1396,6 +1464,12 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             if let Some(ref state) = *self.langbar_state.lock().unwrap() {
                 state.announce_atf_toggle(now_on, config.engine.toggle_announce_beep);
             }
+            // 상황 알림: 토글 결과(feature_toggled) — 비프·랭바 통지와 별개의 시각 안내.
+            notify_evs.push(NotifyEvent::feature_toggled(
+                self.notify.lock().unwrap().focus_id(),
+                kind,
+                now_on,
+            ));
             crate::register::dbg_log_ev!(
                 "OnKeyDown: ATF 토글 핫키",
                 "OnKeyDown: ATF 토글 핫키 {:?} → on={}",
@@ -1413,6 +1487,34 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             // I7 스크린리더 능동 통지/비프를 함께 처리.
             if let Some(ref state) = *self.langbar_state.lock().unwrap() {
                 state.update(is_korean, config.engine.toggle_announce_beep);
+            }
+            // 상황 알림: 모드 변경(기본 꺼짐 이벤트). ATF 가 유발한 전환이면 같은 묶음의 교정
+            // 알림이 통과할 때 게이트가 이 이벤트를 제거한다(규칙 6).
+            notify_evs.push(NotifyEvent::mode_changed(
+                self.notify.lock().unwrap().focus_id(),
+                is_korean,
+            ));
+        }
+
+        // ── 상황 알림(NOTIFY_SPEC §3.4) ──
+        // ATF 쪽 이벤트와 이 키의 이벤트를 **한 묶음**으로 게이트에 넘기고(규칙 6), 통과분을 렌더러로
+        // 보낸다. `send_toast` 는 try_send 만 하므로 키 경로를 막지 않는다. `notify.*` 설정은
+        // `config`(maybe_reload_config 가 리로드)에서 매번 읽는다. 목적은 현재 포커스 문서의 것 —
+        // 비밀번호 칸이면 텍스트 이벤트는 게이트가 폐기한다(§2.3).
+        {
+            let mut evs = atf_state.take_notify_events();
+            evs.append(&mut notify_evs);
+            if !evs.is_empty() {
+                let purpose = engine.content_purpose();
+                let outs = self.notify.lock().unwrap().dispatch(
+                    evs,
+                    purpose,
+                    &config.engine.notify,
+                    Instant::now(),
+                );
+                for o in &outs {
+                    popup_ipc.send_toast(o);
+                }
             }
         }
 
@@ -1723,7 +1825,14 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
     fn OnInitDocumentMgr(&self, _pdim: Ref<'_, ITfDocumentMgr>) -> Result<()> {
         Ok(())
     }
-    fn OnUninitDocumentMgr(&self, _pdim: Ref<'_, ITfDocumentMgr>) -> Result<()> {
+    fn OnUninitDocumentMgr(&self, pdim: Ref<'_, ITfDocumentMgr>) -> Result<()> {
+        // 상황 알림: 소멸한 문서의 게이트 상태(컨텍스트당 1회·비밀번호 진입 기록)를 지운다.
+        if let Some(d) = pdim.as_ref() {
+            self.notify
+                .lock()
+                .unwrap()
+                .on_destroy(doc_id_from_ptr(d.as_raw() as usize));
+        }
         Ok(())
     }
     fn OnSetFocus(
@@ -1935,6 +2044,13 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             // 비밀번호 진입→임시 영문 / 벗어남→직전 한/영 복구 (코어 상태머신, 멱등).
             engine.set_content_purpose(content_purpose);
         }
+        // 상황 알림: 비밀번호 칸 진입/이탈 토스트(문서 단위 — NOTIFY_SPEC §2.2-4·§3.4). 엔진 락 밖.
+        // 포커스가 문서 밖으로 나가면(`pdimfocus` None) 비차단 상태로 본다.
+        self.notify_focus_change(
+            pdimfocus
+                .as_ref()
+                .map(|d| (doc_id_from_ptr(d.as_raw() as usize), content_purpose)),
+        );
         // 한자 팝업 정리의 문서 반영 — 락 순서 composition → last_context(다른 경로와 동일),
         // 보관 컨텍스트(아래에서 무효화되기 전의 옛 컨텍스트)로 시도한다. 평문은 로그 금지.
         if hanja_overlay_recommit.is_some() || hanja_materialize {

@@ -83,10 +83,45 @@ pub struct RenderState {
     pub caret_rect: Option<(i32, i32, i32, i32)>,
 }
 
+/// 상황 알림(토스트) 페이로드 — `cmd="toast"` 전용 (NOTIFY_SPEC §3.4).
+///
+/// 모든 필드 `#[serde(default)]` — 이후 필드가 늘어도 구 사본이 파싱하고, 구 메시지에서도
+/// 누락 필드가 기본값이 된다. `key_hash` 는 중복 억제 키의 FNV-1a 64 해시(원문 전송 금지).
+/// 본문(`title`/`body`)은 로그에 남기지 않는다(kind 만).
+/// 필드 추가·변경 시 반드시 양 크레이트(unim-tsf/src/popup_ipc.rs ↔ unim-popup-win/src/protocol.rs) 사본을 동일하게.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToastPayload {
+    /// `NotifyKind::as_str()` (snake_case).
+    #[serde(default)]
+    pub kind: String,
+    /// 렌더러 측 `(kind, key_hash)` 3초 중복 억제용.
+    #[serde(default)]
+    pub key_hash: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    /// 표시 시간(ms). 0 이면 렌더러 기본값.
+    #[serde(default)]
+    pub duration_ms: u32,
+    /// `auto|top_right|bottom_right|top_left|bottom_left` (auto = 우하단).
+    #[serde(default)]
+    pub corner: String,
+    /// [`toast_flags`] 비트합.
+    #[serde(default)]
+    pub flags: u32,
+}
+
+/// `ToastPayload::flags` 비트 — 양 크레이트 동일. 미정의 비트는 무시한다.
+pub mod toast_flags {
+    /// 본문에 입력 텍스트(교정 전후·단어)가 실려 있다(`notify.show_text=true`). 정보용.
+    pub const TEXT_SHOWN: u32 = 0x01;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireMsg {
     pub v: u32,
-    /// 정방향(클→렌더러): "render" | "hide" | "ping" | "shutdown".
+    /// 정방향(클→렌더러): "render" | "hide" | "ping" | "shutdown" | "toast".
     /// 역방향(렌더러→클): "evt".
     pub cmd: String,
     pub pid: u32,
@@ -117,6 +152,11 @@ pub struct WireMsg {
     /// 이모지 카테고리 탭 인덱스 (0..8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
+    // ── 상황 알림(NOTIFY_SPEC §3.4) 정방향 필드 — 맨 끝에 추가(키 순서 동결 유지).
+    //    구 렌더러는 미지 필드를 무시하고 미지 cmd("toast")는 로그 후 무시한다. ──
+    /// `cmd="toast"` 페이로드.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toast: Option<ToastPayload>,
 }
 
 /// 역방향 이벤트 서브타입·상수 (양 크레이트 동일 — §11.D 동결).
@@ -325,6 +365,12 @@ pub fn to_render_state(vm: &unim::popup::PopupViewModel) -> RenderState {
 enum Cmd {
     Render { msg: WireMsg },
     Hide { msg: WireMsg },
+    /// 상황 알림(NOTIFY_SPEC §3.4). `queued_at` = IME 스레드가 큐에 넣은 시각 — 렌더러 미연결 시
+    /// 보류 수명(`PENDING_TOAST_TTL`)의 기준이다.
+    Toast {
+        msg: WireMsg,
+        queued_at: std::time::Instant,
+    },
 }
 
 /// 팝업 IPC 클라이언트. worker 스레드를 소유하며 비차단 큐로 통신한다.
@@ -413,6 +459,7 @@ impl PopupClient {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         };
         // 전이 전 상태도 함께 로깅.
         let was_active = self.active.swap(true, Ordering::SeqCst);
@@ -432,6 +479,62 @@ impl PopupClient {
                 dbg_log(&format!(
                     "popup_ipc: worker disconnected, dropped cmd=render seq={}",
                     self.seq
+                ));
+            }
+        }
+    }
+
+    /// 상황 알림(토스트) 전송 — fire-and-forget. **키 경로 비차단**: `try_send` 만 한다(가득 차면 폐기).
+    ///
+    /// 후보 팝업 상태(`active`·`last_render_*`)는 건드리지 않는다. 제목·본문은 로그에 남기지
+    /// 않는다(kind 만 — 입력 텍스트가 실릴 수 있다).
+    pub fn send_toast(&mut self, t: &crate::toast_bridge::ToastOut) {
+        self.seq += 1;
+        let msg = WireMsg {
+            v: WIRE_VERSION,
+            cmd: "toast".to_string(),
+            pid: std::process::id(),
+            seq: self.seq,
+            first: None,
+            flash: None,
+            // 포커스 창 — 렌더러가 이 창의 모니터 작업 영역 모서리에 그린다(D6).
+            owner_hwnd: Some(current_foreground_hwnd()),
+            render: None,
+            evt: None,
+            row: None,
+            col: None,
+            dir: None,
+            index: None,
+            toast: Some(ToastPayload {
+                kind: t.kind.to_string(),
+                key_hash: t.key_hash,
+                title: t.title.clone(),
+                body: t.body.clone(),
+                duration_ms: t.duration_ms,
+                corner: t.corner.to_string(),
+                flags: t.flags,
+            }),
+        };
+        dbg_log(&format!(
+            "popup_ipc: send toast seq={} kind={} flags={:#x}",
+            self.seq, t.kind, t.flags
+        ));
+        let cmd = Cmd::Toast {
+            msg,
+            queued_at: std::time::Instant::now(),
+        };
+        match self.tx.try_send(cmd) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                dbg_log(&format!(
+                    "popup_ipc: queue full, dropped cmd=toast seq={} kind={}",
+                    self.seq, t.kind
+                ));
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                dbg_log(&format!(
+                    "popup_ipc: worker disconnected, dropped cmd=toast seq={} kind={}",
+                    self.seq, t.kind
                 ));
             }
         }
@@ -458,6 +561,7 @@ impl PopupClient {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         };
         dbg_log(&format!(
             "popup_ipc: send hide seq={} active:true→false",
@@ -501,8 +605,13 @@ fn current_foreground_hwnd() -> u64 {
 
 mod worker {
     use super::*;
-    use std::sync::mpsc::Receiver;
-    use std::time::Instant;
+    use std::sync::mpsc::{Receiver, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+
+    use crate::toast_bridge::{PendingToast, PENDING_TOAST_TTL};
+
+    /// 보류 토스트가 있을 때 연결을 다시 시도하는 주기.
+    const PENDING_RETRY_INTERVAL: Duration = Duration::from_millis(200);
 
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{
@@ -754,15 +863,18 @@ mod worker {
         }
 
         /// JSON + "\n" 쓰기. broken pipe 시 1회 재연결·재시도.
-        fn write_msg(&mut self, msg: &WireMsg) {
+        ///
+        /// 반환: `true` = 처리 끝(전송 성공 또는 영구 폐기 — 직렬화 실패·과대 라인),
+        /// `false` = 렌더러에 연결·전송하지 못함(보류 후 재시도할 가치가 있다).
+        fn write_msg(&mut self, msg: &WireMsg) -> bool {
             if !self.ensure() {
-                return;
+                return false;
             }
             let mut line = match serde_json::to_string(msg) {
                 Ok(s) => s,
                 Err(e) => {
                     dbg_log(&format!("popup_ipc: serialize failed: {e}"));
-                    return;
+                    return true;
                 }
             };
             line.push('\n');
@@ -773,19 +885,72 @@ mod worker {
                     bytes.len(),
                     MAX_LINE_BYTES
                 ));
-                return;
+                return true;
             }
 
             if self.do_write(bytes) {
-                return;
+                return true;
             }
             // 1회 재연결 재시도.
             self.close();
             if !self.ensure() {
-                return;
+                return false;
             }
             if !self.do_write(bytes) {
                 dbg_log("popup_ipc: write retry failed, dropping");
+                return false;
+            }
+            true
+        }
+
+        /// 토스트 1건 전송. 연결·전송에 실패하면(렌더러가 아직 기동 중) **1건만** 보류한다.
+        /// 이미 수명(`PENDING_TOAST_TTL`)이 지난 토스트는 보류하지 않고 폐기한다.
+        fn send_toast(
+            &mut self,
+            msg: WireMsg,
+            queued_at: Instant,
+            pending: &mut PendingToast<WireMsg>,
+        ) {
+            if self.write_msg(&msg) {
+                // 연결이 살아 있으니 이전 보류분(있다면 더 오래된 것)은 최신 토스트가 대체한다.
+                pending.clear();
+                return;
+            }
+            let kind = msg.toast.as_ref().map_or("?", |t| t.kind.as_str()).to_string();
+            if Instant::now().saturating_duration_since(queued_at) > PENDING_TOAST_TTL {
+                dbg_log(&format!("popup_ipc: toast expired before connect — dropped kind={kind}"));
+                return;
+            }
+            dbg_log(&format!(
+                "popup_ipc: renderer not connected — toast held kind={kind} (ttl {}ms)",
+                PENDING_TOAST_TTL.as_millis()
+            ));
+            pending.hold(msg, queued_at);
+        }
+
+        /// 보류 토스트를 전달해 본다. `try_connect=false` 면 이미 연결돼 있을 때만 시도한다
+        /// (Render/Hide 처리 뒤 — 그 사이 연결됐을 수 있다). `true`(재시도 틱)면 연결을 새로 시도한다.
+        /// 수명이 지났으면 조용히 폐기한다.
+        fn flush_pending(&mut self, pending: &mut PendingToast<WireMsg>, try_connect: bool) {
+            if !pending.is_pending() {
+                return;
+            }
+            let now = Instant::now();
+            if !pending.alive(now) {
+                dbg_log("popup_ipc: pending toast expired — dropped");
+                return;
+            }
+            if self.handle.is_none() && !try_connect {
+                return;
+            }
+            if !self.ensure() {
+                return;
+            }
+            if let Some(msg) = pending.take_fresh(Instant::now()) {
+                if !self.write_msg(&msg) {
+                    // 연결 직후 쓰기까지 실패한 드문 경우 — 토스트는 일회성 안내라 더 붙들지 않는다.
+                    dbg_log("popup_ipc: pending toast write failed — dropped");
+                }
             }
         }
 
@@ -941,18 +1106,39 @@ mod worker {
     pub fn run(rx: Receiver<Cmd>, active: Arc<AtomicBool>, rev: Arc<RevChannel>) {
         dbg_log("popup_ipc: worker started");
         let mut conn = PipeConn::new(rev);
-        for cmd in rx.iter() {
+        // 렌더러 기동 중 도착한 첫 토스트 1건 보류 슬롯(§3.4). 보류 중에만 짧은 주기로 깨어난다.
+        let mut pending: PendingToast<WireMsg> = PendingToast::default();
+        loop {
+            let cmd = if pending.is_pending() {
+                match rx.recv_timeout(PENDING_RETRY_INTERVAL) {
+                    Ok(c) => Some(c),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            } else {
+                match rx.recv() {
+                    Ok(c) => Some(c),
+                    Err(_) => break,
+                }
+            };
             match cmd {
-                Cmd::Render { msg } => {
+                Some(Cmd::Render { msg }) => {
                     conn.last_render = Some(msg.clone());
                     conn.write_msg(&msg);
+                    conn.flush_pending(&mut pending, false);
                 }
-                Cmd::Hide { msg } => {
+                Some(Cmd::Hide { msg }) => {
                     // hide 후 캐시 비움 — 재연결 시 안 떠 있던 팝업을 부활시키지 않도록.
                     let _ = &active;
                     conn.last_render = None;
                     conn.write_msg(&msg);
+                    conn.flush_pending(&mut pending, false);
                 }
+                Some(Cmd::Toast { msg, queued_at }) => {
+                    conn.send_toast(msg, queued_at, &mut pending);
+                }
+                // 재시도 틱 — 보류 토스트가 있고 수명이 남았으면 연결을 다시 시도한다.
+                None => conn.flush_pending(&mut pending, true),
             }
         }
         conn.close();
@@ -1280,6 +1466,7 @@ mod tests {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         };
         let line = serde_json::to_string(&msg).unwrap();
         // 한 줄(개행 없음) 보장.
@@ -1352,6 +1539,7 @@ mod tests {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         }
     }
 
@@ -1413,6 +1601,64 @@ mod tests {
             let reser = serde_json::to_string(&parsed).unwrap();
             assert_eq!(reser, line, "reverse wire serialization drifted: {line}");
         }
+    }
+
+    // ─── 상황 알림(토스트) 와이어 — unim-popup-win/src/protocol.rs 사본과 byte-equal 교차 ───
+    // 같은 문자열을 렌더러 쪽 테스트(리눅스에서도 실행)에도 박아 사본 드리프트를 검출한다.
+    const GOLDEN_TOAST_LINE: &str = r#"{"v":1,"cmd":"toast","pid":4242,"seq":9,"owner_hwnd":123456,"toast":{"kind":"atf_corrected_forward","key_hash":1234567890123,"title":"UNIM","body":"자동 교정했어요","duration_ms":2000,"corner":"bottom_right","flags":0}}"#;
+
+    fn toast_msg() -> WireMsg {
+        WireMsg {
+            v: WIRE_VERSION,
+            cmd: "toast".to_string(),
+            pid: 4242,
+            seq: 9,
+            first: None,
+            flash: None,
+            owner_hwnd: Some(123456),
+            render: None,
+            evt: None,
+            row: None,
+            col: None,
+            dir: None,
+            index: None,
+            toast: Some(ToastPayload {
+                kind: "atf_corrected_forward".to_string(),
+                key_hash: 1234567890123,
+                title: "UNIM".to_string(),
+                body: "자동 교정했어요".to_string(),
+                duration_ms: 2000,
+                corner: "bottom_right".to_string(),
+                flags: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn golden_toast_line_byte_equal_with_renderer() {
+        let line = serde_json::to_string(&toast_msg()).unwrap();
+        assert_eq!(line, GOLDEN_TOAST_LINE, "toast wire serialization drifted");
+        assert!(!line.contains('\n'));
+        let parsed: WireMsg = serde_json::from_str(GOLDEN_TOAST_LINE).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), GOLDEN_TOAST_LINE);
+    }
+
+    #[test]
+    fn toast_keeps_wire_version_and_old_lines_unchanged() {
+        // WIRE_VERSION 을 올리면 구 렌더러가 메시지를 통째로 버린다 — 1 고정.
+        assert_eq!(WIRE_VERSION, 1);
+        // 정방향 render 골든 라인은 toast 필드(None)로 바이트가 바뀌지 않는다.
+        let parsed: WireMsg = serde_json::from_str(GOLDEN_RENDER_LINE).unwrap();
+        assert!(parsed.toast.is_none());
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), GOLDEN_RENDER_LINE);
+    }
+
+    #[test]
+    fn toast_payload_tolerates_missing_and_unknown_fields() {
+        let p: ToastPayload =
+            serde_json::from_str(r#"{"kind":"password_enter","future":1}"#).unwrap();
+        assert_eq!(p.kind, "password_enter");
+        assert_eq!((p.key_hash, p.duration_ms, p.flags), (0, 0, 0));
     }
 
     #[test]

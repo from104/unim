@@ -135,7 +135,7 @@ pub fn create() -> windows::core::Result<HWND> {
 ///   창 밖 그림자만 남는다. DWM 컴포지션 미가용(예: Aero 미사용 Win7) 시 실패 → 무시.
 ///
 /// 어느 호출이 실패해도 창 자체는 정상 표시되며(성공 경로 무회귀), 저하만 발생한다.
-unsafe fn apply_modern_frame(hwnd: HWND) {
+pub(crate) unsafe fn apply_modern_frame(hwnd: HWND) {
     // 1) 라운드 코너 (Win11 전용, 그 외 폴백).
     let pref = DWMWCP_ROUND;
     if let Err(e) = DwmSetWindowAttribute(
@@ -206,6 +206,8 @@ pub fn show_render(rs: RenderState, owner_hwnd: u64, flash: bool, conn_handle: i
             SWP_SHOWWINDOW | SWP_NOACTIVATE,
         );
         let _ = InvalidateRect(Some(hwnd), None, true);
+        // 팝업이 TOPMOST 맨 위로 올라왔다 — 겹치는 토스트는 숨긴다(팝업 우선).
+        crate::toast::yield_to_popup((x, y, x + w, y + h));
         if flash {
             SetTimer(Some(hwnd), FLASH_TIMER_ID, FLASH_MS + 10, None);
         }
@@ -216,6 +218,21 @@ pub fn show_render(rs: RenderState, owner_hwnd: u64, flash: bool, conn_handle: i
         "window: show owner_hwnd={owner_hwnd} conn={conn_handle:#x} seq={seq} \
          xy=({x},{y}) wh=({w},{h}) scale={scale:.3} flash={flash}"
     );
+}
+
+/// 팝업이 보이는 동안의 화면 좌표 `(l,t,r,b)` — 토스트 겹침 판정용(쿼리 전용 Win32).
+pub fn visible_rect() -> Option<(i32, i32, i32, i32)> {
+    let hwnd = UI_STATE.with(|st| {
+        let st = st.borrow();
+        if st.visible {
+            st.hwnd
+        } else {
+            None
+        }
+    })?;
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut r) }.ok()?;
+    Some((r.left, r.top, r.right, r.bottom))
 }
 
 /// 팝업 숨김 (owner 규칙은 호출자/main 에서 판정).

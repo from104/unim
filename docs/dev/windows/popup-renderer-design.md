@@ -1051,6 +1051,52 @@ worker 스레드는 ReadFile 만, 적용은 마샬링 후 TSF 스레드에서.
 
 ---
 
+## 12. 상황 알림 토스트 (`cmd="toast"`) — NOTIFY_SPEC §3.4 (P4)
+
+후보 팝업과 **별개 표면**이지만 같은 파이프·같은 렌더러 프로세스를 재사용한다. TSF DLL 은 UI 를
+만들지 않고 이 와이어로 보낼 뿐이다. 규격 원문은 `docs/dev/specs/NOTIFY_SPEC.md`.
+
+### 12.1 와이어 (v 유지 = 1)
+
+`WireMsg` 맨 끝에 `toast: Option<ToastPayload>`(`#[serde(default, skip_serializing_if = "Option::is_none")]`)
+를 추가했다 — 필드 순서 동결 규칙(`…,index,toast`)대로 끝에만. **`WIRE_VERSION` 은 올리지 않는다**(올리면
+구 렌더러 `pipe_server` 가 메시지를 통째로 버린다). `ToastPayload { kind, key_hash, title, body,
+duration_ms, corner, flags }` 전 필드 `#[serde(default)]`; `key_hash` 는 중복 억제 키의 FNV-1a 64
+해시(원문 전송 금지); `flags` 비트는 `toast_flags::TEXT_SHOWN = 0x01`(본문에 입력 텍스트가 실림, 정보용).
+`owner_hwnd` 는 기존 필드를 재사용(포커스 창). 양 크레이트 사본(`unim-tsf/src/popup_ipc.rs`,
+`unim-popup-win/src/protocol.rs`)은 동일해야 하며 렌더러 쪽 테스트가 소스 텍스트로 드리프트를 검사한다.
+
+- 역호환: 구 렌더러는 미지 `cmd="toast"` 를 로그 후 무시한다(`handle_msg` 의 `other` 분기). 신 렌더러는 옛
+  라인(render/hide/ping/evt)을 `toast=None` 으로 파싱하고 재직렬화 바이트가 불변이다.
+- 골든: `{"v":1,"cmd":"toast","pid":4242,"seq":9,"owner_hwnd":123456,"toast":{"kind":"atf_corrected_forward","key_hash":1234567890123,"title":"UNIM","body":"자동 교정했어요","duration_ms":2000,"corner":"bottom_right","flags":0}}`
+
+### 12.2 렌더러 (`unim-popup-win/src/toast.rs`, 순수 로직 `toast_logic.rs`)
+
+- 창: 프로세스당 HWND 1개 재사용, `WS_EX_NOACTIVATE|WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_LAYERED|
+  WS_EX_TRANSPARENT`(클릭 투과 + `WM_NCHITTEST=HTTRANSPARENT`, `WM_MOUSEACTIVATE=MA_NOACTIVATE`), 표시는
+  `SW_SHOWNOACTIVATE`/`SWP_NOACTIVATE`. Z 순서는 건드리지 않아 한자 팝업과 겹치면 토스트가 숨는다.
+- **최신 1장 교체**: 새 토스트가 오면 내용·위치·`SetTimer`(같은 ID) 를 갈아끼운다. `duration_ms`
+  0→기본 2000, 500~5000 클램프.
+- **렌더러 측 dedupe**: `(kind, key_hash)` 3,000 ms(`toast_logic::ToastDedupe`). 막힌 시도는 창을 밀지 않는다.
+- **위치(D6)**: `MonitorFromWindow(owner_hwnd | GetForegroundWindow, NEAREST)` → `rcWork` 의
+  `corner`(`auto`=우하단, 간격 16 논리 px) + 모니터 DPI 배율. owner 모니터가 다중이어도 그 모니터.
+- 색: `render::toast_colors()` = `current_palette()` 재사용(고대비·라이트·다크, 도색마다 재조회).
+- UIA: `UiaRaiseNotificationEvent(ActionCompleted, MostRecent)` — `uiautomationcore.dll` 에서 동적 해석
+  (정적 임포트면 구 Windows 에서 렌더러가 못 뜬다), 실패는 무시. 제공자는 Text 컨트롤 + Name.
+- 로그에는 **kind 만** 남긴다(제목·본문 금지).
+
+### 12.3 TSF 클라이언트
+
+`unim-tsf/src/toast_bridge.rs`(플랫폼 중립 순수 로직, Linux `cargo test`): 코어 `NotifyGate`·`render_with` 재사용,
+문서(`ITfDocumentMgr` 포인터를 접은 u32) 단위 비밀번호 진입 1회/10분 재알림, `PendingToast`(렌더러 기동 중
+첫 토스트 **1건만 1,500 ms TTL** 보류). `popup_ipc::PopupClient::send_toast` 는 `try_send` 뿐(키 경로 비차단),
+worker 가 연결 실패 시 보류하고 200 ms 주기로 재시도한다. 발생 지점: ATF 교정·억제·학습(`auto_typefix.rs`
+`check_*_outcome`), 한/영 전환 차단(`key_handler.rs` `last_toggle_blocked()`), ATF 토글·모드 변경
+(`text_service.rs` OnKeyDown), 비밀번호 전이(OnSetFocus·OnEndEdit), 문서 소멸(OnUninitDocumentMgr).
+`notify.*` 는 `maybe_reload_config` 가 갈아끼운 `config` 에서 매번 읽는다. IMM32 경로는 범위 밖(TODO).
+
+---
+
 ## 부록 A — 참조 소스 좌표
 
 | 무엇 | 어디 |

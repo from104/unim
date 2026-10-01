@@ -65,6 +65,41 @@ pub struct RenderState {
     pub caret_rect: Option<(i32, i32, i32, i32)>,
 }
 
+/// 상황 알림(토스트) 페이로드 — `cmd="toast"` 전용 (NOTIFY_SPEC §3.4).
+///
+/// 모든 필드 `#[serde(default)]` — 이후 필드가 늘어도 구 사본이 파싱하고, 구 메시지에서도
+/// 누락 필드가 기본값이 된다. `key_hash` 는 중복 억제 키의 FNV-1a 64 해시(원문 전송 금지).
+/// 본문(`title`/`body`)은 로그에 남기지 않는다(kind 만).
+/// 필드 추가·변경 시 반드시 양 크레이트(unim-tsf/src/popup_ipc.rs ↔ unim-popup-win/src/protocol.rs) 사본을 동일하게.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToastPayload {
+    /// `NotifyKind::as_str()` (snake_case).
+    #[serde(default)]
+    pub kind: String,
+    /// 렌더러 측 `(kind, key_hash)` 3초 중복 억제용.
+    #[serde(default)]
+    pub key_hash: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    /// 표시 시간(ms). 0 이면 렌더러 기본값.
+    #[serde(default)]
+    pub duration_ms: u32,
+    /// `auto|top_right|bottom_right|top_left|bottom_left` (auto = 우하단).
+    #[serde(default)]
+    pub corner: String,
+    /// [`toast_flags`] 비트합.
+    #[serde(default)]
+    pub flags: u32,
+}
+
+/// `ToastPayload::flags` 비트 — 양 크레이트 동일. 미정의 비트는 무시한다.
+pub mod toast_flags {
+    /// 본문에 입력 텍스트(교정 전후·단어)가 실려 있다(`notify.show_text=true`). 정보용.
+    pub const TEXT_SHOWN: u32 = 0x01;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireMsg {
     pub v: u32,
@@ -95,6 +130,10 @@ pub struct WireMsg {
     /// tab index
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
+    /// 상황 알림 페이로드(`cmd="toast"`, 정방향). 필드 순서 동결 — 맨 끝에 추가.
+    /// `skip_serializing_if` → 비 toast 메시지의 직렬화 바이트 불변.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toast: Option<ToastPayload>,
 }
 
 /// 렌더러가 히트테스트로 산출한 역이벤트(렌더러→TSF). `WireMsg` 직렬화 직전 형태.
@@ -125,6 +164,7 @@ impl RevEvent {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         };
         match *self {
             RevEvent::CellClick { row, col } => {
@@ -218,6 +258,7 @@ mod tests {
             col: None,
             dir: None,
             index: None,
+            toast: None,
         }
     }
 
@@ -333,6 +374,176 @@ mod tests {
             assert_eq!(&line, golden, "reverse wire serialization drifted: {evt:?}");
             assert!(!line.contains('\n'), "reverse line must be single-line");
         }
+    }
+
+    // ─── 상황 알림(토스트) 와이어 — NOTIFY_SPEC §3.4 (unim-tsf 사본과 byte-equal 교차) ───
+    // 직렬화 키 순서 = WireMsg 필드 선언 순서(…,index,toast) · ToastPayload 선언 순서.
+    const GOLDEN_TOAST_LINE: &str = r#"{"v":1,"cmd":"toast","pid":4242,"seq":9,"owner_hwnd":123456,"toast":{"kind":"atf_corrected_forward","key_hash":1234567890123,"title":"UNIM","body":"자동 교정했어요","duration_ms":2000,"corner":"bottom_right","flags":0}}"#;
+
+    fn toast_msg() -> WireMsg {
+        WireMsg {
+            v: WIRE_VERSION,
+            cmd: "toast".into(),
+            pid: 4242,
+            seq: 9,
+            first: None,
+            flash: None,
+            owner_hwnd: Some(123456),
+            render: None,
+            evt: None,
+            row: None,
+            col: None,
+            dir: None,
+            index: None,
+            toast: Some(ToastPayload {
+                kind: "atf_corrected_forward".into(),
+                key_hash: 1234567890123,
+                title: "UNIM".into(),
+                body: "자동 교정했어요".into(),
+                duration_ms: 2000,
+                corner: "bottom_right".into(),
+                flags: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn toast_golden_serialize_is_byte_equal() {
+        let line = serde_json::to_string(&toast_msg()).unwrap();
+        assert_eq!(line, GOLDEN_TOAST_LINE, "toast wire serialization drifted");
+        assert!(!line.contains('\n'));
+    }
+
+    #[test]
+    fn toast_golden_roundtrip() {
+        let parsed: WireMsg = serde_json::from_str(GOLDEN_TOAST_LINE).unwrap();
+        assert_eq!(parsed.cmd, "toast");
+        assert_eq!(parsed.toast, toast_msg().toast);
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), GOLDEN_TOAST_LINE);
+    }
+
+    /// WIRE_VERSION 을 올리면 구버전 쪽이 메시지를 통째로 버린다(pipe_server 불일치 규칙).
+    #[test]
+    fn wire_version_stays_one() {
+        assert_eq!(WIRE_VERSION, 1);
+        assert!(GOLDEN_TOAST_LINE.starts_with(r#"{"v":1,"#));
+    }
+
+    /// 구 렌더러 역호환: toast 필드가 없는 **옛 WireMsg 정의**가 toast 라인을 파싱하고
+    /// (미지 필드 무시) `cmd="toast"` 를 그대로 보존한다 → 렌더러 `handle_msg` 의 미지 cmd
+    /// 분기(로그 후 무시)로 간다. 옛 정의로 재직렬화하면 toast 키는 사라진다.
+    #[test]
+    fn legacy_renderer_tolerates_toast_line() {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct LegacyWireMsg {
+            v: u32,
+            cmd: String,
+            pid: u32,
+            seq: u64,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            first: Option<bool>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            flash: Option<bool>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            owner_hwnd: Option<u64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            render: Option<RenderState>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            evt: Option<String>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            row: Option<u32>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            col: Option<u32>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            dir: Option<u32>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            index: Option<u32>,
+        }
+        let legacy: LegacyWireMsg = serde_json::from_str(GOLDEN_TOAST_LINE).unwrap();
+        assert_eq!(legacy.cmd, "toast");
+        assert_eq!(legacy.v, WIRE_VERSION);
+        assert!(legacy.render.is_none());
+        assert!(!serde_json::to_string(&legacy).unwrap().contains(r#""toast":{"#));
+    }
+
+    /// 신 렌더러 정방향 호환: 옛 라인(render/hide/ping/evt)은 `toast=None` 으로 파싱되고
+    /// 재직렬화해도 `"toast"` 키가 나타나지 않는다(바이트 불변).
+    #[test]
+    fn new_renderer_parses_old_lines_without_toast() {
+        for line in [
+            GOLDEN_RENDER_LINE,
+            REV_CELL_CLICK,
+            REV_OUTSIDE_CANCEL,
+            r#"{"v":1,"cmd":"hide","pid":1,"seq":2}"#,
+            r#"{"v":1,"cmd":"ping","pid":1,"seq":0}"#,
+        ] {
+            let parsed: WireMsg = serde_json::from_str(line).unwrap();
+            assert!(parsed.toast.is_none(), "{line}");
+            assert_eq!(serde_json::to_string(&parsed).unwrap(), line);
+        }
+    }
+
+    /// 누락 필드는 기본값(향후 필드 추가·구 송신자 대비), 미지 필드는 무시.
+    #[test]
+    fn toast_payload_missing_and_unknown_fields() {
+        let p: ToastPayload =
+            serde_json::from_str(r#"{"kind":"password_enter","future_field":[1,2]}"#).unwrap();
+        assert_eq!(p.kind, "password_enter");
+        assert_eq!(p.key_hash, 0);
+        assert_eq!(p.duration_ms, 0);
+        assert_eq!(p.corner, "");
+        assert_eq!(p.flags, 0);
+        assert!(p.title.is_empty() && p.body.is_empty());
+    }
+
+    // ─── 사본 드리프트 가드 — unim-tsf/src/popup_ipc.rs 와 텍스트 비교 ───
+    // TSF 사본은 Windows 전용 모듈이라 Linux 에서 직접 컴파일·테스트할 수 없다. 와이어 정의가
+    // 갈라지면 골든 테스트는 각자 통과해도 실제 통신이 깨지므로, 소스 텍스트로 교차 검증한다.
+
+    const TSF_POPUP_IPC_SRC: &str = include_str!("../../unim-tsf/src/popup_ipc.rs");
+    const THIS_SRC: &str = include_str!("protocol.rs");
+
+    /// `header` 로 시작해 최상위 닫는 `}` 까지의 블록을 주석·공백 제거 후 한 줄로 정규화.
+    fn normalized_block(src: &str, header: &str) -> String {
+        let start = src
+            .find(header)
+            .unwrap_or_else(|| panic!("block not found: {header}"));
+        let rest = &src[start..];
+        let end = rest.find("\n}\n").expect("block end") + 3;
+        rest[..end]
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// `pub struct WireMsg` 의 필드 이름을 선언 순서대로.
+    fn wire_msg_field_names(src: &str) -> Vec<String> {
+        normalized_block(src, "pub struct WireMsg {")
+            .split(" pub ")
+            .skip(1)
+            .map(|f| f.split(':').next().unwrap().trim().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn toast_wire_types_match_tsf_copy() {
+        for header in ["pub struct ToastPayload {", "pub mod toast_flags {"] {
+            assert_eq!(
+                normalized_block(THIS_SRC, header),
+                normalized_block(TSF_POPUP_IPC_SRC, header),
+                "{header} drifted between unim-popup-win/protocol.rs and unim-tsf/popup_ipc.rs"
+            );
+        }
+        assert_eq!(
+            wire_msg_field_names(THIS_SRC),
+            wire_msg_field_names(TSF_POPUP_IPC_SRC),
+            "WireMsg field set/order drifted"
+        );
+        assert_eq!(wire_msg_field_names(THIS_SRC).last().map(String::as_str), Some("toast"));
+        // WIRE_VERSION 동일.
+        assert!(TSF_POPUP_IPC_SRC.contains("pub const WIRE_VERSION: u32 = 1;"));
     }
 
     /// 역방향 필드 추가가 정방향 골든 라인을 깨지 않음을 한 번 더 못박는다
