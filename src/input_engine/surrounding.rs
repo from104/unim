@@ -87,6 +87,14 @@ impl InputEngine {
         self.content_purpose
     }
 
+    /// 비밀번호/PIN 진입 직전에 저장해 둔 입력 카테고리(필드를 벗어나면 복구될 값).
+    ///
+    /// 엔진을 재생성하는 호출부가 목적과 함께 이관할 때 쓴다 — 저장값을 잃으면
+    /// 비밀번호 칸을 벗어난 뒤 영문 강제가 풀리지 않는다.
+    pub fn saved_category(&self) -> Option<InputCategory> {
+        self.saved_category
+    }
+
     /// Surrounding text를 설정합니다.
     ///
     /// 비밀번호/PIN 필드(`should_block_hangul`)에서는 surrounding text(평문일 수

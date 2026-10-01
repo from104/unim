@@ -821,10 +821,17 @@ fn reset_engine_and_capture_commit(
     }
 
     let current_mode = engine.input_category();
+    // 필드 목적은 조합 상태가 아니라 포커스 컨텍스트다(`InputEngine::reset` 과 같은 계약).
+    // 프런트는 리셋 뒤 목적을 다시 보내지 않으므로(캐시 dedupe), 재생성이 Normal 로
+    // 되돌리면 비밀번호 칸 클릭 한 번에 ATF·한영 차단이 풀리고 키가 ATF 버퍼에 남는다.
+    let purpose = engine.content_purpose();
+    let pre_password_mode = engine.saved_category();
     *engine = new_daemon_engine(config, window_id);
     if preserve_mode {
-        engine.set_input_category(current_mode);
+        // 비밀번호 칸이면 영문 강제 이전 모드로 되돌린 뒤 아래에서 다시 저장·강제한다.
+        engine.set_input_category(pre_password_mode.unwrap_or(current_mode));
     }
+    engine.set_content_purpose(purpose);
     // 엔진 재생성 직후 word 모드 게이트 재적용 (컨텍스트별 터미널/XIM/Smart·모아치기 강등).
     apply_word_gate(engine, desired_word);
 
@@ -3410,6 +3417,28 @@ mod tests {
         let captured = reset_engine_and_capture_commit(&mut e, &config, false, false, "gtk4-test");
         assert_eq!(captured.as_deref(), Some("국"));
         assert!(!e.is_hanja_mode());
+    }
+
+    /// 재생성(Reset/FocusOut) 뒤에도 비밀번호 칸 판정이 유지된다 — 프런트는 리셋 뒤
+    /// 목적을 재전송하지 않으므로, 잃으면 클릭 한 번에 ATF 게이트·영문 강제가 풀린다.
+    /// 칸을 벗어나면 영문 강제 이전 모드(한국어)로 복구돼야 한다.
+    #[test]
+    fn reset_engine_keeps_password_purpose_and_saved_mode() {
+        use unim::config::{ContentPurpose, InputCategory};
+        let config = Config::default();
+        for preserve_mode in [true, false] {
+            let mut e = new_daemon_engine(&config, "gtk4-test");
+            e.set_input_category(InputCategory::Korean);
+            e.set_content_purpose(ContentPurpose::Password);
+            assert_eq!(e.input_category(), InputCategory::English);
+            let _ = reset_engine_and_capture_commit(&mut e, &config, preserve_mode, false, "gtk4-test");
+            assert_eq!(e.content_purpose(), ContentPurpose::Password, "preserve={preserve_mode}");
+            assert_eq!(e.input_category(), InputCategory::English, "preserve={preserve_mode}");
+            if preserve_mode {
+                e.set_content_purpose(ContentPurpose::Normal);
+                assert_eq!(e.input_category(), InputCategory::Korean);
+            }
+        }
     }
 
     /// 재생성 경로 뒤에도 교체 능력이 유지된다(헬퍼 누락 회귀 방지).

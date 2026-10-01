@@ -475,6 +475,9 @@ impl UnimTextService {
             let mut config_guard = self.config.lock().unwrap();
             let mut comp_guard = self.composition_mgr.lock().unwrap();
             comp_guard.clear();
+            // 필드 목적 이관 — 새 엔진은 Normal 로 시작하고 OnEndEdit 는 선택이 바뀌어야
+            // 재판정하므로, 빠지면 비밀번호 칸에서 리로드 직후 ATF·한영 차단이 풀린다.
+            new_engine.set_content_purpose(engine_guard.content_purpose());
             *engine_guard = new_engine;
             *config_guard = new_config;
             *self.config_mtime.lock().unwrap() = Some(new_mtime);
