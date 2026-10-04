@@ -554,10 +554,8 @@ export class UnimDbusIME {
             }
         );
 
-        // popup-service Popup interface signal 구독 — ShowEmojiPopupV2 / HidePopup 만
-        // 활용 (Wayland text-input v3 IM 세션 engage 용 ZWSP preedit 트릭). 한자/특수
-        // popup signal 은 popup-service 가 자체 GTK4 popup 으로 표시하므로 GNOME ext
-        // 는 처리 불요.
+        // popup-service Popup interface signal 구독 — Show*/HidePopup 을 PopupView 로 중계
+        // (이모지 ZWSP preedit 트릭은 v3.5 에서 제거).
         this._popupServiceSignalId = this._popupServiceSignalId || bus.signal_subscribe(
             POPUP_SERVICE_BUS,
             POPUP_INTERFACE,
@@ -644,7 +642,7 @@ export class UnimDbusIME {
         // HidePopup / PopupNavigate / PopupRender / HanjaBookmarkChanged /
         // HanjaCandidatesReordered) 은 popup-service `org.atit.unim.Popup` interface
         // 가 단일 SoT. GNOME ext 는 popup-service 측 구독 핸들러
-        // _handlePopupServiceSignal 에서 ZWSP preedit 트릭만 처리.
+        // _handlePopupServiceSignal 에서 PopupView 중계만 처리.
         try {
             if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();

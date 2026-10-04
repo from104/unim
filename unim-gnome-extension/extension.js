@@ -22,7 +22,7 @@ import { KeyHandler } from './key_handler.js';
 import { NotifyBridge, NOTIFY_BRIDGE_NAME, notifyAllowed } from './notify_bridge.js';
 import { PreeditOverlay } from './preedit_overlay.js';
 // 한자/특수문자/이모지 popup 은 unim-popup-service (GTK4) 가 전담.
-// GNOME extension 은 popup show signal 시 emoji ZWSP preedit 만 관리하고
+// GNOME extension 은 popup show/hide signal 만 PopupView 에 중계하고(preedit 불변),
 // commit/cancel 결과는 daemon CommitText 시그널로 InputMethod 에 반영된다.
 import { unimLog, unimError } from './logging.js';
 
@@ -61,10 +61,8 @@ export default class UnimExtension extends Extension {
         this._inputMethod = null;
         this._keyHandler = null;
         this._preeditOverlay = null;
-        // emoji popup 활성 여부 — ShowEmojiPopupV2 / HidePopup 시그널로 추적.
-        // popup 자체는 unim-popup-service 가 표시. extension 은 ZWSP preedit 으로
-        // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않도록 한다.
-        this._emojiPopupActive = false;
+        // popup 자체는 unim-popup-service 가 표시한다. 이모지 팝업용 ZWSP preedit 우회책은
+        // v3.5 에서 제거됨(GTK4 선택 삭제 원인) — _clearStaleZwspPreedit 만 방어로 남김.
 
         this._focusWindowId = 0;
 
@@ -244,9 +242,10 @@ export default class UnimExtension extends Extension {
                 unimLog('EXTENSION', 'PopupView 비활성 (X11) — popup-service GTK4 popup 이 전담');
             }
 
-            // popup-service signal → PopupView. emoji popup 의 ZWSP preedit 트릭은
-            // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않게
-            // 보장 (별도 책임). 한자/특수는 preedit 활성 상태에서 트리거되므로 IM 이 이미 engage.
+            // popup-service signal → PopupView. 이모지 팝업을 띄울 때 ZWSP preedit 을 세우던
+            // 우회책(51d083b)은 제거됐다 — GTK4 GtkTextView 는 preedit-start 때 선택 영역을
+            // 지워 한자키로 이모지가 뜬 순간 선택이 사라졌고, cursor-jump flush 가 ZWSP 를
+            // 문서에 실제로 커밋하기도 했다(POPUP_SPEC v3.5). 팝업 표시는 IM 세션 상태와 무관하다.
             this._dbusIME.setPopupCallbacks({
                 onShowHanja: (cursorRect) => {
                     if (this._popupView) this._popupView.show(cursorRect);
@@ -255,17 +254,11 @@ export default class UnimExtension extends Extension {
                     if (this._popupView) this._popupView.show(cursorRect);
                 },
                 onShowEmoji: (cursorRect) => {
-                    this._emojiPopupActive = true;
-                    if (this._inputMethod) {
-                        this._inputMethod.updatePreedit('​'); // ZWSP — invisible
-                    }
+                    // preedit 을 건드리지 않는다 — 선택 영역·문서 보존(v3.5).
                     if (this._popupView) this._popupView.show(cursorRect);
                 },
                 onHidePopup: () => {
-                    if (this._emojiPopupActive && this._inputMethod) {
-                        this._inputMethod.updatePreedit('');
-                    }
-                    this._emojiPopupActive = false;
+                    this._clearStaleZwspPreedit();
                     if (this._popupView) this._popupView.hide();
                 },
                 onPopupRender: (parameters) => {
@@ -414,11 +407,8 @@ export default class UnimExtension extends Extension {
             this._popupView = null;
         }
 
-        // ZWSP preedit 잔재 정리.
-        if (this._emojiPopupActive && this._inputMethod) {
-            this._inputMethod.updatePreedit('');
-        }
-        this._emojiPopupActive = false;
+        // 구버전이 세운 ZWSP preedit 잔재 정리(방어).
+        this._clearStaleZwspPreedit();
 
         // (DBus 연결 자체는 disable()이 정리 — IME 토글 시 유지하여 emoji 단축키 보존)
 
@@ -487,10 +477,18 @@ export default class UnimExtension extends Extension {
             this._dbusIME.popupCancelHanja();
             this._dbusIME.popupCancelSpecial();
         }
-        if (this._emojiPopupActive && this._inputMethod) {
-            this._inputMethod.updatePreedit('');
+        this._clearStaleZwspPreedit();
+    }
+
+    /**
+     * preedit 이 ZWSP(U+200B) 한 글자일 때만 지운다 — 이모지 팝업이 더는 ZWSP 를 세우지
+     * 않지만, 진짜 조합 중 preedit 을 건드리지 않도록 정확히 ZWSP 일 때만 방어적으로 정리.
+     * @private
+     */
+    _clearStaleZwspPreedit() {
+        if (this._inputMethod?._preeditText === '\u200B') {
+            this._inputMethod.clearPreedit();
         }
-        this._emojiPopupActive = false;
     }
 
     /**

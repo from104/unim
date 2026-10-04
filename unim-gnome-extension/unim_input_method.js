@@ -12,6 +12,9 @@ import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import { unimLog, unimError } from './logging.js';
 
+/** 구버전 이모지 팝업이 IM engage 용으로 세우던 U+200B — 커밋·COMMIT 모드 대상이 아니다. */
+const ZWSP = '\u200B';
+
 /** 수정자 키 — IM이 가로채지 않고 Mutter에 직접 전달 (고정키 등 접근성 호환) */
 const MODIFIER_KEYSYMS = new Set([
     Clutter.KEY_Shift_L, Clutter.KEY_Shift_R,
@@ -354,7 +357,8 @@ class UnimInputMethod extends Clutter.InputMethod {
     vfunc_focus_out() {
         unimLog('IME', `vfunc_focus_out 호출됨 (stack: popup commit 디버깅)`);
         // 1. 커밋 최우선: 로컬 preedit 백업
-        const localPreedit = this._preeditText;
+        // ZWSP 잔재(구버전 이모지 우회책)는 커밋 대상이 아니다.
+        const localPreedit = this._preeditText === ZWSP ? '' : this._preeditText;
 
         this._hasFocus = false;
 
@@ -484,6 +488,11 @@ class UnimInputMethod extends Clutter.InputMethod {
         const preedit = this._preeditText;
         if (!preedit || preedit.length === 0) return;
         this._preeditText = '';
+        if (preedit === ZWSP) {
+            // 구버전 ZWSP 잔재는 문서에 커밋하지 않고 버린다(v3.5).
+            this.clearPreedit();
+            return;
+        }
         // 호출자가 곧이어 데몬 reset() 을 부르면 같은 글자가 CommitText 로 되돌아온다.
         // 미리 가드를 무장해 그 메아리를 흘린다(vfunc_reset 주석 참조).
         this._armCommitEchoGuard(preedit);
@@ -660,7 +669,13 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._preeditText = text || '';
 
         try {
-            if (this._preeditText.length > 0) {
+            if (this._preeditText === ZWSP) {
+                // ZWSP 는 COMMIT 모드로 세우지 않는다 — mutter reset(클릭 등)이 ZWSP 를
+                // 문서에 커밋하는 것을 막는다(v3.5). 확장은 더 이상 ZWSP 를 보내지 않으며
+                // 이 분기는 방어용이다.
+                this.set_preedit_text(
+                    this._preeditText, 1, 1, Clutter.PreeditResetMode.CLEAR);
+            } else if (this._preeditText.length > 0) {
                 // reset 모드는 COMMIT — "리셋이 오면 이 preedit 을 커밋하라"고 mutter 에
                 // 미리 선언해 두는 것이다(mutter clutter-input-focus.c):
                 //
