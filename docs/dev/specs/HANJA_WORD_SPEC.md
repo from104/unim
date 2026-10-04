@@ -54,7 +54,7 @@
 | 항목 | v1 | 근거 |
 |---|---|---|
 | 대상① | Linux 6 프런트엔드(GTK3/4·Qt5/6·XIM·Wayland·GNOME) 전부 + Windows TSF. 단 surrounding 을 준 적 있는 컨텍스트에서 접두 검증이 실패하면(빈 surrounding 포함 — Wayland 미수신 마커, [Q9](b)) `committed>0` 대상① 은 단음절로 퇴화한다(§2.2.3) | 교체 채널을 6종이 이미 구독하고 있다. TSF 는 코어를 직접 링크해 자동 상속 |
-| 대상② | GTK4·Qt5/6·GNOME 확장·Wayland(배선 신설)·TSF. **GTK3·XIM 미지원**(종전 idle 동작 유지) | GTK3 는 anchor 를 전달할 vtable 이 없고(`gtk3/src/immodule.c:1220-1222` anchor=cursor), XIM 은 surrounding 개념이 없다 |
+| 대상② | GTK4·Qt5/6·Wayland(배선 신설)·TSF. (GNOME 확장 경로는 앱이 선택을 보내지 않아 ✘ — §2.10) **GTK3·XIM 미지원**(종전 idle 동작 유지) | GTK3 는 anchor 를 전달할 vtable 이 없고(`gtk3/src/immodule.c:1220-1222` anchor=cursor), XIM 은 surrounding 개념이 없다 |
 | 출력 형식 | 단음절 변환에도 동일 적용 | 서식 조립이 `select_hanja` 한 곳이라 키보드·마우스·pull 경로 자동 동기 |
 | Windows | TSF 구현 + cross-compile(`make check-windows`) 검증만. IMM32 **코드 무변경** — 코어 호스트 능력 플래그(`hanja_word_replace_capable`, 기본 **false**, §2.2.2)가 대상① 교체 경로를 끄므로 IMM32·`unim-capi` 는 종전 단음절 동작·바이트 동일 | 이 환경에서 런타임 불가. IMM32 는 `press_key` 뒤 commit/preedit 만 드레인하고 팝업 액션·교체 페이로드를 드레인하지 않는다(`unim-imm32/src/input.rs:110-112,:181`, `lib.rs:224`) — 플래그 없이는 RecentWord 확정이 "국" 을 소실시킨다 |
 | 커밋 | 하지 않음(승인 후) | — |
@@ -164,6 +164,10 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
 
 대상①(`RecentWord`/`WordBuffer`)로 연 한자 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 다시 띄운다 — "대한민국" → (한민국 없음) → "민국" → "국". 확정 접두 길이도 함께 줄며, 남은 접두는 원래 접두의 접미라 §2.2.3 검증을 그대로 만족한다. 대상②(선택 전체 치환)·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 현행 경로(push: 팝업 미지원 키 재처리 / pull: 같은 팝업 재발행)로 간다. push(`press_key`)·pull(`start_hanja_conversion`) 두 경로가 같다(`hanja_word.rs` `shrink_hanja_target`).
 
+#### 2.5.6 단어 팝업은 1×9 목록 고정 (POPUP_SPEC v3.5 §3.7 규칙 12)
+
+대상(target)이 2음절 이상이면(대상①·대상② 공통) 9×9 확장 그리드를 쓰지 않는다. 단어 후보는 다글자라 고정 폭 셀 격자에 맞지 않고 한 화면 9개로 충분하다. `.`(Period)·`TogglePopupExpand`·⊞ 클릭은 no-op(키는 소비)이고 `expand_visible=false` 라 세 렌더러가 ⊞ 를 그리지 않는다. 숫자 1~9·↑↓·페이지 이동·Home/End 는 compact 경로 그대로다. Q7(a) 접미 축소로 target 이 1자가 되면 새 단음절 `PopupState` 가 만들어져 확장이 되살아난다. 구현: `PopupState::hanja_word`(`new_hanja_with_top_row` 에서 `target.chars().count() >= 2`) — `toggle_hanja_expanded` 는 `hanja_word` 면 no-op, `view_model` 은 `expand_visible: !hanja_word`. 렌더러·DBus 시그니처·설정은 무변경.
+
 ### 2.6 확정
 
 | 대상 | 커밋 문자열 | 채널 |
@@ -210,7 +214,7 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
 | Qt5/6 | ✔ | ✔ | surrounding 을 `update(Qt::InputMethodQueries)` 시 갱신(커스텀 `hanja_keys` 포함, **빈 텍스트도 전송**, 비번 필드는 `("",0,0)` — §2.8) + 래퍼 게이트(§4.5). 한자키 시점 재질의만으로는 부족: `input_context.cpp:381` 은 F9·Hangul_Hanja 하드코딩 pull 경로라 다른 `hanja_keys` 는 `processKey`(:408) → 엔진 분기로 가는데, surrounding 은 focus-in 1회(:554-564, 비어 있으면 미전송)뿐이라 QLineEdit Tab 포커스의 전체 선택 스냅샷이 stale 로 남아 `has_selection()` 오판 → 커서에 엉뚱한 단어 삽입 또는 이모지·한자 모두 침묵 |
 | XIM | ✔ | ✘(idle=이모지) | 교체 채널은 자가 주입 BackSpace N+1(`handler.rs` `PopupEvent::AutoTypeFix`)을 **한 번에 1개씩 직렬 주입**한다 — 일괄 주입하면 libX11 의 단일 FABRICATED 플래그 때문에 되돌린 BS 가 재필터돼 확정 뒤에 도착한다(2026-09 docker L3 실측 `대한大韓` → 직렬화로 해소). 교체 도착 시 preedit 표시 선클리어(마우스 확정 잔상 방지 — `handle_popup_event` 에는 `user_ic` 가 없으므로 `CommitText` 분기처럼 `last_focused_ic_info` 로 IC 를 재구성해 `server.preedit_draw(&mut ic, "")`, NOTHING/POSITION IC 는 PeWindow 숨김 경로. 구현 비용이 크면 선클리어를 포기하고 "마우스 확정 시 잔상 잔여(키보드 확정은 정상)" 로 비고 정정). 스팟 점프 Reset([Q9](a)) |
 | Wayland | ✔ | ✔(배선 신설) | 바이트 판별(§4.2) + `SurroundingText` → `SetSurroundingText` |
-| GNOME 확장 | ✔ | ✔(실측 항목) | 교체 전 preedit 선클리어(`UnimInputMethod.clearPreedit()`, `unim_input_method.js:728`) + `SPEC.md` §2.6·시그널 표·`vfunc_set_surrounding` 행 갱신. `onAutoTypeFix`(`extension.js:284`) 는 `_hasFocus` 게이트로 교체 프레임을 무음 드롭한다 — St 팝업 클릭 시 `_hasFocus` 유지 여부는 §6.5 실측 항목(GTK4 `is_focused` 와 같은 성격) |
+| GNOME 확장 | ✔ | **✘(idle=이모지)** | **(2026-10-04 실측 정정)** 경로는 text-input-v3 → mutter → `UnimInputMethod` 라 앱이 선택을 보내지 않는다: 최근 24시간 데몬 `SetSurroundingText` 321건 중 cursor≠anchor 0건. GTK3 는 `gtk_im_context_set_surrounding` 에 anchor 인자가 없어 im-wayland 가 항상 anchor=cursor 로 보내고, GTK4 는 anchor 를 지원하지만 마우스 드래그로 선택을 바꾸는 것만으로는 text-input 상태를 다시 보내지 않는다. mutter 의 `request_surrounding` 은 캐시를 되풀이할 뿐이라 이 경로로는 선택을 알 수 없다(§4.5 래퍼 게이트도 GTK4 im-module 전용이라 이 경로에는 적용되지 않는다 — gofu 는 `GTK_IM_MODULE=wayland` 가 이긴다). 따라서 선택 후 한자키 → idle → 이모지가 명세대로의 동작이다. 보강안(미구현, 승인 대기): 확장이 idle 한자키 때 `St.Clipboard` PRIMARY 를 비동기로 읽어 비어 있지 않고·공백 제외 18자 이하이며·캐시된 surrounding 에 포함될 때만 합성 `SetSurroundingText(sel,0,len)` 를 보내 대상②로 승격(아니면 이모지). PRIMARY 가 오래되면 한자가 삭제 없이 끼워질 수 있어 기현님 승인 후에만 도입한다. 교체 전 preedit 선클리어(`UnimInputMethod.clearPreedit()`)·`SPEC.md` §2.6 은 대상① 교체에 계속 쓰인다. `onAutoTypeFix`(`extension.js`) 는 `_hasFocus` 게이트로 교체 프레임을 무음 드롭한다 — St 팝업 클릭 시 `_hasFocus` 유지 여부는 §6.5 실측 항목. **선택 삭제 부작용 제거(v3.5)**: 이모지 팝업이 띄우던 ZWSP preedit(51d083b)가 GTK4 에서 preedit-start 로 선택을 지웠고(GTK3 는 지우지 않음) cursor-jump flush·COMMIT 모드 reset 으로 ZWSP 가 문서에 커밋되기도 했다 — 확장이 팝업 표시 시 preedit 을 건드리지 않도록 바꿨다 |
 | Windows TSF | ✔ | ✔ | cross-compile 검증만(§4.4). 엔진 생성 직후 `set_hanja_word_replace_capable(true)` |
 | IMM32 | 대상① 미지원(단음절 유지) | ✘ | 코드 무변경. 교체 채널·팝업 액션 드레인이 없으므로 코어 플래그 기본 false 로 종전 바이트 동일(§2.2.2 4). `unim-capi` 소비자도 동일 |
 
@@ -391,18 +395,25 @@ GTK4(`immodule.c:1061`)와 Qt(`input_context.cpp:446`)는 엔진 결과가 `cons
 | 서식 | 3종 × 단음절/단어; config serde(필드 없는 YAML → `Hanja`, `HanjaHangul` 파싱이 Compat 경유로 살아남음) |
 | 즐겨찾기 | 단어 키 토글·`HanjaCandidatesReordered.target=="대한민국"` |
 | 비밀번호 | 진입 시 버퍼 비움, pull 경로 차단, 팝업 열림 → `set_content_purpose(Password)` → `commit_buffer.is_empty() && !is_hanja_mode()` 단언(재커밋 없음 = 종전 `flush_preedit` 보다 먼저 정리), **`set_surrounding_text("대한민국",0,4)` → `set_content_purpose(Password)` → `!has_selection() && surrounding_text().0.is_empty()`**(진입 시 잔류 제거) |
+| 단어 팝업 목록 고정(v1.1, §2.5.6) | 단어 대상에서 Period·toggle 무시·`expand_visible=false`, 축소 후 1자가 되면 확장 복귀, 단음절 회귀(`word_popup_has_no_expand_and_shrink_to_one_char_restores_it`, `popup_state.rs` `hanja_word_target_ignores_expand`·`hanja_single_syllable_keeps_expand`) |
 | 회귀 | `cargo test --workspace` 전량(AutoTypeFix `tests.rs`·`tests_atf_hotkey`·`tests_scenarios`·`tests_popup_change_page`) 경고 0 |
 
 ### 6.2 L2 DBus (`tests/unim-test-dbus`)
 evdev 키열 `18 24 34 37 31 30 38 31 19 49 19` → Hanja(123). (1) `GetHanjaCandidates` target=="대한민국" → `AutoTypefixApply` 스트림 구독 후 `SelectHanja(0)` → `(3, "大韓民國", "")`. (2) `SetSurroundingText("대한민국 만세",0,4)` → Hanja → target=="대한민국" → `SelectHanja(0)` → `CommitText "大韓民國"`. (3) `SetSurroundingText("abc def",0,3)` → Hanja → 후보 없음 → `ProcessKey` 폴백에서 이모지 팝업(Q8(a)) — pull 단계 조기 발행 없음. (4, 선택) `SetConfigYaml` 로 `HangulHanja` → "대한민국(大韓民國)". (5) 팝업 열림 → `SetContentType(Password)` → `HidePopup` 시그널 수신·`CommitText` 미발행. (6) AutoTypeFix 순방향 교정(영타 "eogksals" → "대한민") 직후 "국"+Hanja → target=="대한민국"(버퍼 시드).
 
+(2b, v1.1) 대상② "대한민국" 팝업 → `TogglePopupExpand` → `PopupRender` `cols=1`·`expand_visible=false`·`expand_text="⊞"`, 단음절 "한" 은 `expand_visible=true`·토글 뒤 `⊟`.
+
 ### 6.3 L3 Xvfb 하네스 (`tests/harness/scenarios/hanja_word.json`)
 (1) `hanja-word-syllable`: 11키 → `{committed:"대한민", preedit:"국"}` → F9 → 1 → `{committed:"大韓民國", preedit:"", rendered:"大韓民國"}`. (2) `hanja-word-selection`(GTK4 앱 필드): 11키 → space → Left → shift+Home → F9 → 1. (3) `selection-kept-on-consumed-key`(래퍼 게이트 회귀): `abc` → 선택 → 한/영 전환키 → committed "abc" 유지 → F9 → "abc" 유지. (4, 선택) `hanja-word-custom-key`(Qt 앱, `hanja_keys` 에 F9 아닌 키): 11키 → 커스텀 한자키 → 팝업 헤더 "대한민국"(stale 선택 스냅샷 없이 `update()` 갱신 경로 확인). `commit_unit`/서식 자동 적용 확장은 선택 — 채택 시 `harness.py` 에 `set_config_field(path, value)`(`GetConfigYaml` → 키 패치 → `SetConfigYaml`, 종료 시 복원) 헬퍼가 **필수**(레거시 `SetConfig` 는 두 키를 모르므로 layout 패턴 복제는 조용히 실패).
+
+(v1.1) `word-popup-no-expand` — 단어 팝업이 열린 채 `.` 를 눌러도 팝업이 유지되고(`.` 미입력) 1 확정이 그대로 된다.
 
 ### 6.4 Windows
 `make check-windows` 경고 0 + `cargo check -p unim-popup-win --target x86_64-pc-windows-gnu`. VM 검증 항목(이 환경 불가): 확정 2지점 교체, CUAS(synth) 다글자 삭제, 오버레이 폴백, `insert_text` 선택 치환, `OnSetFocus` 래퍼, 렌더러 폭.
 
 ### 6.5 실측 항목(리포 밖)
+**2026-10-04 실측 반영**: Mutter→데몬 `SetSurroundingText` 는 선택(cursor≠anchor)을 한 번도 전달하지 않았다(0/321). 오프셋 단위는 문제없음(커밋 뒤 cursor 57→58 문자 단위, len 228→231 바이트). 남은 실기 확인: `WAYLAND_DEBUG=client gnome-text-editor 2>&1 | grep set_surrounding` 로 GTK4 가 드래그 선택 때 송신하지 않는지, 이모지 마우스 확정 시 ZWSP 없이도 commit 이 휘발하지 않는지(휘발하면 마우스 확정 직전에만 ZWSP 1회).
+
 Mutter `vfunc_set_surrounding` 호출 빈도·오프셋 단위(바이트/문자 — 바이트면 확장 쪽에서 문자 단위 변환, 엔진은 초과 오프셋을 거부한다 §2.4.1), GtkTextView·St.Entry·Chromium(text-input-v3)·Electron 의 commit 시 선택 치환 여부, Qt UTF-16 오프셋의 서로게이트 처리, 앱별 surrounding 보고 지연, popup-service 클릭 시 GTK4 `is_focused` 유지 여부(X11 override-redirect / layer-shell keyboard_interactivity — §4.1), GNOME St 팝업 클릭 시 `UnimInputMethod._hasFocus` 유지 여부(`extension.js:284` 게이트 — §4.1), XIM 스팟 점프 Reset 의 실제 비용(사전 재파싱 시간·클릭 뒤 첫 키 지연 — 문제되면 경량 RPC, Q9(a)).
 
 ---
@@ -429,3 +440,4 @@ Mutter `vfunc_set_surrounding` 호출 빈도·오프셋 단위(바이트/문자 
 | 2026-09-26 | v1 | 기현님 최종 승인(Q1~Q9 결정대로) — POPUP_SPEC v3.4 반영(§5 를 Q7(a)·Q8(a) 판으로 갱신, 규칙 11 추가), §2.5.5 신설(끊긴 참조 복구), §2.4.1·§6.2(3) 을 Q8(a) 이모지 폴백으로 정정 |
 | 2026-09-26 | v1 | §2.10 XIM 대상① — 교체 채널 BS 직렬 주입으로 결함 해소, ✔ 복원 |
 | 2026-09-30 | v1 | §4.1 ATF 순방향 버퍼 시드 — Windows TSF 누락 보강(실기 확인) |
+| 2026-10-04 | v1.1 | GNOME 경로 선택 미전달 실측(0/321)·대상② PRIMARY 경유(보강안, 승인 대기)·단어 팝업 목록 고정(§2.5.6) |

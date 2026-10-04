@@ -105,7 +105,7 @@ sequenceDiagram
 | `InputContext` | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 | `InputContext` | `popup_change_page` | `(i direction)` | — | **마우스 ◀/▶용 페이지 이동** (0=Prev, 1=Next). 한자/특수문자/이모지 모든 팝업에서 동작, 단일 페이지면 no-op. (v3.1) |
 | `InputContext` | `ToggleHanjaBookmark` | `(u index)` | `(u new_index, b bookmarked)` | 한자 즐겨찾기 토글. 결과는 `HanjaCandidatesReordered` 시그널로 일괄 통지. |
-| `InputContext` | `TogglePopupExpand` | — | — | **마우스 ⊞/⊟용 한자 popup 확장 모드 토글** (v3.2). compact↔expanded 전환. popup-owner 라우팅 보정 (caller 와 popup_state 활성 context 가 다를 수 있음 → daemon 이 `resolve_popup_owner`로 자동 보정). 활성 한자 popup 이 없으면 no-op. |
+| `InputContext` | `TogglePopupExpand` | — | — | **마우스 ⊞/⊟용 한자 popup 확장 모드 토글** (v3.2). compact↔expanded 전환(**다음절 한자 단어 popup 은 no-op** — v3.5, §3.7 규칙 12). popup-owner 라우팅 보정 (caller 와 popup_state 활성 context 가 다를 수 있음 → daemon 이 `resolve_popup_owner`로 자동 보정). 활성 한자 popup 이 없으면 no-op. |
 
 ### 2.5 DBus 시그널 정리
 
@@ -130,7 +130,7 @@ sequenceDiagram
 | `rows`, `cols` | 그리드 차원 (한자 expanded·특수·이모지 = MAX_ROWS=9 고정 정책) |
 | `sel_row`, `sel_col`, `current_page`, `total_pages` | 셀/페이지 위치 |
 | `show_footer` | 단일 페이지면 false → footer hide (◀/▶ 함께 hide) |
-| `expand_visible` | 한자 popup 만 true |
+| `expand_visible` | **단음절 한자 popup 만 true** (한자 단어(2음절 이상)·특수문자·이모지는 false — v3.5) |
 | `cells` | column-major 평면 배열 (길이 = rows*cols), 각 `(text, meaning, flags)`. flags 비트: `0x01=has_data`, `0x02=selected`, `0x04=col_highlight`, `0x08=row_highlight`, `0x10=bookmarked` |
 | `col_headers` / `row_headers` | `(text, is_active)` 튜플 — sel_col/sel_row 와 일치하는 헤더만 active=true |
 | `tab_labels` | 이모지 좌측 9 카테고리 탭 라벨 (단축키 prefix 포함, "Smileys (a)") |
@@ -198,7 +198,7 @@ sequenceDiagram
 | `Home` (v3.2) | 첫 페이지 첫 셀 | `current_page=0, sel_row=0, sel_col=0` 점프 |
 | `End` (v3.2) | 마지막 페이지 마지막 데이터 셀 | column-major 채움 순서 — last_idx=count-1, col=last/rows, row=last%rows. compact (cols=1) 는 sel_col=0 유지하고 sel_row=last. |
 | `Escape` | 취소 | preedit 복원, 팝업 닫기 |
-| `.` (Period) | compact ↔ expanded 토글 | 1×9 ↔ 9×9 그리드 전환 |
+| `.` (Period) | compact ↔ expanded 토글 | 1×9 ↔ 9×9 그리드 전환. **단음절 한자 한정** — 다음절 한자 단어 popup 은 키만 소비(v3.5, 규칙 12) |
 | **기타 키** | 팝업 닫고 키 재처리 | 팝업 취소 후 해당 키를 엔진에 다시 전달 |
 
 > Wrap-around 정책 (v3.1): 키보드 ←/→/PageUp/PageDown, 마우스 ◀/▶ 모두 동일하게 wrap-around. 단일 페이지(`total_pages == 1`)인 경우 페이지 이동 자체가 no-op.
@@ -226,7 +226,7 @@ sequenceDiagram
 
 - `total_pages > 1`일 때만 ◀/▶ 표시. 단일 페이지에서는 둘 다 **숨김** (disabled가 아니라 hide).
 - ◀/▶ 버튼 색: Catppuccin Overlay1 (`#7f849c`) 기본 / Blue (`#89b4fa`) hover.
-- ⊞ 아이콘은 expanded(81칸) 모드, ⊟ 아이콘은 compact(9칸) 모드를 시각화.
+- ⊞ 아이콘은 expanded(81칸) 모드, ⊟ 아이콘은 compact(9칸) 모드를 시각화. **한자 단어(2음절 이상) popup 은 ⊞ 를 숨긴다**(`expand_visible=false`, v3.5).
 - 본 푸터 레이아웃은 한자 팝업에 적용. 특수문자·이모지 팝업도 동일 ◀/▶ 위치를 따르되 ⊞ 아이콘은 없다 (특수문자/이모지는 expand 토글이 없다).
 
 > **v3.1 구현 범위**: ◀/▶ 마우스 페이지 이동은 한자·특수문자·이모지 팝업을 가진 모든 프런트엔드에 일괄 적용 — GNOME Shell extension, GTK Standalone (`unim-gui-gtk`), GTK IM modules (gtk3/gtk4), Qt IM modules (qt5/qt6), XIM (한자/특수문자/이모지), Wayland (`unim-frontends/wayland`), Windows egui (`unim-windows/`). 즐겨찾기 해제 cursor flash는 한자 팝업 한정 (특수문자·이모지는 즐겨찾기 개념이 없다). Wayland 환경에서 ◀/▶ 클릭은 컴포지터의 IM popup pointer 라우팅 지원에 의존 — GNOME mutter처럼 이를 차단하는 컴포지터에서는 키보드 ←/→로 동등하게 동작한다.
@@ -253,8 +253,9 @@ sequenceDiagram
    - `was_bookmarked == true && bookmarked == false`인 reorder 이벤트에서, cursor가 점프해 도착한 셀에 **140ms 동안 Catppuccin yellow `#f9e2af` flash**.
    - 등록(★ ON) 시에는 flash 없음 — cursor가 자연스럽게 promote된 page 0 row 0을 따라가므로 시각 단서가 충분.
    - flash는 사용자가 "내가 별을 끄니 이 한자가 여기로 갔구나"를 인지하게 만드는 핵심 단서.
-10. **선택 영역 변환 지원 범위** (v3.4): 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4·Qt5/6·GNOME Shell 확장·Wayland·Windows TSF)에서만 동작한다. GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 정확히 없으면 역시 종전 idle 동작(이모지 팝업)이다.
+10. **선택 영역 변환 지원 범위** (v3.4): 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4 im-module·Qt5/6·Wayland·Windows TSF)에서만 동작한다. GNOME Shell 확장 경로(text-input-v3)는 앱이 선택을 보내지 않아(실측 0/321, HANJA_WORD_SPEC §2.10) 사실상 미동작이다(v3.5 정정). GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 정확히 없으면 역시 종전 idle 동작(이모지 팝업)이다.
 11. **팝업 중 한자키 재타 (접미 축소)** (v3.4): 규칙 2(a) 대상으로 연 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 갱신한다(예: "대한민국" → "민국" → "국"). 규칙 2(c) 선택 영역 대상·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 종전 동작(푸시 경로: 팝업 닫고 키 재처리 / 풀 경로: 같은 팝업 재발행).
+12. **한자 단어 popup 은 1×9 목록 고정** (v3.5): 대상(target)이 2음절 이상인 한자 popup(규칙 2(a)·(c) 의 단어 대상)은 9×9 확장 없이 1×9 목록만 쓴다. `.`(Period)·`TogglePopupExpand`·`⊞` 클릭은 no-op(키는 소비), 렌더러는 `expand_visible=false` 로 ⊞ 를 그리지 않는다. 숫자 1~9·↑↓·페이지 이동·Home/End 는 compact 경로 그대로다. 규칙 11 의 접미 축소로 target 이 1자가 되면 새 단음절 팝업이므로 확장이 다시 가능하다. 단음절 한자·특수문자·이모지 그리드는 변경 없음. 엔진 SoT: `PopupState::hanja_word`(`new_hanja_with_top_row` 에서 `target.chars().count() >= 2`).
 
 ---
 
@@ -656,7 +657,7 @@ pub struct PopupViewModel {
     pub total_pages: usize,
     pub footer_text: String,        // "1/3" 또는 "[ㄱ] 1/3" 등
     pub show_footer: bool,          // 단일 페이지면 false
-    pub expand_visible: bool,       // 한자 popup 만 true
+    pub expand_visible: bool,       // 단음절 한자 popup 만 true (v3.5)
     pub expand_text: String,        // "⊞" / "⊟"
     pub tab_labels: Vec<String>,    // "Smileys (a)" 등 (이모지 전용)
     pub active_tab_index: usize,
@@ -743,6 +744,7 @@ impl PopupState {
 | 2026-05-04 | **v3.2** | **Phase B 통합 SoT — `PopupViewModel` 확장 + `PopupRender` DBus 시그널 추가 (헤더/푸터/탭/확장 아이콘 daemon 산출). `TogglePopupExpand` RPC (마우스 ⊞/⊟ 클릭). 키 바인딩 추가: `Home`/`End` (3개 popup), `.` Period (한자 expand 토글). 엔진 `update_page_layout` rows=9 고정 정책 (시각·엔진 column-major 인덱싱 일치). idle Hanja 키가 영문 모드에서도 emoji popup 트리거. 디자인 토큰 SoT (`tools/popup-styles/popup_tokens.toml` + 양 frontend 자동 생성 CSS). 우클릭 즐겨찾기 토글 gui-gtk parity. 이모지 popup nav/edit 키 stage 캡처 (Wayland idle text-input 우회). 이모지 카테고리 라벨 우측 정렬.** |
 | 2026-05-17 | **v3.3** | **GNOME Wayland 분기 — extension PopupView (St 위젯) 도입. popup-service 와 동일 클래스명·CSS 토큰·위젯 트리 (`.unim-{hanja,special,emoji}-popup`, `.grid-cell`, `.hanja-num`, `.popup-page-btn` 등) 1:1 동기. 활성 조건 `Meta.is_wayland_compositor()` — X11 에선 미생성(이중 popup 방지). 이모지 카테고리 탭을 통합 GridLayout col 0 에 attach → 우측 row 헤더와 vertical 자연 정렬. 한자 cell 별(★/☆) 우측 고정 (뜻 없어도 hexpand spacer). 푸터 페이저 가로 폭 꽉 채움 (◀ 좌 / 페이지 중앙 / ▶ 우 / ⊞ 우끝). 페이저 항상 표시 + 페이지 1개면 ◀▶ 비활성화·dim — popup 크기 점프 방지. col_headers 항상 9개 — page item 수와 무관하게 popup 폭 일정. popup 위치 화면 정중앙 고정 (모든 frontend 공통). dismiss 정책 — focus_out/reset 단일 경로 + cursor-jump 감지(IBus 자동 reset 미동작 보완). popup-service D-Bus auto-activation 도입 (`org.atit.unim.PopupService.service`) + autostart .desktop 폐기. main.rs 시작 순서 재배치 — PopupServer 등록 먼저, register_frontend fire-and-forget. SetEmojiCategory 가 ShowEmojiPopupV2 + PopupRender 동반 emit (카테고리 탭 갱신 정상 동작). `call_popup_service` RPC signature mismatch 수정(`call_method` 사용).** |
 | 2026-09-26 | **v3.4** | **한자 단어 변환 — §3.7 규칙 2 대상 확장(최근 확정 음절+조합 최장 접미·단어 모드 preedit 접미·앱 선택 영역), 규칙 4/5 확정·취소 페이로드 개정, 규칙 10 선택 변환 지원 범위, 규칙 11 팝업 중 한자키 재타 접미 축소, §9.2 idle 정책에 선택 영역 예외(불일치 선택은 이모지 폴백). 확정 시 `AutoTypefixApply` 를 접두 교체 채널로 재사용, `SelectHanja` 반환 문자열에 출력 형식 설정(`hanja_output_format`) 적용. 헤더 ellipsize·Windows compact 한자 열 동적 폭. 별도 규격: `HANJA_WORD_SPEC.md`** |
+| 2026-10-04 | v3.5 | 한자 단어 팝업 9×9 확장 제거·⊞ 숨김·./TogglePopupExpand no-op(기현님 지시). GNOME 이모지 ZWSP preedit 제거(GTK4 선택 삭제) |
 
 ---
 
@@ -791,5 +793,6 @@ popup-service 는 더 이상 `/etc/xdg/autostart/unim-popup-service.desktop` 으
 | ESC 키 | daemon `cancel_*` RPC | 동일 |
 
 `_cleanupPopups()` (ext) 는 단일 진입점 — `popup_view.hide()` + `popupCancel*` RPC +
-ZWSP preedit (emoji) 정리. dismiss 흐름은 항상 vfunc_focus_out / vfunc_reset 두
+ZWSP preedit 잔재(구버전, preedit 이 정확히 U+200B 일 때만) 방어 정리. 이모지 팝업은 v3.5 부터
+ZWSP preedit 를 세우지 않는다(GTK4 GtkTextView 가 preedit-start 때 선택 영역을 지우는 문제). dismiss 흐름은 항상 vfunc_focus_out / vfunc_reset 두
 경로로 수렴.

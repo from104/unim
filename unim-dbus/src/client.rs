@@ -303,6 +303,25 @@ trait InputContext {
         sel_row: i32,
         sel_col: i32,
     ) -> Result<()>;
+
+    /// 통합 view_model 시그널 (POPUP_SPEC §2.5 `PopupRender`) — 데몬이 팝업 상태가
+    /// 바뀔 때마다 발행. 인자 묶음은 서버 시그니처와 같다: `texts=(target, header,
+    /// footer, expand_text)`, `layout=(rows, cols, sel_row, sel_col, page, total_pages)`,
+    /// `flags=(show_footer, expand_visible)`.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[zbus(signal)]
+    fn popup_render(
+        &self,
+        kind: u32,
+        texts: (String, String, String, String),
+        layout: (u32, u32, u32, u32, u32, u32),
+        flags: (bool, bool),
+        cells: Vec<(String, String, u32)>,
+        col_headers: Vec<(String, bool)>,
+        row_headers: Vec<(String, bool)>,
+        tab_labels: Vec<String>,
+        active_tab_index: u32,
+    ) -> Result<()>;
 }
 
 /// DBus 클라이언트 연결 관리자

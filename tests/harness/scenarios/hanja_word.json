@@ -38,6 +38,21 @@
     ]
   },
   {
+    "name": "word-popup-no-expand",
+    "desc": "한자 단어 팝업은 1×9 목록 고정 — 팝업이 열린 채 `.`(Period)를 눌러도 팝업이 닫히거나 `.` 가 입력되지 않고 후보 확정이 그대로 된다 (POPUP_SPEC v3.5 §3.7 규칙 12). 9×9 확장 없음의 렌더 판정은 L2(unim-test-dbus 2b)",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["e", "o", "g", "k", "s", "a", "l", "s", "r", "n", "r"],
+        "expect": { "committed": "대한민", "preedit": "국" } },
+      { "key": "F9" },
+      { "key": "period" },
+      { "key": "1",
+        "expect": { "committed": "大韓民國", "preedit": "", "rendered": "大韓民國" } }
+    ]
+  },
+  {
     "name": "selection-kept-on-consumed-key",
     "desc": "래퍼 게이트 회귀 — 선택된 채 빈 커밋만 내는 키(한/영 전환·한자키 불일치 선택)를 눌러도 GTK4/Qt가 선택을 지우지 않는가 (HANJA_WORD_SPEC.md §4.5, Q4 채택)",
     "korean": false,

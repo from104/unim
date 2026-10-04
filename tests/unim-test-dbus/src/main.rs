@@ -797,6 +797,100 @@ async fn hw_case2_selection_commit(
     }
 }
 
+/// POPUP_SPEC v3.5 §3.7 규칙 12: 한자 단어(2음절 이상) 팝업은 1×9 목록 고정.
+/// 대상② "대한민국" 팝업에서 `TogglePopupExpand` → `PopupRender` 가 `cols=1`·
+/// `expand_visible=false`·`expand_text="⊞"` 로 남는다. 단음절 "한" 은 `expand_visible=true`
+/// 이고 토글하면 확장(`expand_text="⊟"`)된다.
+async fn hw_case2b_word_popup_no_expand(
+    im: &InputMethodProxy<'_>,
+    ic: &InputContextProxy<'_>,
+    verbose: bool,
+) -> TestResult {
+    let name = "한자 단어(2b) 단어 팝업 목록 고정: TogglePopupExpand → cols=1·expand_visible=false".to_string();
+    let _ = im.set_global_mode(true).await;
+    if let Err(e) = ic.focus_in("").await {
+        return TestResult { name, passed: false, detail: Some(format!("FocusIn 실패: {}", e)) };
+    }
+    let _ = ic.reset().await;
+    let mut render_stream = match ic.receive_popup_render().await {
+        Ok(s) => s,
+        Err(e) => {
+            return TestResult { name, passed: false, detail: Some(format!("PopupRender 구독 실패: {}", e)) };
+        }
+    };
+
+    // (선택 대상, 기대 expand_visible, 토글 뒤 기대 expand_text)
+    for (selection, len, want_visible, want_text) in [("대한민국", 4, false, "⊞"), ("한", 1, true, "⊟")] {
+        if let Err(e) = ic.set_surrounding_text(selection, 0, len).await {
+            let _ = ic.reset().await;
+            return TestResult { name, passed: false, detail: Some(format!("SetSurroundingText 실패: {}", e)) };
+        }
+        let (target, candidates) = match ic.get_hanja_candidates().await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = ic.reset().await;
+                return TestResult { name, passed: false, detail: Some(format!("GetHanjaCandidates 오류: {}", e)) };
+            }
+        };
+        if target != selection || candidates.is_empty() {
+            let _ = ic.cancel_hanja().await;
+            let _ = ic.reset().await;
+            return TestResult {
+                name,
+                passed: false,
+                detail: Some(format!("target 기대=\"{}\" 실제=\"{}\" (후보 {}개)", selection, target, candidates.len())),
+            };
+        }
+        // 직전 시그널(Get 직후 render)을 비운다.
+        while tokio::time::timeout(Duration::from_millis(200), render_stream.next()).await.is_ok() {}
+
+        if let Err(e) = ic.toggle_popup_expand().await {
+            let _ = ic.cancel_hanja().await;
+            let _ = ic.reset().await;
+            return TestResult { name, passed: false, detail: Some(format!("TogglePopupExpand 오류: {}", e)) };
+        }
+        let signal = match tokio::time::timeout(Duration::from_millis(1500), render_stream.next()).await {
+            Ok(Some(s)) => s,
+            _ => {
+                let _ = ic.cancel_hanja().await;
+                let _ = ic.reset().await;
+                return TestResult { name, passed: false, detail: Some(format!("\"{}\": PopupRender 미수신", selection)) };
+            }
+        };
+        let args = match signal.args() {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = ic.cancel_hanja().await;
+                let _ = ic.reset().await;
+                return TestResult { name, passed: false, detail: Some(format!("시그널 역직렬화 실패: {}", e)) };
+            }
+        };
+        let cols = args.layout().1;
+        let visible = args.flags().1;
+        let text = args.texts().3.clone();
+        if verbose {
+            eprintln!(
+                "  {}case2b \"{}\" cols={} expand_visible={} expand_text={}{}",
+                DIM, selection, cols, visible, text, RESET
+            );
+        }
+        let _ = ic.cancel_hanja().await;
+        let _ = ic.reset().await;
+        let ok = visible == want_visible && text == want_text && (want_visible || cols == 1);
+        if !ok {
+            return TestResult {
+                name,
+                passed: false,
+                detail: Some(format!(
+                    "\"{}\": expand_visible 기대={} 실제={}, expand_text 기대={} 실제={}, cols={}",
+                    selection, want_visible, visible, want_text, text, cols
+                )),
+            };
+        }
+    }
+    TestResult { name, passed: true, detail: None }
+}
+
 /// §6.2 케이스 (3): 불일치/비한글 선택 → 후보 없음. Q8(a) 채택(§2.1)에 따라
 /// idle 이모지 팝업으로 폴백한다(`HANJA_WORD_SPEC.md` §6.2 (3), POPUP_SPEC v3.4 §9.2).
 async fn hw_case3_unmatched_selection(
@@ -1239,6 +1333,7 @@ async fn test_hanja_word(
     results.push(hw_case1_word_replace(im, ic, keys, verbose).await);
     results.push(hw_case1b_push_word_replace(im, ic, keys, verbose).await);
     results.push(hw_case2_selection_commit(im, ic, verbose).await);
+    results.push(hw_case2b_word_popup_no_expand(im, ic, verbose).await);
     results.push(hw_case3_unmatched_selection(im, ic, verbose).await);
     results.push(hw_case4_output_format(im, ic, keys, verbose).await);
     results.push(hw_case5_password_gate(im, ic, layout, verbose).await);

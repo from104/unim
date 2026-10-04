@@ -308,6 +308,10 @@ impl PopupState {
             PopupKey::Escape => PopupKeyResult::Cancel,
 
             PopupKey::Period => {
+                // 한자 단어(2음절 이상) 팝업은 확장 없음 — 키만 소비 (v3.5 §3.7-12).
+                if self.hanja_word {
+                    return PopupKeyResult::Consumed;
+                }
                 self.toggle_hanja_expanded();
                 PopupKeyResult::Updated
             }

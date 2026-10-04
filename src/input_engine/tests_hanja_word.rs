@@ -1286,3 +1286,43 @@ fn engines_share_one_hanja_dictionary() {
     let b = InputEngine::new(&config);
     assert!(std::sync::Arc::ptr_eq(&a.hanja_dict, &b.hanja_dict));
 }
+
+// =============================================================================
+// POPUP_SPEC v3.5 §3.7-12 — 한자 단어(2음절 이상) 팝업은 1×9 목록 고정
+// =============================================================================
+
+/// 단어 대상 팝업: `.`(Period)·toggle 이 무시되고 `expand_visible=false`·cols=1.
+/// 한자키 재타로 1자까지 줄어들면(Q7(a)) 확장이 되살아난다.
+#[test]
+fn word_popup_has_no_expand_and_shrink_to_one_char_restores_it() {
+    use crate::popup::{PopupKey, PopupKeyResult};
+    let config = Config::default();
+    let mut e = setup_recent_word_pending(&config);
+    let m = ModifierState::default();
+
+    let r = e.press_key(KeyCode::F9, m, &config);
+    assert_eq!(r, InputResult::hanja_candidates());
+    assert_eq!(e.get_hanja_target(), "대한민국");
+    {
+        let st = e.popup_state_mut().expect("한자 팝업");
+        assert!(st.is_hanja_word());
+        assert_eq!(st.handle_key(PopupKey::Period), PopupKeyResult::Consumed);
+        st.toggle_hanja_expanded();
+        assert!(!st.is_hanja_expanded(), "단어 팝업은 확장 불가");
+        let vm = st.view_model("");
+        assert!(!vm.expand_visible, "⊞ 숨김");
+        assert!(vm.col_headers.is_empty(), "1×N 목록");
+    }
+
+    // 접미 축소: 대한민국 → 민국(여전히 단어) → 국(단음절: 확장 복귀)
+    e.press_key(KeyCode::F9, m, &config);
+    assert_eq!(e.get_hanja_target(), "민국");
+    assert!(e.popup_state().unwrap().is_hanja_word());
+    e.press_key(KeyCode::F9, m, &config);
+    assert_eq!(e.get_hanja_target(), "국");
+    let st = e.popup_state_mut().expect("한자 팝업");
+    assert!(!st.is_hanja_word());
+    assert!(st.view_model("").expand_visible);
+    assert_eq!(st.handle_key(PopupKey::Period), PopupKeyResult::Updated);
+    assert!(st.is_hanja_expanded());
+}
