@@ -20,6 +20,7 @@ pub mod ibus_types;
 use tokio::sync::mpsc;
 use unim::unim_log;
 
+use crate::context_registry::ContextRegistry;
 use crate::service::EngineRequest;
 use ibus_portal::IBusPortalHandler;
 use ibus_service::IBusServiceHandler;
@@ -36,9 +37,10 @@ const IBUS_PORTAL_BUS_NAME: &str = "org.freedesktop.portal.IBus";
 pub async fn start_ibus_compat(
     engine_tx: mpsc::Sender<EngineRequest>,
     connection: &zbus::Connection,
+    contexts: ContextRegistry,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. IBus 메인 서비스 등록 (org.freedesktop.IBus)
-    let ibus_handler = IBusServiceHandler::new(engine_tx.clone(), connection.clone());
+    let ibus_handler = IBusServiceHandler::new(engine_tx.clone(), connection.clone(), contexts.clone());
     connection
         .object_server()
         .at("/org/freedesktop/IBus", ibus_handler)
@@ -65,7 +67,7 @@ pub async fn start_ibus_compat(
     }
 
     // 2. IBus Portal 서비스 등록 (org.freedesktop.portal.IBus)
-    let portal_handler = IBusPortalHandler::new(engine_tx, connection.clone());
+    let portal_handler = IBusPortalHandler::new(engine_tx, connection.clone(), contexts);
     connection
         .object_server()
         .at("/org/freedesktop/IBus/Portal", portal_handler)

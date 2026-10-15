@@ -5,11 +5,12 @@
 
 use tokio::sync::mpsc;
 use zbus::interface;
-use zbus::zvariant::{ObjectPath, Value};
+use zbus::zvariant::Value;
 
 use unim::unim_log;
 
 use super::ibus_types;
+use crate::context_registry::{self, ContextKind, ContextRegistry};
 use crate::service::{EngineRequest, EngineResponse};
 
 /// IBusInputPurpose(값 체계는 GtkInputPurpose 와 완전 동일 — 로컬
@@ -48,8 +49,6 @@ pub struct IBusInputContextHandler {
     engine_tx: mpsc::Sender<EngineRequest>,
     /// zbus 연결 (destroy 시 object 제거용)
     connection: zbus::Connection,
-    /// 이 핸들러의 object path
-    object_path: String,
     /// 커서 위치
     cursor_x: i32,
     cursor_y: i32,
@@ -69,25 +68,27 @@ pub struct IBusInputContextHandler {
     /// SetCapabilities 로 클라이언트가 보고한 기능 비트마스크. 위와 같은
     /// 이유로 평범한 필드 — 아직 동작 분기에는 쓰지 않고 저장만 한다.
     caps: u32,
+    /// 컨텍스트 소유자 레지스트리 — `Destroy` 가 자기 항목을 제거한다.
+    contexts: ContextRegistry,
 }
 
 impl IBusInputContextHandler {
     pub fn new(
         context_id: u32,
-        object_path: &str,
         engine_tx: mpsc::Sender<EngineRequest>,
         connection: zbus::Connection,
+        contexts: ContextRegistry,
     ) -> Self {
         Self {
             context_id,
             engine_tx,
             connection,
-            object_path: object_path.to_string(),
             cursor_x: 0,
             cursor_y: 0,
             window_id: format!("ibus-ctx-{}", context_id),
             client_commit_preedit: false,
             caps: 0,
+            contexts,
         }
     }
 
@@ -367,21 +368,16 @@ impl IBusInputContextHandler {
     /// 컨텍스트 파괴
     #[zbus(name = "Destroy")]
     async fn destroy(&self) -> zbus::fdo::Result<()> {
-        let _ = self
-            .engine_tx
-            .send(EngineRequest::DestroyContext {
-                id: self.context_id,
-            })
-            .await;
-
-        // object server에서 핸들러 제거
-        if let Ok(path) = ObjectPath::try_from(self.object_path.as_str()) {
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<IBusInputContextHandler, _>(path)
-                .await;
-        }
+        // 연결 종료 회수와 같은 공통 경로 (엔진 통지 + object_server 제거 + 레지스트리 제거).
+        context_registry::destroy_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            None,
+            ContextKind::IBus,
+            self.context_id,
+        )
+        .await;
 
         unim_log!(
             "DAEMON",

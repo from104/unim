@@ -10,6 +10,7 @@
 
 pub mod beep;
 pub mod client;
+pub mod context_registry;
 pub mod engine_worker;
 pub mod ibus_compat;
 pub mod interfaces;

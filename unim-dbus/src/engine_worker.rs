@@ -967,6 +967,11 @@ fn select_hanja_outcome(
     }
 }
 
+/// 이 엔진에 팝업(한자·특수문자·이모지)이 열려 있는가 — 컨텍스트 파괴 시 `HidePopup` 판정.
+fn popup_open(engine: &InputEngine) -> bool {
+    engine.is_hanja_mode() || engine.is_special_char_mode() || engine.popup_state().is_some()
+}
+
 /// 데몬용 엔진 생성 — `InputEngine::new` 의 유일한 진입점(테스트 제외).
 ///
 /// 데몬은 한자 단어 교체 페이로드(`take_hanja_replacement`)를 `AutoTypefixApply` 로
@@ -1410,10 +1415,10 @@ fn run_engine_worker(
                 let _ = response.send(());
             }
 
-            EngineRequest::DestroyContext { id } => {
+            EngineRequest::DestroyContext { id, response } => {
                 // 컨텍스트 ID에 묶인 모든 per-context 상태를 함께 정리한다.
                 // (이관 누락 시 context_id가 단조 증가하는 IBus Portal 경로에서 HashMap이 무제한 누적됨)
-                contexts.remove(&id);
+                let had_popup = contexts.remove(&id).is_some_and(|e| popup_open(&e));
                 context_windows.remove(&id);
                 keystroke_buffers.remove(&id);
                 undo_states.remove(&id);
@@ -1426,7 +1431,13 @@ fn run_engine_worker(
                 if last_focused_context_id == Some(id) {
                     last_focused_context_id = None;
                 }
-                unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 파괴: id={}", id);
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] 컨텍스트 파괴: id={}, popup={}",
+                    id,
+                    had_popup
+                );
+                let _ = response.send(had_popup);
             }
 
             EngineRequest::ProcessKey {
@@ -3849,6 +3860,19 @@ mod tests {
         e.press_key(KeyCode::F9, m, config);
         e.take_popup_action();
         e
+    }
+
+    /// 컨텍스트 파괴 시 HidePopup 판정 — 한자 팝업이 열려 있으면 true, 평소 타이핑은 false
+    /// (열려 있지 않은데 내면 경로 무관 구독자가 다른 앱의 팝업까지 닫는다).
+    #[test]
+    fn popup_open_tracks_hanja_popup() {
+        let config = Config::default();
+        let mut idle = new_daemon_engine(&config, "gtk4-test");
+        idle.set_input_category(unim::config::InputCategory::Korean);
+        idle.press_key(KeyCode::R, ModifierState::default(), &config);
+        assert!(!popup_open(&idle), "조합 중이라도 팝업이 없으면 false");
+        let e = daemon_engine_in_word_popup(&config);
+        assert!(popup_open(&e));
     }
 
     /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과

@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
+use crate::context_registry::{self, ContextKind, ContextRegistry};
 use crate::interfaces::InputMode;
 use crate::notify_task::NotifyOut;
 use unim::config::{Config, InputCategory, KoreanConfig};
@@ -67,8 +68,12 @@ pub enum EngineRequest {
         window_id: String,
         response: oneshot::Sender<()>,
     },
-    /// 컨텍스트 파괴
-    DestroyContext { id: u32 },
+    /// 컨텍스트 파괴 — 응답: 팝업(한자·특수문자·이모지)이 열려 있었으면 true
+    /// (호출부가 `HidePopup` 을 낸다. 앱이 팝업을 연 채 죽으면 팝업 창이 화면에 남지 않게)
+    DestroyContext {
+        id: u32,
+        response: oneshot::Sender<bool>,
+    },
     /// 포커스 인 (모드 조회용)
     FocusIn {
         context_id: u32,
@@ -382,6 +387,9 @@ pub struct InputMethodService {
     /// (ephemeral; 데몬 재시작 시 초기화). 등록자를 기록해 두어야 확장이 해제 없이 죽어도
     /// `NameOwnerChanged` 로 정리할 수 있다(NOTIFY_SPEC §3.2 E2).
     active_frontends: Arc<RwLock<FrontendMap>>,
+    /// 컨텍스트 소유자(생성 호출자 unique name) → 컨텍스트 매핑. 연결이 `Destroy` 없이 죽으면
+    /// `NameOwnerChanged` 로 회수한다(`context_registry` 모듈). IBus 호환 레이어와 공유한다.
+    contexts: ContextRegistry,
     /// 알림 채널 송신 측 (`TriggerAction("notify_test")` 용). `with_notify` 로 주입.
     notify_tx: Option<mpsc::Sender<NotifyOut>>,
 }
@@ -442,7 +450,13 @@ pub(crate) fn is_connection_closed(name: &str, new_owner: Option<&str>) -> bool 
 /// 확장이 `UnregisterFrontend` 없이 죽어도(셸 재시작 등) `gnome-shell-notify` 가 남아 fdo
 /// 폴백이 막히는 일이 없게 한다(NOTIFY_SPEC §3.2). 이름 집합이 바뀌면 `ActiveFrontendsChanged` 를
 /// 발행한다. 한계: 셸은 살아 있고 확장만 고장 난 경우는 정리되지 않는다(문서화된 한계).
-fn spawn_frontend_watcher(connection: Connection, frontends: Arc<RwLock<FrontendMap>>) {
+fn spawn_frontend_watcher(
+    connection: Connection,
+    frontends: Arc<RwLock<FrontendMap>>,
+    contexts: ContextRegistry,
+    engine_tx: mpsc::Sender<EngineRequest>,
+    last_active: Arc<std::sync::Mutex<Option<String>>>,
+) {
     use futures_util::StreamExt;
 
     tokio::spawn(async move {
@@ -467,6 +481,15 @@ fn spawn_frontend_watcher(connection: Connection, frontends: Arc<RwLock<Frontend
                 continue;
             }
             let gone = args.name().to_string();
+            // 이 연결이 만든 입력 컨텍스트 회수 — 프런트엔드 등록과 무관하게 항상 수행한다.
+            context_registry::reclaim_owner(
+                &connection,
+                &engine_tx,
+                &contexts,
+                Some(&last_active),
+                &gone,
+            )
+            .await;
             let names = {
                 let mut map = frontends.write().await;
                 if !drop_owner(&mut map, &gone) {
@@ -512,6 +535,7 @@ impl InputMethodService {
             last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
             last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
             active_frontends: Arc::new(RwLock::new(FrontendMap::new())),
+            contexts: ContextRegistry::new(),
             notify_tx: None,
         }
     }
@@ -532,7 +556,13 @@ impl InputMethodService {
             Arc::clone(&self.active_frontends),
             notify_rx,
         );
-        spawn_frontend_watcher(self.connection.clone(), Arc::clone(&self.active_frontends));
+        spawn_frontend_watcher(
+            self.connection.clone(),
+            Arc::clone(&self.active_frontends),
+            self.contexts.clone(),
+            self.engine_tx.clone(),
+            Arc::clone(&self.last_active_input_context_path),
+        );
         self.notify_tx = Some(notify_tx);
         self
     }
@@ -557,6 +587,11 @@ impl InputMethodService {
         Arc::clone(&self.global_mode)
     }
 
+    /// 컨텍스트 소유자 레지스트리 핸들 (IBus 호환 레이어와 공유)
+    pub fn context_registry(&self) -> ContextRegistry {
+        self.contexts.clone()
+    }
+
     /// 엔진 채널 복제
     pub fn engine_channel(&self) -> mpsc::Sender<EngineRequest> {
         self.engine_tx.clone()
@@ -570,6 +605,7 @@ impl InputMethodService {
         &self,
         client_name: &str,
         window_id: &str,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
     ) -> zbus::fdo::Result<String> {
         let id = self.context_counter.fetch_add(1, Ordering::SeqCst) + 1;
         let path = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, id);
@@ -609,11 +645,11 @@ impl InputMethodService {
         let handler = InputContextHandler::new(
             id,
             client_name.to_string(),
-            path.clone(),
             self.engine_tx.clone(),
             self.connection.clone(),
             Arc::clone(&self.last_cursor_rect),
             Arc::clone(&self.last_active_input_context_path),
+            self.contexts.clone(),
         );
         let obj_path = zbus::zvariant::ObjectPath::try_from(path.as_str())
             .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
@@ -624,6 +660,18 @@ impl InputMethodService {
             .map_err(|e| {
                 zbus::fdo::Error::Failed(format!("Failed to register InputContext: {}", e))
             })?;
+
+        // 호출자 연결이 Destroy 없이 죽어도 회수되도록 소유자를 기록한다(p2p 는 sender 없음 → 제외).
+        context_registry::track_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            Some(&self.last_active_input_context_path),
+            hdr.sender().map(|s| s.as_str()),
+            ContextKind::Unim,
+            id,
+        )
+        .await;
 
         unim_log!(
             "DBUS",
@@ -1962,6 +2010,8 @@ pub struct InputContextHandler {
     /// `focus_in` 시 frontend가 GNOME(extension 자체 컨텍스트)이 아니면 본 path를 저장.
     /// `destroy` 시 본 path가 캐시 값과 같으면 None으로 비워준다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+    /// 컨텍스트 소유자 레지스트리 (`InputMethodService` 와 동일 핸들). `destroy` 가 제거한다.
+    contexts: ContextRegistry,
 }
 
 /// `SetConfig` 로 들어온 키 목록 중 엔진이 버릴 표기를 데몬 로그에 남긴다.
@@ -2051,11 +2101,11 @@ impl InputContextHandler {
     pub fn new(
         id: u32,
         client_name: String,
-        path: String,
         engine_tx: mpsc::Sender<EngineRequest>,
         connection: Connection,
         last_cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
         last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+        contexts: ContextRegistry,
     ) -> Self {
         Self {
             id,
@@ -2063,9 +2113,10 @@ impl InputContextHandler {
             engine_tx,
             connection,
             cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
-            path,
+            path: ContextKind::Unim.object_path(id),
             last_cursor_rect,
             last_active_input_context_path,
+            contexts,
         }
     }
 
@@ -2835,32 +2886,19 @@ impl InputContextHandler {
     }
 
     /// 컨텍스트 파괴
+    ///
+    /// 연결 종료 회수(`context_registry::reclaim_owner`)와 같은 공통 경로를 탄다 — 엔진 통지,
+    /// last_active 캐시 무효화, object_server 에서 핸들러 제거(라우팅 테이블·시그널 구독 누적 방지).
     async fn destroy(&self) -> zbus::fdo::Result<()> {
-        // last_active 캐시가 본 컨텍스트를 가리키고 있다면 비워준다 — stale path
-        // 으로 글로벌 CommitEmoji/TriggerAction이 죽은 path에 시그널을 보내는 것 방지.
-        {
-            let mut last = self.last_active_input_context_path.lock().unwrap();
-            if last.as_deref() == Some(self.path.as_str()) {
-                *last = None;
-            }
-        }
-
-        self.engine_tx
-            .send(EngineRequest::DestroyContext { id: self.id })
-            .await
-            .ok();
-
-        // object_server에서 이 핸들러 자신도 제거 — Destroy 호출 후에도 핸들러가
-        // 남아있으면 zbus 내부 라우팅 테이블·시그널 구독 상태가 context_id마다 누적돼
-        // 장시간 실행 시 RSS가 꾸준히 증가한다. 경로는 create_input_context와 동일 포맷.
-        let path_str = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, self.id);
-        if let Ok(path) = zbus::zvariant::ObjectPath::try_from(path_str.as_str()) {
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<InputContextHandler, _>(path)
-                .await;
-        }
+        context_registry::destroy_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            Some(&self.last_active_input_context_path),
+            ContextKind::Unim,
+            self.id,
+        )
+        .await;
 
         unim_log!("DBUS", "[DBus] Context 파괴: id={}", self.id);
         Ok(())

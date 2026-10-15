@@ -437,6 +437,8 @@ async fn start_dbus_service(
     // 알림 전담 태스크·프런트엔드 등록자 감시는 서비스가 소유한 등록 목록을 공유해야 하므로 여기서 연결한다.
     let service = InputMethodService::new(config, engine_tx.clone(), connection.clone())
         .with_notify(notify_tx, notify_rx);
+    // IBus 호환 레이어의 컨텍스트도 같은 소유자 레지스트리로 회수한다.
+    let context_registry = service.context_registry();
     connection
         .object_server()
         .at(INPUT_METHOD_PATH, service)
@@ -444,7 +446,7 @@ async fn start_dbus_service(
     unim_log!("DAEMON", "[DBus] 서비스 등록: {}", INPUT_METHOD_PATH);
 
     // IBus 호환 레이어 시작 (Flatpak/Snap 앱 지원)
-    match unim_dbus::ibus_compat::start_ibus_compat(engine_tx, &connection).await {
+    match unim_dbus::ibus_compat::start_ibus_compat(engine_tx, &connection, context_registry).await {
         Ok(()) => {
             unim_log!("DAEMON", "[IBus Compat] IBus 호환 레이어 활성화됨");
         }

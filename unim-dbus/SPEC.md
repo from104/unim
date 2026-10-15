@@ -112,7 +112,7 @@ tokio 런타임 (멀티 스레드)          전용 std::thread
 pub enum EngineRequest {
     ProcessKey { context_id, keyval, keycode, state, response },
     CreateContext { id, window_id, response },
-    DestroyContext { id },
+    DestroyContext { id, response },   // 응답: 팝업이 열려 있었는가(bool)
     FocusIn { context_id, window_id, response },
     FocusOut { context_id, response },
     Reset { context_id },
@@ -199,8 +199,43 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
   → 3. window_id가 빈 문자열이면 client_name으로 대체
   → 4. EngineRequest::CreateContext → 엔진 워커에 전송
   → 5. InputContextHandler를 해당 경로에 DBus 등록
-  → 6. 경로 문자열 반환
+  → 6. 호출자 unique name(메시지 헤더 sender)을 컨텍스트 소유자로 기록 (§5.3a)
+  → 7. 경로 문자열 반환
 ```
+
+### 5.3a 입력 컨텍스트 회수 (연결 종료)
+
+클라이언트가 `Destroy` 없이 죽으면 컨텍스트가 영원히 남아(CI 실측 create 428 / destroy 76) 전역 모드
+전파 루프(ATF 전파·토글 전파·`SetGlobalMode`)가 살아 있는 컨텍스트 수만큼 돈다. 이를 막기 위해
+데몬이 소유자의 연결 종료를 감시해 컨텍스트를 회수한다. 구현은 `src/context_registry.rs`.
+
+- **키**: 컨텍스트를 만든 호출자의 **unique name**(`:1.N`) → 컨텍스트 id 집합(`OwnerMap`).
+  `org.atit.unim.InputMethod.CreateInputContext`, IBus 호환 `org.freedesktop.IBus.CreateInputContext`,
+  포털 `org.freedesktop.IBus.Portal.CreateInputContext` 세 생성 경로가 모두 `#[zbus(header)]` 의
+  sender 를 기록한다. IBus 호환 레이어는 별도 연결 없이 데몬과 **같은 세션 버스 연결**을 쓰므로
+  동일하게 동작한다. 레지스트리(`ContextRegistry`)는 `InputMethodService` 가 소유하고 IBus 호환
+  레이어와 `InputContextHandler`/`IBusInputContextHandler` 가 핸들을 공유한다.
+- **감시**: 프런트엔드 등록자 감시(§5.5)와 **같은** `NameOwnerChanged` 구독
+  (`spawn_frontend_watcher`)을 재사용한다. `:` 로 시작하는 unique name 의 `new_owner` 가 비면
+  그 owner 의 컨텍스트를 전부 회수한다(프런트엔드 등록 여부와 무관).
+- **공통 경로**: 회수와 명시적 `Destroy`(UNIM·IBus 양쪽)는 `destroy_context` 하나를 탄다 —
+  레지스트리 제거 → `last_active` 캐시 무효화(해당 path 일 때) → `EngineRequest::DestroyContext`
+  (per-context 엔진 상태와 알림 게이트의 비밀번호 칸 기록 정리) → 팝업(한자·특수문자·이모지)이
+  열려 있었으면 그 컨텍스트 path 로 `HidePopup` 발행(UNIM 컨텍스트만 — 앱이 팝업을 연 채 죽어도 창이
+  남지 않게. 열려 있지 않으면 내지 않는다: 경로 무관 구독자가 다른 앱의 팝업을 닫지 않게) →
+  object_server 에서 핸들러 제거.
+- **멱등·경합**: owner 의 id 는 맵에서 한 번만 꺼내지고, 엔진 `HashMap::remove` 는 이미 없어도 오류가 아니고
+  `ObjectServer::remove` 의 `InterfaceNotFound` 는 버리므로 `Destroy` 와 경합하거나 같은 owner 가 두 번 통지돼도 이중 파괴·패닉이
+  없다. `Destroy` 된 컨텍스트는 레지스트리에서 빠지므로 회수 대상이 아니다.
+- **생성 직후 경합 방어**: 등록 직후 `NameHasOwner(sender)` 로 소유자 생존을 한 번 확인하고, 이미
+  죽었으면 즉시 회수한다(응답 전에 죽으면 `NameOwnerChanged` 가 등록보다 먼저 도착하기 때문).
+- **회수 대상에서 제외되는 경우**: sender 가 없는 p2p 연결(주로 시험용 `UnixStream::pair`)은
+  버스가 없어 `NameOwnerChanged` 를 낼 수 없으므로 추적하지 않는다. 실제 데몬은 항상 버스 연결이다.
+- **한계**: 컨텍스트를 만든 연결이 살아 있는 한 회수되지 않는다(다른 연결이 대신 종료돼도 무관).
+  살아 있으나 응답하지 않는 클라이언트의 컨텍스트도 회수되지 않는다. 감시는 `with_notify` 로 켜지며
+  데몬 `main` 은 항상 호출한다.
+- **로그**: 회수 시 `연결 종료 :1.N — 컨텍스트 K개 회수: ids=[...]` 형식으로 개수와 id 만 남긴다
+  (사용자 텍스트·창 제목 평문 금지, HANJA_WORD_SPEC §2.8).
 
 ### 5.4 설정 키 매핑
 
@@ -288,7 +323,7 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `FocusIn` | `window_id: s` | — | 포커스 획득 + 모드 시그널 발송 |
 | `FocusOut` | — | `s` | 포커스 상실 → 조합 커밋 텍스트 반환 |
 | `Reset` | — | — | 입력 상태 초기화 |
-| `Destroy` | — | — | 컨텍스트 파괴 |
+| `Destroy` | — | — | 컨텍스트 파괴 (연결 종료 시 자동 회수와 같은 경로, §5.3a) |
 | `GetHanjaCandidates` | — | `(s, a(ss))` | (대상③ 후보가 소진돼 열려 있던 팝업이 이 호출로 닫히면 `HidePopup` 을 자기 path 로 발행 — 이어지는 `ProcessKeyEvent` 폴백이 이모지를 연다) 한자 후보 조회 → (target, [(한자, 뜻풀이)]). target 은 다음절 어절일 수 있다(최근 확정 음절+preedit·단어 모드 preedit·선택 영역 — [`HANJA_WORD_SPEC`](../docs/dev/specs/HANJA_WORD_SPEC.md) §2) |
 | `SelectHanja` | `index: u` | `s` | 한자 선택 → 출력 형식(`hanja_output_format`) 적용 문자열 반환(시그니처 불변). 확정 접두가 있으면(대상①) `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")` 가 popup-owner path 로 발행되고 `HidePopup` 이 이어진다. 대상③ 이면 `ReplaceSurroundingText(a, b, text, expect)` → `HidePopup` 순서로 발행 — 워커 내부 결과 `SelectHanjaOutcome{None, Commit, Replace, ReplaceSurrounding}` |
 | `CancelHanja` | — | `s` | 한자 모드 취소 — 팝업 진입 때 내려간 preedit 부분만 `CommitText` 로 되돌린다(확정 접두는 앱에 이미 있으므로 제외, 선택 영역 대상은 커밋 없음). 한자 모드였으면 커밋이 없어도 `HidePopup` 발행 |
