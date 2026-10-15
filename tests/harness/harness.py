@@ -553,8 +553,17 @@ def run_scenario(app_name: str, sc: dict, *,
         set_mode(bool(sc.get("korean", True)))
         time.sleep(0.4)
 
-        field = sc.get("field", "core.plain")
+        # 앱마다 위젯 종류가 달라 같은 시나리오를 다른 필드로 돌려야 할 때(예: GTK 는 선택·
+        # 문맥을 믿을 수 있는 native.entry, 코어 필드는 GtkDrawingArea) field_by_app 이 field 보다 앞선다.
+        field = (sc.get("field_by_app") or {}).get(app_name) or sc.get("field", "core.plain")
         # 대상 필드를 클릭해 포커스를 확실히 잡는다.
+        # geometry 사건이 없는 필드는 클릭할 수 없다 — 조용히 건너뛰면 키가 포커스 있던 다른
+        # 필드로 들어가 "렌더 None" 같은 애매한 실패로 끝난다(2026-10 L3 v1.6: GTK 시험 앱이
+        # native.* geometry 를 안 내 7건이 이렇게 빗나갔다). 그래서 바로 끊는다.
+        if running.geometry and field not in running.geometry:
+            raise RuntimeError(
+                f"{app_name}: 필드 {field} 의 geometry 사건이 없다 — 시험 앱이 이 필드의 "
+                f"위치를 내야 클릭할 수 있다 (있는 필드: {sorted(running.geometry)})")
         if field in running.geometry:
             running.events()          # 이전 사건을 흘려보내고 클릭 결과만 본다
             click_field(field)

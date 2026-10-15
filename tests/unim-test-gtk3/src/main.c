@@ -43,6 +43,13 @@ static struct {
     double          scale;
     char            last_commit[512];
     PangoLayout    *measure;       /* 폭 측정 전용 (그리기와 분리) */
+
+    int             drag_field;    /* 버튼1 드래그 중인 필드 index, 아니면 -1 */
+
+    /* 마지막으로 PRIMARY 에 내보낸 선택 — 같으면 다시 내보내지 않는다. */
+    int             prim_field;    /* -1 = 내보낸 것 없음 */
+    int             prim_start, prim_end;
+    char            prim_text[UNIM_FIELD_TEXT_MAX];
 } A;
 
 static UnimTestField *cur(void) { return &A.fields[A.active]; }
@@ -179,7 +186,30 @@ static void update_cursor_location(void) {
     gtk_im_context_set_cursor_location(A.im, &r);
 }
 
+/**
+ * 선택이 생기거나 바뀌면 PRIMARY 를 소유한다(GTK3: gtk_clipboard_get(PRIMARY)).
+ * 비밀번호 필드·선택 없음이면 unim_field_primary_text() 가 NULL 이라 내보내지
+ * 않는다 — 이때는 캐시만 비워 같은 선택을 다시 하면 다시 내보내게 한다.
+ */
+static void export_primary(void) {
+    UnimTestField *f = cur();
+    char buf[UNIM_FIELD_TEXT_MAX];
+    const char *t = unim_field_primary_text(f, buf, sizeof buf);
+    if (!t) { A.prim_field = -1; return; }
+
+    int s, e;
+    if (!unim_field_selection_range(f, &s, &e)) { A.prim_field = -1; return; }
+    if (A.prim_field == A.active && A.prim_start == s && A.prim_end == e &&
+        strcmp(A.prim_text, t) == 0)
+        return;
+
+    A.prim_field = A.active; A.prim_start = s; A.prim_end = e;
+    g_snprintf(A.prim_text, sizeof A.prim_text, "%s", t);
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), t, -1);
+}
+
 static void after_change(void) {
+    export_primary();
     update_cursor_location();
     refresh_status();
     if (A.canvas) gtk_widget_queue_draw(A.canvas);
@@ -226,6 +256,9 @@ static gboolean on_retrieve_surrounding(GtkIMContext *im, gpointer u) {
     (void)u;
     UnimTestField *f = cur();
     unim_log_surrounding("retrieve", f->committed, f->caret, 0, 0);
+    /* GTK3 API 한계: set_surrounding 은 cursor_index 만 받고 선택 anchor 를
+     * 전달할 수 없다(GTK4 의 set_surrounding_with_selection 에 해당하는 것이
+     * 없다). 선택이 있어도 cursor(=caret)만 보고한다. */
     gtk_im_context_set_surrounding(im, f->committed, -1, f->caret);
     return TRUE;
 }
@@ -236,10 +269,9 @@ static gboolean on_delete_surrounding(GtkIMContext *im, gint offset,
     UnimTestField *f = cur();
     unim_log_surrounding("delete", f->committed, f->caret, offset, n_chars);
 
-    /* offset 은 캐럿 기준 문자 단위. 캐럿을 옮긴 뒤 n_chars 만큼 지운다. */
-    for (int i = 0; i < -offset; i++) unim_field_move_caret(f, -1);
-    for (int i = 0; i <  offset; i++) unim_field_move_caret(f, +1);
-    for (int i = 0; i < n_chars; i++) unim_field_delete(f);
+    /* offset 은 캐럿 기준 문자 단위. 선택과 무관하게 캐럿 기준으로 지우고
+     * 끝나면 anchor 를 접는다(공용 엔진이 처리). */
+    unim_field_delete_surrounding(f, offset, n_chars);
     after_change();
     return TRUE;
 }
@@ -266,6 +298,9 @@ static void focus_field(int idx, const char *reason) {
 }
 
 /* ─── 그리기 ──────────────────────────────────────────────────────────── */
+
+#define SEL_BG_FOCUS 0x1d4ed8u   /* 선택 배경 — 포커스 필드 */
+#define SEL_BG_IDLE  0xc4c4c4u   /* 선택 배경 — 비포커스 필드 */
 
 static void draw_field(cairo_t *cr, const UnimTestField *f, PangoLayout *lay) {
     gboolean focused = A.canvas_focused && f->focused;
@@ -300,6 +335,26 @@ static void draw_field(cairo_t *cr, const UnimTestField *f, PangoLayout *lay) {
         pango_layout_set_width(lay, -1);
     }
 
+    PangoAttrList *al = pango_attr_list_new();
+
+    /* 선택 하이라이트 — 표시 문자열(비밀번호면 •) 안의 바이트 범위. 포커스
+     * 필드는 진한 파랑 배경 + 흰 글자, 비포커스는 회색 배경. 속성이라
+     * 여러 줄 필드의 줄바꿈 구간도 pango 가 알아서 칠한다. 조합 속성보다
+     * 먼저 넣어 preedit 색이 이긴다. */
+    int sel_s, sel_e;
+    if (unim_field_selection_display_range(f, &sel_s, &sel_e) && sel_e > sel_s) {
+        unsigned bg = focused ? SEL_BG_FOCUS : SEL_BG_IDLE;
+        PangoAttribute *ba = pango_attr_background_new(
+            ((bg >> 16) & 0xff) * 257, ((bg >> 8) & 0xff) * 257, (bg & 0xff) * 257);
+        ba->start_index = (guint)sel_s; ba->end_index = (guint)sel_e;
+        pango_attr_list_insert(al, ba);
+        if (focused) {
+            PangoAttribute *sf = pango_attr_foreground_new(0xffff, 0xffff, 0xffff);
+            sf->start_index = (guint)sel_s; sf->end_index = (guint)sel_e;
+            pango_attr_list_insert(al, sf);
+        }
+    }
+
     /* 조합 구간 강조 — 화면에서 preedit 이 어디인지 눈으로 확인할 수 있어야
      * 한다. 마스킹된 필드는 문자 수 기준으로 구간을 다시 잡는다. */
     int pre_len = (int)strlen(f->preedit);
@@ -314,7 +369,6 @@ static void draw_field(cairo_t *cr, const UnimTestField *f, PangoLayout *lay) {
             start = f->caret;
             len   = pre_len;
         }
-        PangoAttrList *al = pango_attr_list_new();
         PangoAttribute *ul = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
         ul->start_index = (guint)start; ul->end_index = (guint)(start + len);
         pango_attr_list_insert(al, ul);
@@ -324,11 +378,9 @@ static void draw_field(cairo_t *cr, const UnimTestField *f, PangoLayout *lay) {
             ( UNIM_SPEC_COL_PREEDIT        & 0xff) * 257);
         fg->start_index = (guint)start; fg->end_index = (guint)(start + len);
         pango_attr_list_insert(al, fg);
-        pango_layout_set_attributes(lay, al);
-        pango_attr_list_unref(al);
-    } else {
-        pango_layout_set_attributes(lay, NULL);
     }
+    pango_layout_set_attributes(lay, al);
+    pango_attr_list_unref(al);
 
     set_rgb(cr, UNIM_SPEC_COL_TEXT);
     int tx = f->x + S(UNIM_SPEC_FIELD_PAD_X);
@@ -407,13 +459,23 @@ static gboolean on_key_press(GtkWidget *w, GdkEventKey *ev, gpointer u) {
     if (filtered) return TRUE;
 
     UnimTestField *f = cur();
+    int ext = (ev->state & GDK_SHIFT_MASK) ? 1 : 0;   /* Shift = 선택 확장 */
+
+    /* Ctrl+A 전체 선택 — 일반 글자 입력으로 새지 않게 먼저 가로챈다. */
+    if ((ev->state & GDK_CONTROL_MASK) &&
+        (ev->keyval == GDK_KEY_a || ev->keyval == GDK_KEY_A)) {
+        unim_field_select_all(f);
+        after_change();
+        return TRUE;
+    }
+
     switch (ev->keyval) {
         case GDK_KEY_BackSpace: unim_field_backspace(f);        break;
         case GDK_KEY_Delete:    unim_field_delete(f);           break;
-        case GDK_KEY_Left:      unim_field_move_caret(f, -1);   break;
-        case GDK_KEY_Right:     unim_field_move_caret(f, +1);   break;
-        case GDK_KEY_Home:      unim_field_caret_home(f);       break;
-        case GDK_KEY_End:       unim_field_caret_end(f);        break;
+        case GDK_KEY_Left:      unim_field_move_caret_ex(f, -1, ext); break;
+        case GDK_KEY_Right:     unim_field_move_caret_ex(f, +1, ext); break;
+        case GDK_KEY_Home:      unim_field_caret_home_ex(f, ext);     break;
+        case GDK_KEY_End:       unim_field_caret_end_ex(f, ext);      break;
         case GDK_KEY_Escape:    unim_field_clear(f);            break;
         case GDK_KEY_Return:
         case GDK_KEY_KP_Enter:
@@ -428,6 +490,11 @@ static gboolean on_key_press(GtkWidget *w, GdkEventKey *ev, gpointer u) {
     return TRUE;
 }
 
+/**
+ * 마우스 누름. 버튼1: 단일 클릭=캐럿 이동+드래그 시작, Shift+클릭=선택 확장,
+ * 더블클릭=단어, 트리플클릭=전체. GDK 는 2·3 번째 누름을 별도 이벤트 타입
+ * (GDK_2BUTTON_PRESS / GDK_3BUTTON_PRESS)으로 보낸다.
+ */
 static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer u) {
     (void)u;
     gtk_widget_grab_focus(w);
@@ -435,7 +502,21 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer u) {
     int hit = unim_field_hit(A.fields, UNIM_SPEC_N_CORE_FIELDS,
                              (int)ev->x, (int)ev->y);
     if (hit < 0) {
-        unim_log_click((int)ev->x, (int)ev->y, "(빈 곳)", -1, -1);
+        if (ev->type == GDK_BUTTON_PRESS)
+            unim_log_click((int)ev->x, (int)ev->y, "(빈 곳)", -1, -1);
+        return TRUE;
+    }
+
+    gboolean multi = ev->type == GDK_2BUTTON_PRESS || ev->type == GDK_3BUTTON_PRESS;
+    if (multi) {
+        /* 더블·트리플은 첫 누름이 이미 포커스·조합 정리를 끝냈다. */
+        if (hit != A.active || ev->button != 1) return TRUE;
+        UnimTestField *f = cur();
+        int off = unim_field_caret_from_x(f, (int)ev->x, measure_cb, NULL);
+        A.drag_field = -1;          /* 단어 단위 드래그 확장은 없다(한계) */
+        if (ev->type == GDK_2BUTTON_PRESS) unim_field_select_word_at(f, off);
+        else                               unim_field_select_all(f);
+        after_change();
         return TRUE;
     }
 
@@ -450,12 +531,42 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer u) {
 
     UnimTestField *f = cur();
     int before = f->caret;
-    f->caret = unim_field_caret_from_x(f, (int)ev->x, measure_cb, NULL);
+    int off = unim_field_caret_from_x(f, (int)ev->x, measure_cb, NULL);
+    if (ev->button != 1) {
+        unim_field_set_caret(f, off);
+        A.drag_field = -1;
+    } else if (ev->state & GDK_SHIFT_MASK) {
+        unim_field_extend_to(f, off);          /* Shift+클릭 — anchor 유지 */
+        A.drag_field = A.active;
+    } else {
+        unim_field_set_anchor(f, off);         /* 누름 = 드래그 시작점 */
+        A.drag_field = A.active;
+    }
     unim_log_click((int)ev->x, (int)ev->y, f->id, before, f->caret);
-    unim_field_log_render(f);
+    /* field.render 는 선택·캐럿 연산이 이미 낸다 — 또 내지 않는다. */
 
     after_change();
     return TRUE;
+}
+
+/** 버튼1 드래그 — 누른 필드 안에서 caret 만 따라가고 anchor 는 둔다. */
+static gboolean on_motion(GtkWidget *w, GdkEventMotion *ev, gpointer u) {
+    (void)w; (void)u;
+    if (A.drag_field < 0 || A.drag_field != A.active ||
+        !(ev->state & GDK_BUTTON1_MASK))
+        return FALSE;
+
+    UnimTestField *f = cur();
+    unim_field_extend_to(f, unim_field_caret_from_x(f, (int)ev->x,
+                                                    measure_cb, NULL));
+    after_change();
+    return TRUE;
+}
+
+static gboolean on_button_release(GtkWidget *w, GdkEventButton *ev, gpointer u) {
+    (void)w; (void)u;
+    if (ev->button == 1) A.drag_field = -1;
+    return FALSE;
 }
 
 static gboolean on_canvas_focus_in(GtkWidget *w, GdkEventFocus *ev, gpointer u) {
@@ -492,6 +603,9 @@ static void on_native_changed(GtkEditable *e, gpointer u) {
     unim_log_field_render((const char *)u, t, "", (int)strlen(t), t);
 }
 
+/* 네이티브 위젯 — geometry 사건(하네스 클릭용)을 내기 위해 보관한다 */
+static GtkWidget *native_w[UNIM_SPEC_N_NATIVE];
+
 static GtkWidget *make_native_row(const UnimSpecNative *spec) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, S(10));
     GtkWidget *lab = gtk_label_new(spec->label);
@@ -517,6 +631,7 @@ static GtkWidget *make_native_row(const UnimSpecNative *spec) {
         gtk_box_pack_start(GTK_BOX(row), wid, TRUE, TRUE, 0);
     }
     gtk_widget_set_name(wid, spec->id);
+    native_w[spec - UNIM_SPEC_NATIVE] = wid;
     g_signal_connect(wid, "focus-in-event", G_CALLBACK(on_native_focus_in),
                      (gpointer)spec->id);
     return row;
@@ -600,6 +715,31 @@ static void on_map_event_done(GtkWidget *w, gpointer u) {
                    sy >= 0 ? sy + lcy * scale : -1);
         unim_log_raw("geometry", kv);
     }
+
+    /* 네이티브 위젯 — 하네스는 geometry 가 있는 필드만 클릭한다. 없으면 키가 엉뚱한
+       (포커스 있던) 코어 필드로 들어가 native.* 시나리오가 통째로 빗나간다.
+       화면 좌표는 캔버스 GdkWindow 원점(sx,sy)에 캔버스 기준 상대 위치를 더해 구한다
+       (창 장식·CSD 그림자에 안 흔들린다). */
+    for (int i = 0; i < UNIM_SPEC_N_NATIVE; i++) {
+        GtkWidget *w = native_w[i];
+        gint ncx = 0, ncy = 0, tx = 0, ty = 0;
+        if (!w || !gtk_widget_get_mapped(w)) continue;
+        if (!gtk_widget_translate_coordinates(w, A.canvas, 0, 0, &ncx, &ncy)) continue;
+        if (top) gtk_widget_translate_coordinates(w, top, 0, 0, &tx, &ty);
+        int ww = gtk_widget_get_allocated_width(w);
+        int wh = gtk_widget_get_allocated_height(w);
+        int lcx = ncx + ww / 2;        /* 캔버스 기준 중앙 (논리) */
+        int lcy = ncy + wh / 2;
+        char kv[640];
+        g_snprintf(kv, sizeof kv,
+                   "\"field\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                   "\"cx\":%d,\"cy\":%d,\"screen_cx\":%d,\"screen_cy\":%d",
+                   UNIM_SPEC_NATIVE[i].id, tx, ty, ww, wh,
+                   tx + ww / 2, ty + wh / 2,
+                   sx >= 0 ? sx + lcx * scale : -1,
+                   sy >= 0 ? sy + lcy * scale : -1);
+        unim_log_raw("geometry", kv);
+    }
     unim_log_ready();
 }
 
@@ -622,23 +762,27 @@ static void build_ui(void) {
 
     /* ② 코어 필드 — 직접 그리기 */
     gtk_box_pack_start(GTK_BOX(root),
-                       section_title("② 코어 필드 (IM 직결 · 직접 그리기)"),
+                       section_title("② 코어 필드 (IM 직결 · 직접 그리기) — 커서 단어 한자 ✘ 위젯 종류 불명, ③ 에서 시험"),
                        FALSE, FALSE, 0);
 
     A.canvas = gtk_drawing_area_new();
     gtk_widget_set_can_focus(A.canvas, TRUE);
     gtk_widget_add_events(A.canvas, GDK_KEY_PRESS_MASK | GDK_BUTTON_PRESS_MASK |
+                                    GDK_BUTTON_RELEASE_MASK |
+                                    GDK_BUTTON1_MOTION_MASK |
                                     GDK_FOCUS_CHANGE_MASK);
     g_signal_connect(A.canvas, "draw", G_CALLBACK(on_draw), NULL);
     g_signal_connect(A.canvas, "key-press-event", G_CALLBACK(on_key_press), NULL);
     g_signal_connect(A.canvas, "button-press-event", G_CALLBACK(on_button_press), NULL);
+    g_signal_connect(A.canvas, "motion-notify-event", G_CALLBACK(on_motion), NULL);
+    g_signal_connect(A.canvas, "button-release-event", G_CALLBACK(on_button_release), NULL);
     g_signal_connect(A.canvas, "focus-in-event", G_CALLBACK(on_canvas_focus_in), NULL);
     g_signal_connect(A.canvas, "focus-out-event", G_CALLBACK(on_canvas_focus_out), NULL);
     gtk_box_pack_start(GTK_BOX(root), A.canvas, FALSE, FALSE, 0);
 
     /* ③ 네이티브 위젯 */
     gtk_box_pack_start(GTK_BOX(root),
-                       section_title("③ 네이티브 위젯 (툴킷 기본)"),
+                       section_title("③ 네이티브 위젯 (툴킷 기본) — 커서 단어 한자 ✔"),
                        FALSE, FALSE, 0);
     for (int i = 0; i < UNIM_SPEC_N_NATIVE; i++)
         gtk_box_pack_start(GTK_BOX(root), make_native_row(&UNIM_SPEC_NATIVE[i]),
@@ -693,6 +837,8 @@ int main(int argc, char *argv[]) {
     unim_log_set_sink(log_sink, NULL);
 
     A.scale = 1.0;
+    A.drag_field = -1;
+    A.prim_field = -1;
     GdkScreen *screen = gdk_screen_get_default();
     if (screen) {
         double dpi = gdk_screen_get_resolution(screen);

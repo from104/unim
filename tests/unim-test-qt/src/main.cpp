@@ -27,6 +27,8 @@
 #include "unim_test_spec.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QElapsedTimer>
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QGuiApplication>
@@ -65,6 +67,12 @@ public:
     int           active = 0;
     char          lastCommit[512] = "";
     std::function<void()> onChange;
+
+    /* 마우스 선택 상태 — 드래그 중인지, 트리플클릭 판정용 타이머, PRIMARY 소유 서명. */
+    bool          dragging = false;
+    QElapsedTimer tripleTimer;
+    QPoint        dblPos;
+    QByteArray    primarySig;   /* 마지막으로 PRIMARY 로 내보낸 선택의 서명(비면 미소유) */
 
     explicit Canvas(QWidget *parent = nullptr) : QWidget(parent) {
         setFocusPolicy(Qt::StrongFocus);
@@ -144,8 +152,31 @@ public:
          * ImCursorRectangle 만 알리면 프런트의 surrounding 캐시가 포커스 진입 스냅샷(빈 값)에
          * 머물러 한자 단어 변환(대상①)이 검증 실패로 단음절로 퇴화한다(HANJA_WORD_SPEC §2.2.3). */
         QGuiApplication::inputMethod()->update(Qt::ImQueryInput);
+        syncPrimary();
         update();
         if (onChange) onChange();
+    }
+
+    /**
+     * 선택이 생기거나 바뀌면 X11/Wayland PRIMARY 를 소유한다(QClipboard::Selection).
+     * 서명(필드·범위·텍스트)이 바뀔 때만 다시 내보내고, 선택이 풀리거나 비밀번호
+     * 필드면 서명을 비워 같은 선택을 다시 만들었을 때 소유를 되찾게 한다.
+     * 선택 해제 시 PRIMARY 내용을 지우지는 않는다(실제 GTK/Qt 위젯 관례).
+     */
+    void syncPrimary() {
+        const UnimTestField *f = cur();
+        char buf[UNIM_FIELD_TEXT_MAX];
+        const char *t = unim_field_primary_text(f, buf, sizeof buf);
+        if (!t) { primarySig.clear(); return; }
+        int s0 = 0, e0 = 0;
+        unim_field_selection_range(f, &s0, &e0);
+        QByteArray sig = QByteArray(f->id) + ':' + QByteArray::number(s0) + ':' +
+                         QByteArray::number(e0) + ':' + t;
+        if (sig == primarySig) return;
+        primarySig = sig;
+        QClipboard *cb = QGuiApplication::clipboard();
+        if (cb && cb->supportsSelection())
+            cb->setText(QString::fromUtf8(t), QClipboard::Selection);
     }
 
 protected:
@@ -179,9 +210,10 @@ protected:
         if (e->replacementLength() > 0) {
             unim_log_surrounding("delete", f->committed, f->caret,
                                  e->replacementStart(), e->replacementLength());
-            for (int i = 0; i < -e->replacementStart(); i++) unim_field_move_caret(f, -1);
-            for (int i = 0; i <  e->replacementStart(); i++) unim_field_move_caret(f, +1);
-            for (int i = 0; i < e->replacementLength(); i++) unim_field_delete(f);
+            /* 캐럿 기준 삭제 — 선택이 있어도 선택이 아니라 [caret+start, +len) 를 지우고
+             * 끝나면 anchor 를 caret 으로 접는다(move/delete 반복은 선택을 접거나 지운다). */
+            unim_field_delete_surrounding(f, e->replacementStart(),
+                                          e->replacementLength());
         }
 
         if (!e->commitString().isEmpty()) {
@@ -225,7 +257,13 @@ protected:
             return int(unim_log_utf8_len(
                 QByteArray(f->committed, f->caret).constData()));
         case Qt::ImAnchorPosition:
-            return inputMethodQuery(Qt::ImCursorPosition);
+            /* 선택이 없으면 anchor == caret 이다. */
+            return int(unim_log_utf8_len(
+                QByteArray(f->committed, unim_field_anchor(f)).constData()));
+        case Qt::ImCurrentSelection: {
+            char sel[UNIM_FIELD_TEXT_MAX];
+            return QString::fromUtf8(unim_field_selected_text(f, sel, sizeof sel));
+        }
         case Qt::ImHints:
             /* 힌트를 정확히 넘겨야 비밀번호 필드의 AutoTypeFix·팝업 억제가
              * 실제로 시험된다. */
@@ -261,14 +299,21 @@ protected:
         }
 
         UnimTestField *f = cur();
+        const int ext = (e->modifiers() & Qt::ShiftModifier) ? 1 : 0;
+        /* Ctrl+A — 전체 선택. 텍스트(0x01)가 오므로 default 의 삽입보다 먼저 가른다. */
+        if (e->key() == Qt::Key_A && (e->modifiers() & Qt::ControlModifier)) {
+            unim_field_select_all(f);
+            changed();
+            return;
+        }
         switch (e->key()) {
-        case Qt::Key_Backspace: unim_field_backspace(f);      break;
-        case Qt::Key_Delete:    unim_field_delete(f);         break;
-        case Qt::Key_Left:      unim_field_move_caret(f, -1); break;
-        case Qt::Key_Right:     unim_field_move_caret(f, +1); break;
-        case Qt::Key_Home:      unim_field_caret_home(f);     break;
-        case Qt::Key_End:       unim_field_caret_end(f);      break;
-        case Qt::Key_Escape:    unim_field_clear(f);          break;
+        case Qt::Key_Backspace: unim_field_backspace(f);              break;
+        case Qt::Key_Delete:    unim_field_delete(f);                 break;
+        case Qt::Key_Left:      unim_field_move_caret_ex(f, -1, ext); break;
+        case Qt::Key_Right:     unim_field_move_caret_ex(f, +1, ext); break;
+        case Qt::Key_Home:      unim_field_caret_home_ex(f, ext);     break;
+        case Qt::Key_End:       unim_field_caret_end_ex(f, ext);      break;
+        case Qt::Key_Escape:    unim_field_clear(f);                  break;
         case Qt::Key_Return:
         case Qt::Key_Enter:
             if (f->hint == UNIM_HINT_MULTILINE) unim_field_insert(f, "\n");
@@ -287,12 +332,60 @@ protected:
     /* ── 마우스 ── */
 
     void mousePressEvent(QMouseEvent *e) override {
+        /* Qt 에는 트리플클릭 이벤트가 없다 — 더블클릭 직후 같은 자리 재클릭을 3 으로 본다. */
+        int clicks = 1;
+        if (tripleTimer.isValid() &&
+            tripleTimer.elapsed() < QApplication::doubleClickInterval() &&
+            (posOf(e) - dblPos).manhattanLength() <=
+                QApplication::startDragDistance()) {
+            clicks = 3;
+            tripleTimer.invalidate();
+        }
+        handlePress(e, clicks);
+    }
+
+    /* 더블클릭은 두 번째 press 대신 이 이벤트로 온다. */
+    void mouseDoubleClickEvent(QMouseEvent *e) override {
+        handlePress(e, 2);
+        dblPos = posOf(e);
+        tripleTimer.start();
+    }
+
+    void mouseMoveEvent(QMouseEvent *e) override {
+        if (!dragging || !(e->buttons() & Qt::LeftButton)) return;
+        UnimTestField *f = cur();
+        unim_field_extend_to(f, offsetAt(f, posOf(e).x()));
+        changed();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *) override { dragging = false; }
+
+    static QPoint posOf(const QMouseEvent *e) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        QPoint p = e->position().toPoint();
+        return e->position().toPoint();
 #else
-        QPoint p = e->pos();
+        return e->pos();
 #endif
+    }
+
+    int offsetAt(const UnimTestField *f, int x) {
+        return unim_field_caret_from_x(
+            f, x,
+            [](const char *s, size_t n, void *u) {
+                return static_cast<Canvas *>(u)->measure(s, n);
+            },
+            this);
+    }
+
+    /**
+     * 클릭 처리. 왼쪽 버튼: 1=누름(드래그 시작, Shift 면 확장) · 2=단어 · 3=전체.
+     * 다른 버튼은 기존대로 캐럿만 옮기고 선택을 푼다. 더블클릭 뒤 드래그의 단어 단위
+     * 확장은 없다(TEST_APPS.md §7.1).
+     */
+    void handlePress(QMouseEvent *e, int clicks) {
+        QPoint p = posOf(e);
         setFocus(Qt::MouseFocusReason);
+        dragging = false;
 
         int hit = unim_field_hit(fields, UNIM_SPEC_N_CORE_FIELDS, p.x(), p.y());
         if (hit < 0) {
@@ -308,14 +401,22 @@ protected:
 
         UnimTestField *f = cur();
         int before = f->caret;
-        f->caret = unim_field_caret_from_x(
-            f, p.x(),
-            [](const char *s, size_t n, void *u) {
-                return static_cast<Canvas *>(u)->measure(s, n);
-            },
-            this);
+        int off = offsetAt(f, p.x());
+        if (e->button() != Qt::LeftButton) {
+            unim_field_set_caret(f, off);
+        } else if (clicks >= 3) {
+            unim_field_select_all(f);
+        } else if (clicks == 2) {
+            unim_field_select_word_at(f, off);
+        } else if (e->modifiers() & Qt::ShiftModifier) {
+            unim_field_extend_to(f, off);
+            dragging = true;
+        } else {
+            unim_field_set_anchor(f, off);
+            dragging = true;
+        }
         unim_log_click(p.x(), p.y(), f->id, before, f->caret);
-        unim_field_log_render(f);
+        /* field.render 는 선택·캐럿 연산이 이미 낸다 — 또 내지 않는다. */
         changed();
     }
 
@@ -399,6 +500,17 @@ private:
                 pt.setPen(col(UNIM_SPEC_COL_TEXT));
             }
             pt.drawText(x, ty + fm.ascent(), tail);
+        }
+
+        /* 선택 하이라이트 — 화면 문자열(비밀번호는 마스킹) 접두 폭으로 x 범위를 잰다.
+         * 글자 위에 반투명으로 덮는다: 포커스는 파랑, 비포커스는 회색. */
+        int ds = 0, de = 0;
+        if (unim_field_selection_display_range(f, &ds, &de)) {
+            int x1 = tx + fm.horizontalAdvance(QString::fromUtf8(shown, ds));
+            int x2 = tx + fm.horizontalAdvance(QString::fromUtf8(shown, de));
+            pt.fillRect(QRect(x1, ty, x2 - x1, fm.height()),
+                        focused ? QColor(40, 110, 230, 110)
+                                : QColor(128, 128, 128, 90));
         }
 
         if (focused) {

@@ -38,7 +38,7 @@ mod scenarios;
 use futures_util::StreamExt;
 use scenarios::{common_scenarios, scenarios_for_layout, KeyPress, Layout, TestScenario};
 use std::time::Duration;
-use unim_dbus::client::{InputContextProxy, InputMethodProxy, UnimClient};
+use unim_dbus::client::{InputContextProxy, InputMethodProxy, ShowHanjaPopup, UnimClient};
 
 // ANSI 색상
 const RED: &str = "\x1b[0;31m";
@@ -1311,6 +1311,226 @@ async fn hw_case6_atf_seed(
     }
 }
 
+// =============================================================================
+// 한자 단어 대상③ — 커서 주변 단어 (HANJA_WORD_SPEC v1.6 §2.4b·§6.2 (7)~(11))
+// =============================================================================
+
+fn sw_fail(name: String, detail: impl Into<String>) -> TestResult {
+    TestResult { name, passed: false, detail: Some(detail.into()) }
+}
+
+/// 대상③ 케이스 공통 준비 — 포커스·리셋 뒤 능력 선언(Reset 은 능력을 보존하므로 명시).
+async fn sw_prepare(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>, caps: u32) -> Result<(), String> {
+    let _ = im.set_global_mode(true).await;
+    ic.focus_in("").await.map_err(|e| format!("FocusIn 실패: {}", e))?;
+    let _ = ic.reset().await;
+    ic.set_client_capabilities(caps)
+        .await
+        .map_err(|e| format!("SetClientCapabilities 실패: {}", e))?;
+    Ok(())
+}
+
+/// 다음 `ShowHanjaPopup` 의 target (없으면 None).
+async fn sw_next_popup_target<S>(stream: &mut S, wait_ms: u64) -> Option<String>
+where
+    S: futures_util::Stream<Item = ShowHanjaPopup> + Unpin,
+{
+    let sig = tokio::time::timeout(Duration::from_millis(wait_ms), stream.next()).await.ok()??;
+    sig.args().ok().map(|a| a.target().to_string())
+}
+
+/// §6.2 (7): 대상③ 확정 — 커서 끝 "국어교육" → `ReplaceSurroundingText(4,0,"國語敎育","국어교육")`,
+/// `CommitText`·`AutoTypefixApply` 는 나오지 않는다.
+async fn hw_case7_target3_confirm(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>) -> TestResult {
+    let name = "한자 단어(7) 대상③ 커서 주변 단어 확정: ReplaceSurroundingText(4,0,國語敎育,국어교육)".to_string();
+    if let Err(e) = sw_prepare(im, ic, 0x3).await {
+        return sw_fail(name, e);
+    }
+    let mut popup = match ic.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("ShowHanjaPopup 구독 실패: {}", e)),
+    };
+    let mut repl = match ic.receive_replace_surrounding_text().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("ReplaceSurroundingText 구독 실패: {}", e)),
+    };
+    let mut commit = match ic.receive_commit_text().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("CommitText 구독 실패: {}", e)),
+    };
+    let mut atf = match ic.receive_auto_typefix_apply().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("AutoTypefixApply 구독 실패: {}", e)),
+    };
+    if let Err(e) = ic.set_surrounding_text("국어교육 만세", 4, 4).await {
+        return sw_fail(name, format!("SetSurroundingText 실패: {}", e));
+    }
+    if let Err(e) = ic.process_key_event(0, 123, 0).await {
+        return sw_fail(name, format!("한자키 전달 실패: {}", e));
+    }
+    let target = sw_next_popup_target(&mut popup, 1500).await;
+    if target.as_deref() != Some("국어교육") {
+        let _ = ic.cancel_hanja().await;
+        let _ = ic.reset().await;
+        return sw_fail(name, format!("target 기대=\"국어교육\" 실제={:?}", target));
+    }
+    if let Err(e) = ic.select_hanja(0).await {
+        let _ = ic.reset().await;
+        return sw_fail(name, format!("SelectHanja 오류: {}", e));
+    }
+    let sig = match tokio::time::timeout(Duration::from_millis(1500), repl.next()).await {
+        Ok(Some(s)) => s,
+        _ => {
+            let _ = ic.reset().await;
+            return sw_fail(name, "ReplaceSurroundingText 시그널 미수신");
+        }
+    };
+    let mut failures = Vec::new();
+    match sig.args() {
+        Ok(a) => {
+            if (*a.delete_before(), *a.delete_after()) != (4, 0) {
+                failures.push(format!("(a,b) 기대=(4,0) 실제=({},{})", a.delete_before(), a.delete_after()));
+            }
+            if a.commit_text() != "國語敎育" {
+                failures.push(format!("commit_text 기대=\"國語敎育\" 실제=\"{}\"", a.commit_text()));
+            }
+            if a.expect_text() != "국어교육" {
+                failures.push(format!("expect_text 기대=\"국어교육\" 실제=\"{}\"", a.expect_text()));
+            }
+        }
+        Err(e) => failures.push(format!("시그널 역직렬화 실패: {}", e)),
+    }
+    if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), commit.next()).await {
+        failures.push("CommitText 가 함께 발행됨".to_string());
+    }
+    if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), atf.next()).await {
+        failures.push("AutoTypefixApply 가 함께 발행됨".to_string());
+    }
+    let _ = ic.set_client_capabilities(0).await;
+    let _ = ic.reset().await;
+    TestResult { name, passed: failures.is_empty(), detail: if failures.is_empty() { None } else { Some(failures.join("; ")) } }
+}
+
+/// §6.2 (8): 가운데 커서(`국어│교육`) — 첫 후보 국어교육, 한자키 재타 → 국어.
+async fn hw_case8_target3_cycle(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>) -> TestResult {
+    let name = "한자 단어(8) 대상③ 한자키 재타 순환: 국어│교육 → 국어교육 → 국어".to_string();
+    if let Err(e) = sw_prepare(im, ic, 0x3).await {
+        return sw_fail(name, e);
+    }
+    let mut popup = match ic.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("ShowHanjaPopup 구독 실패: {}", e)),
+    };
+    if let Err(e) = ic.set_surrounding_text("국어교육", 2, 2).await {
+        return sw_fail(name, format!("SetSurroundingText 실패: {}", e));
+    }
+    let mut got = Vec::new();
+    for _ in 0..2 {
+        if let Err(e) = ic.process_key_event(0, 123, 0).await {
+            return sw_fail(name, format!("한자키 전달 실패: {}", e));
+        }
+        got.push(sw_next_popup_target(&mut popup, 1500).await);
+    }
+    let _ = ic.cancel_hanja().await;
+    let _ = ic.set_client_capabilities(0).await;
+    let _ = ic.reset().await;
+    let want = [Some("국어교육".to_string()), Some("국어".to_string())];
+    if got == want {
+        TestResult { name, passed: true, detail: None }
+    } else {
+        sw_fail(name, format!("target 열 기대={:?} 실제={:?}", want, got))
+    }
+}
+
+/// §6.2 (9): 능력 미선언(0) → 대상③ 없이 종전 동작 — 한자 팝업이 뜨지 않는다.
+async fn hw_case9_no_caps(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>) -> TestResult {
+    let name = "한자 단어(9) 능력 미선언은 대상③ 없음(종전 동작)".to_string();
+    if let Err(e) = sw_prepare(im, ic, 0).await {
+        return sw_fail(name, e);
+    }
+    let mut popup = match ic.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("ShowHanjaPopup 구독 실패: {}", e)),
+    };
+    if let Err(e) = ic.set_surrounding_text("국어교육", 4, 4).await {
+        return sw_fail(name, format!("SetSurroundingText 실패: {}", e));
+    }
+    if let Err(e) = ic.process_key_event(0, 123, 0).await {
+        return sw_fail(name, format!("한자키 전달 실패: {}", e));
+    }
+    let target = sw_next_popup_target(&mut popup, 600).await;
+    let _ = ic.process_key_event(0, 1, 0).await; // Escape — 이모지 팝업 닫기
+    let _ = ic.reset().await;
+    match target {
+        None => TestResult { name, passed: true, detail: None },
+        Some(t) => sw_fail(name, format!("능력 0 인데 한자 팝업이 떴다: target={}자", t.chars().count())),
+    }
+}
+
+/// §6.2 (10): 포인터 힌트(caps 0x5) — PRIMARY 변경 뒤에는 막히고, 일반 클릭 힌트 + 새 보고 뒤에 다시 열린다.
+async fn hw_case10_pointer_hints(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>) -> TestResult {
+    let name = "한자 단어(10) 포인터 힌트(0x5): PRIMARY 변경 → 막힘, 클릭 힌트+보고 → 대상③".to_string();
+    if let Err(e) = sw_prepare(im, ic, 0x5).await {
+        return sw_fail(name, e);
+    }
+    let mut popup = match ic.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => return sw_fail(name, format!("ShowHanjaPopup 구독 실패: {}", e)),
+    };
+    // FocusIn 이 올린 선택 가능 표시를 일반 클릭 힌트로 내린 뒤 신선한 보고.
+    let _ = ic.surrounding_hint(2, 0, 0).await;
+    let _ = ic.set_surrounding_text("국어교육", 4, 4).await;
+    let _ = ic.surrounding_hint(4, 0, 0).await; // PRIMARY_CHANGED
+    if let Err(e) = ic.process_key_event(0, 123, 0).await {
+        return sw_fail(name, format!("한자키 전달 실패: {}", e));
+    }
+    let blocked = sw_next_popup_target(&mut popup, 600).await;
+    let _ = ic.process_key_event(0, 1, 0).await; // Escape — 이모지 팝업 닫기
+    let _ = ic.surrounding_hint(2, 0, 0).await;
+    let _ = ic.set_surrounding_text("국어교육", 4, 4).await;
+    if let Err(e) = ic.process_key_event(0, 123, 0).await {
+        return sw_fail(name, format!("한자키 전달 실패: {}", e));
+    }
+    let opened = sw_next_popup_target(&mut popup, 1500).await;
+    let _ = ic.cancel_hanja().await;
+    let _ = ic.set_client_capabilities(0).await;
+    let _ = ic.reset().await;
+    let mut failures = Vec::new();
+    if blocked.is_some() {
+        failures.push("PRIMARY 변경 뒤에도 대상③ 이 열림".to_string());
+    }
+    if opened.as_deref() != Some("국어교육") {
+        failures.push(format!("클릭 힌트+보고 뒤 target 기대=\"국어교육\" 실제={:?}", opened));
+    }
+    TestResult { name, passed: failures.is_empty(), detail: if failures.is_empty() { None } else { Some(failures.join("; ")) } }
+}
+
+/// §6.2 (11): 힌트는 바로 뒤의 호출에 반영된다 — 클릭 힌트 직후 `GetHanjaCandidates` 는 낡아서 후보 없음.
+async fn hw_case11_hint_then_call(im: &InputMethodProxy<'_>, ic: &InputContextProxy<'_>) -> TestResult {
+    let name = "한자 단어(11) 힌트 직후 GetHanjaCandidates 가 힌트를 반영(낡음 → 후보 없음)".to_string();
+    if let Err(e) = sw_prepare(im, ic, 0x3).await {
+        return sw_fail(name, e);
+    }
+    let _ = ic.set_surrounding_text("국어교육", 4, 4).await;
+    let fresh = ic.get_hanja_candidates().await;
+    let _ = ic.cancel_hanja().await;
+    let _ = ic.surrounding_hint(2, 0, 0).await;
+    let stale = ic.get_hanja_candidates().await;
+    let _ = ic.cancel_hanja().await;
+    let _ = ic.set_client_capabilities(0).await;
+    let _ = ic.reset().await;
+    match (fresh, stale) {
+        (Ok((t1, c1)), Ok((t2, c2))) => {
+            if t1 == "국어교육" && !c1.is_empty() && t2.is_empty() && c2.is_empty() {
+                TestResult { name, passed: true, detail: None }
+            } else {
+                sw_fail(name, format!("신선 target={}자·후보 {}개 / 낡음 target={}자·후보 {}개", t1.chars().count(), c1.len(), t2.chars().count(), c2.len()))
+            }
+        }
+        (a, b) => sw_fail(name, format!("GetHanjaCandidates 오류: {:?} / {:?}", a.err(), b.err())),
+    }
+}
+
 /// U13 L2 — `HANJA_WORD_SPEC.md` §6.2 케이스 전량. 세벌식 390은 evdev 키맵
 /// 미검증으로 조합 의존 케이스를 스킵하고 그 사실을 결과에 남긴다.
 async fn test_hanja_word(
@@ -1338,6 +1558,12 @@ async fn test_hanja_word(
     results.push(hw_case4_output_format(im, ic, keys, verbose).await);
     results.push(hw_case5_password_gate(im, ic, layout, verbose).await);
     results.push(hw_case6_atf_seed(im, ic, verbose).await);
+    // v1.6 대상③ (7)~(11) — 한글 조합 키열과 무관(surrounding 만 쓴다).
+    results.push(hw_case7_target3_confirm(im, ic).await);
+    results.push(hw_case8_target3_cycle(im, ic).await);
+    results.push(hw_case9_no_caps(im, ic).await);
+    results.push(hw_case10_pointer_hints(im, ic).await);
+    results.push(hw_case11_hint_then_call(im, ic).await);
 
     results
 }

@@ -86,6 +86,10 @@ pub struct Field {
     pub h: c_int,
 
     pub focused: c_int,
+
+    /// 선택 — 직접 읽지 말 것(`unim_field_anchor`). `sel_caret` 은 C 내부용.
+    pub anchor: c_int,
+    pub sel_caret: c_int,
 }
 
 pub type TextWidthFn =
@@ -155,6 +159,26 @@ extern "C" {
     fn unim_field_caret_from_x(f: *const Field, x: c_int, m: TextWidthFn,
                                user: *mut std::ffi::c_void) -> c_int;
     fn unim_field_log_render(f: *const Field);
+
+    /* 선택 (공통 모델) */
+    fn unim_field_move_caret_ex(f: *mut Field, dir: c_int, extend: c_int);
+    fn unim_field_caret_home_ex(f: *mut Field, extend: c_int);
+    fn unim_field_caret_end_ex(f: *mut Field, extend: c_int);
+    fn unim_field_select_all(f: *mut Field);
+    fn unim_field_select_word_at(f: *mut Field, off: c_int);
+    fn unim_field_set_anchor(f: *mut Field, off: c_int);
+    fn unim_field_extend_to(f: *mut Field, off: c_int);
+    fn unim_field_set_caret(f: *mut Field, off: c_int);
+    fn unim_field_delete_selection(f: *mut Field) -> c_int;
+    fn unim_field_delete_surrounding(f: *mut Field, offset: c_int, n_chars: c_int);
+    fn unim_field_delete_surrounding_bytes(f: *mut Field, before: c_uint, after: c_uint);
+    fn unim_field_anchor(f: *const Field) -> c_int;
+    fn unim_field_has_selection(f: *const Field) -> c_int;
+    fn unim_field_selection_range(f: *const Field, start: *mut c_int, end: *mut c_int) -> c_int;
+    fn unim_field_selected_text(f: *const Field, out: *mut c_char, n: usize) -> *const c_char;
+    fn unim_field_primary_text(f: *const Field, out: *mut c_char, n: usize) -> *const c_char;
+    fn unim_field_selection_display_range(f: *const Field, start: *mut c_int,
+                                          end: *mut c_int) -> c_int;
 }
 
 /* ─── 안전한 껍데기 ───────────────────────────────────────────────────── */
@@ -232,6 +256,23 @@ pub fn log_click(x: i32, y: i32, field: &str, before: i32, after: i32) {
 
 pub fn log_reset(field: &str, reason: &str) {
     unsafe { unim_log_reset(cstr(field).as_ptr(), cstr(reason).as_ptr()) }
+}
+
+/// log_raw 에 넣을 JSON 문자열 값 이스케이프 — `escape_debug` 는 `\'`·`\u{..}` 를 내 JSON 이 깨진다.
+pub fn json_esc(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
 }
 
 pub fn log_raw(ev: &str, json_kv: &str) {
@@ -341,6 +382,66 @@ impl Field {
         }
     }
     pub fn log_render(&self) { unsafe { unim_field_log_render(self) } }
+
+    /* ── 선택 ── */
+
+    /// Shift 확장 이동. `extend=false` 면 선택을 앞/뒤 끝으로 접는다.
+    pub fn move_caret_ex(&mut self, dir: i32, extend: bool) {
+        unsafe { unim_field_move_caret_ex(self, dir, extend as c_int) }
+    }
+    pub fn caret_home_ex(&mut self, extend: bool) {
+        unsafe { unim_field_caret_home_ex(self, extend as c_int) }
+    }
+    pub fn caret_end_ex(&mut self, extend: bool) {
+        unsafe { unim_field_caret_end_ex(self, extend as c_int) }
+    }
+    /// Ctrl+A / 트리플클릭.
+    pub fn select_all(&mut self) { unsafe { unim_field_select_all(self) } }
+    /// 더블클릭 단어 선택 (`off` 는 committed 바이트 오프셋).
+    pub fn select_word_at(&mut self, off: i32) { unsafe { unim_field_select_word_at(self, off) } }
+    /// 마우스 누름 — caret 과 anchor 를 `off` 로 둔다.
+    pub fn set_anchor(&mut self, off: i32) { unsafe { unim_field_set_anchor(self, off) } }
+    /// 드래그·Shift+클릭 — anchor 는 두고 caret 만 옮긴다.
+    pub fn extend_to(&mut self, off: i32) { unsafe { unim_field_extend_to(self, off) } }
+    /// caret 만 옮기고 선택을 푼다.
+    pub fn set_caret(&mut self, off: i32) { unsafe { unim_field_set_caret(self, off) } }
+    /// 선택을 지운다. 지웠으면 true.
+    pub fn delete_selection(&mut self) -> bool {
+        unsafe { unim_field_delete_selection(self) != 0 }
+    }
+    /// 글자 단위 delete-surrounding (캐럿 기준, 끝나면 anchor 를 caret 으로 접는다).
+    pub fn delete_surrounding(&mut self, offset: i32, n_chars: i32) {
+        unsafe { unim_field_delete_surrounding(self, offset, n_chars) }
+    }
+    /// 바이트 단위 delete-surrounding (text-input-v3). 글자 경계 쪽으로 올림해 지운다.
+    pub fn delete_surrounding_bytes(&mut self, before: u32, after: u32) {
+        unsafe { unim_field_delete_surrounding_bytes(self, before, after) }
+    }
+    /// 유효한 anchor (선택 없으면 caret 과 같다) — surrounding 보고용.
+    pub fn anchor(&self) -> i32 { unsafe { unim_field_anchor(self) } }
+    pub fn has_selection(&self) -> bool { unsafe { unim_field_has_selection(self) != 0 } }
+    /// 선택 `[start, end)` (committed 바이트). 선택이 없으면 None.
+    pub fn selection_range(&self) -> Option<(i32, i32)> {
+        let (mut s, mut e) = (0, 0);
+        let has = unsafe { unim_field_selection_range(self, &mut s, &mut e) };
+        (has != 0).then_some((s, e))
+    }
+    /// 선택 텍스트 (없으면 빈 문자열). 비밀번호여도 실물이다.
+    pub fn selected_text(&self) -> String { self.read_buf(unim_field_selected_text) }
+    /// PRIMARY 로 내보낼 텍스트. 선택이 없거나 비밀번호 필드면 None.
+    pub fn primary_text(&self) -> Option<String> {
+        let mut buf = vec![0i8; FIELD_TEXT_MAX + FIELD_PREEDIT_MAX];
+        unsafe {
+            let p = unim_field_primary_text(self, buf.as_mut_ptr(), buf.len());
+            if p.is_null() { None } else { Some(to_str(p).to_string()) }
+        }
+    }
+    /// 그리기용 — `display()` 문자열 안의 선택 바이트 범위. 선택이 없으면 None.
+    pub fn selection_display_range(&self) -> Option<(i32, i32)> {
+        let (mut s, mut e) = (0, 0);
+        let has = unsafe { unim_field_selection_display_range(self, &mut s, &mut e) };
+        (has != 0).then_some((s, e))
+    }
 
     fn read_buf(&self, f: unsafe extern "C" fn(*const Field, *mut c_char, usize) -> *const c_char)
         -> String {

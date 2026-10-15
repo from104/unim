@@ -59,7 +59,7 @@ endef
         test-apps test-app test-apps-list check-runtime-x11 \
         gen-popup-css gen-popup-css-check \
         help-html check-help-html \
-        check-gnome-api smoke-gnome-extension check-compat \
+        check-gnome-api test-gnome-logic test-gtk-logic smoke-gnome-extension check-compat \
         _check-build \
         install install-core install-frontends install-icons \
         install-indicator install-settings-gtk install-settings install-popup-service \
@@ -411,6 +411,10 @@ install-gnome-extension: gnome-extension
 		"$(DESTDIR)$(GNOME_EXTENSION_DIR)/SPEC.md"
 	@glib-compile-schemas "$(DESTDIR)$(GNOME_EXTENSION_DIR)/schemas"
 	@echo "✅ GNOME Extension 설치 완료!"
+	@if [ -z "$(DESTDIR)" ] && [ -d "$$HOME/.local/share/gnome-shell/extensions/$(UUID)" ]; then \
+		echo "⚠️  $$HOME/.local/share/gnome-shell/extensions/$(UUID) 가 있다 — 같은 UUID 의 사용자 사본이" \
+		     "시스템 설치본을 가려 새 코드가 로드되지 않는다(make dev-extension 이 만든 사본). 옮기거나 지우고 재로그인할 것."; \
+	fi
 
 install-extension: install-gnome-extension
 uninstall-extension: uninstall-gnome-extension
@@ -573,6 +577,30 @@ msi:
 check-gnome-api:
 	@scripts/check-gnome-api.sh
 
+# 논리 — gi 의존 없는 확장 순수 모듈(pointer_hints.js: 대상③ 거부 신호용 포인터 분류)을 node 로
+# 단위 시험하고, 확장 소스 정적 검사(클립보드·PRIMARY 읽기 금지, 힌트·능력 배선)를 함께 돌린다.
+# GNOME·gjs 없이 돌고, node 가 없는 기계에서는 건너뛴다.
+test-gnome-logic:
+	@if command -v node >/dev/null 2>&1; then \
+		node scripts/test-gnome-surrounding-hints.mjs; \
+	else \
+		echo "⏭️  node 가 없어 확장 순수 로직 시험을 건너뛴다."; \
+	fi
+
+# 논리(C) — GTK 프런트 공용 순수 모듈(unim_surrounding_word.c: 대상③ 교체 전 expect 대조)을
+# 단위 시험한다. 데몬·시험 앱을 띄우지 않는다. glib-2.0 개발 파일이 없으면 건너뛴다.
+test-gtk-logic:
+	@if pkg-config --exists glib-2.0 2>/dev/null; then \
+		mkdir -p build && \
+		$(CC) -Wall -Wextra -Iunim-frontends/gtk-common/include $$(pkg-config --cflags glib-2.0) \
+			unim-frontends/gtk-common/src/unim_surrounding_word.c \
+			tests/unit-c/test_surrounding_word.c \
+			$$(pkg-config --libs glib-2.0) -o build/test_surrounding_word && \
+		build/test_surrounding_word; \
+	else \
+		echo "⏭️  glib-2.0 개발 파일이 없어 GTK 순수 로직 시험을 건너뛴다."; \
+	fi
+
 # 동적 — headless 셸에 실제로 올려 활성화가 끝까지 가는지 로그로 확인.
 # enable() 이 중간에 죽어도 GNOME 은 확장을 '사용 중' 으로 표시하기 때문에
 # 정적 검사만으로는 "켜졌는데 안 되는" 상태를 못 가려낸다.
@@ -581,7 +609,7 @@ smoke-gnome-extension:
 
 # 이 기계의 데스크톱 환경에서 확장이 살아 있는지 한 번에 본다.
 # GNOME 이 없는 기계에서는 두 스크립트가 스스로 건너뛰므로 그냥 통과한다.
-check-compat: check-gnome-api smoke-gnome-extension
+check-compat: check-gnome-api test-gnome-logic smoke-gnome-extension
 	@echo "✅ 이 기계의 GNOME 에서 확장 호환성 확인 완료."
 
 
@@ -600,17 +628,29 @@ test:
 	done
 
 # CMake-based test apps (static pattern rule) — 빌드 후 바로 실행
+# 띄울 IM 경로를 앱마다 못박는다 — 세션 값(GNOME Wayland 는 GTK_IM_MODULE=wayland)을
+# 물려받으면 GTK3·GTK4 앱이 UNIM 네이티브 모듈이 아니라 text-input-v3 → GNOME 확장 경로로 붙는다.
+#   gtk3·gtk4 : GTK_IM_MODULE=unim (네이티브 IM 모듈)
+#   gnome     : GTK_IM_MODULE 비움 (GNOME Shell IME 경로 — 앱이 설정돼 있으면 경고한다)
+#   xim       : 세션 XMODIFIERS 그대로
+TEST_APP_ENV_gtk3  := GTK_IM_MODULE=unim
+TEST_APP_ENV_gtk4  := GTK_IM_MODULE=unim
+TEST_APP_ENV_gnome := -u GTK_IM_MODULE
+TEST_APP_ENV_xim   :=
+
 test-gtk3 test-gtk4 test-xim test-gnome: test-%:
 	$(call cmake_build,tests/unim-test-$*,$* test app)
-	@echo "🚀 Launching unim-test-$* ..."
-	@./tests/unim-test-$*/build/unim-test-$* &
+	@echo "🚀 Launching unim-test-$* ($(or $(TEST_APP_ENV_$*),세션 환경 그대로)) ..."
+	@env $(TEST_APP_ENV_$*) ./tests/unim-test-$*/build/unim-test-$* &
 
 # Qt5·Qt6 는 소스 한 벌(tests/unim-test-qt)에서 바이너리 두 개가 나온다.
 # 디렉토리 이름과 바이너리 이름이 다르므로 위 패턴에 넣을 수 없다.
 test-qt5 test-qt6: test-%:
 	$(call cmake_build,tests/unim-test-qt,Qt5/Qt6 test app)
 	@echo "🚀 Launching unim-test-$* ..."
-	@./tests/unim-test-qt/build/unim-test-$* &
+	@# Qt 6.8+ 는 QT_IM_MODULES(목록)를 QT_IM_MODULE 보다 먼저 본다 — 세션의 "wayland;unim" 이면
+	@# Qt6 가 text-input(GNOME 확장)으로 가므로 둘 다 unim 으로 덮는다. Qt5 는 QT_IM_MODULES 를 모른다.
+	@env QT_IM_MODULE=unim QT_IM_MODULES=unim ./tests/unim-test-qt/build/unim-test-$* &
 
 test-wayland: build-rust
 	@$(CARGO) build --release -p unim-test-wayland
@@ -795,6 +835,7 @@ dev-extension:
 		~/.local/share/gnome-shell/extensions/$(UUID)/icons/ 2>/dev/null || true
 	@glib-compile-schemas ~/.local/share/gnome-shell/extensions/$(UUID)/schemas 2>/dev/null || true
 	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요 (로그아웃→로그인)."
+	@echo "⚠️  이 사본은 같은 UUID 의 시스템 설치본(deb/make install)을 가린다. 개발이 끝나면 지울 것: rm -r ~/.local/share/gnome-shell/extensions/$(UUID)"
 
 dev-restart:
 	@pkill -9 -x unim-daemon 2>/dev/null; pkill -9 -x unim-xim 2>/dev/null; \
