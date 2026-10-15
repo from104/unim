@@ -833,14 +833,28 @@ impl InputEngine {
 
     /// 입력 카테고리를 설정합니다.
     pub fn set_input_category(&mut self, category: InputCategory) {
-        if self.input_category != category {
-            self.flush_preedit();
-            // 한/영 전환은 최근 확정 음절 문맥을 끊는다(HANJA_WORD_SPEC §2.2.1).
-            self.recent_clear();
-            self.input_category = category;
+        if self.sync_input_category(category) {
             // 상태 파일 업데이트
             self.update_status_file();
         }
+    }
+
+    /// 상태 파일(`status::set_status`)을 쓰지 않고 입력 카테고리만 맞춘다. 바뀌었으면 `true`.
+    ///
+    /// 전역 모드를 여러 컨텍스트에 퍼뜨리는 **일괄 루프 전용**이다 — 상태 파일은 전역 1개라
+    /// 호출자가 한 번만 쓴다. 컨텍스트마다 [`Self::set_input_category`] 를 부르면 살아 있는
+    /// 컨텍스트 수 N 만큼 `File::create` 가 엔진 워커 스레드에서 직렬로 일어나, N 이 크면
+    /// 한/영 전환 직후 워커가 수백 ms 멈춘다(2026-10 CI L3: N≈350 에서 0.3~0.9초 정지 →
+    /// Qt·GTK 모듈의 500ms DBus 타임아웃으로 키가 앱에 새고 CreateInputContext 가 실패).
+    pub fn sync_input_category(&mut self, category: InputCategory) -> bool {
+        if self.input_category == category {
+            return false;
+        }
+        self.flush_preedit();
+        // 한/영 전환은 최근 확정 음절 문맥을 끊는다(HANJA_WORD_SPEC §2.2.1).
+        self.recent_clear();
+        self.input_category = category;
+        true
     }
 
     /// 단어별 preedit 모드(단어 단위 누적)를 켜거나 끕니다.

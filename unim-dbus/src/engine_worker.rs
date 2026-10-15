@@ -2293,9 +2293,10 @@ fn run_engine_worker(
                     && config.engine.mode_sharing == unim::config::ModeSharingMode::Global
                 {
                     let new_mode = config.engine.default_category;
+                    // 상태 파일은 위 ATF 모드 전환 블록의 자기 컨텍스트 set_input_category 가 이미 썼다(`sync_input_category` 문서 참조).
                     for (&cid, eng) in contexts.iter_mut() {
                         if cid != context_id {
-                            eng.set_input_category(new_mode);
+                            eng.sync_input_category(new_mode);
                         }
                     }
                 }
@@ -2316,9 +2317,10 @@ fn run_engine_worker(
                 // 모드 즉시 적용 — 같은 앱 안 여러 윈도우 / 다른 앱 무관하게 모드
                 // 일관성 보장 (Global 정책의 의도). 위 engine 빌림이 종료된 후 처리.
                 if let Some(new_mode) = global_mode_propagate {
+                    // 상태 파일은 토글한 자기 컨텍스트가 이미 썼다(`sync_input_category` 문서 참조).
                     for (cid, eng) in contexts.iter_mut() {
                         if *cid != context_id {
-                            eng.set_input_category(new_mode);
+                            eng.sync_input_category(new_mode);
                         }
                     }
                 }
@@ -2438,8 +2440,17 @@ fn run_engine_worker(
 
                 // Global 모드에서만 모든 컨텍스트의 입력 카테고리 변경
                 if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+                    // 상태 파일은 컨텍스트마다가 아니라 한 번만 쓴다(`sync_input_category` 문서 참조).
+                    let mut changed = false;
                     for engine in contexts.values_mut() {
-                        engine.set_input_category(category);
+                        changed |= engine.sync_input_category(category);
+                    }
+                    if changed {
+                        let _ = unim::status::set_status(if is_korean {
+                            unim::status::InputCategory::Korean
+                        } else {
+                            unim::status::InputCategory::English
+                        });
                     }
                     unim_log!(
                         "ENGINE_WORKER",
