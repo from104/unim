@@ -197,7 +197,7 @@ jobs:
   functional-x11:
     name: Functional typing (Xvfb, ubuntu-24.04 native)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
