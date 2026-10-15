@@ -144,6 +144,38 @@ void unim_dbus_set_surrounding_text(UnimDbusContext *ctx,
                                      guint cursor_pos,
                                      guint anchor_pos);
 
+/**
+ * Surrounding text 동기 설정 — 데몬 응답까지 기다린다.
+ *
+ * 한자키 직전처럼 "이 값이 다음 호출 전에 엔진에 반영돼야 하는" 경우에 쓴다.
+ *
+ * @return 성공 여부 (실패 시 호출자는 선택 복원을 포기)
+ */
+gboolean unim_dbus_set_surrounding_text_sync(UnimDbusContext *ctx,
+                                              const gchar *text,
+                                              guint cursor_pos,
+                                              guint anchor_pos);
+
+/* 클라이언트 능력 비트 (SetClientCapabilities) — HANJA_WORD_SPEC v1.6 §4.6 */
+#define UNIM_CAP_REPLACE_SURROUNDING 0x1u
+#define UNIM_CAP_SELECTION_RELIABLE  0x2u
+#define UNIM_CAP_POINTER_HINTS       0x4u
+
+/* SurroundingHint kind — GTK 프런트는 SELECTION_UNKNOWN 만 보낸다 */
+#define UNIM_HINT_SELECTION_UNKNOWN  5u
+
+/**
+ * 클라이언트 능력 선언 — fire-and-forget, FocusIn 직후마다 보낸다(멱등).
+ * 보내지 않으면 0(대상③ 꺼짐, 종전 동작).
+ */
+void unim_dbus_set_client_capabilities(UnimDbusContext *ctx, guint32 caps);
+
+/**
+ * surrounding 신선도·선택 힌트 — fire-and-forget (kind≠1 이면 keyval·state 는 0).
+ */
+void unim_dbus_surrounding_hint(UnimDbusContext *ctx, guint32 kind,
+                                 guint32 keyval, guint32 state);
+
 /* =========================================
  * 한자 변환 관련 함수
  * ========================================= */
@@ -470,6 +502,23 @@ typedef void (*UnimAutoTypeFixCallback)(guint delete_chars,
 void unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
                                           UnimAutoTypeFixCallback callback,
                                           gpointer user_data);
+
+/**
+ * ReplaceSurroundingText 시그널 콜백 타입 (대상③ 커서 주변 단어 교체)
+ *
+ * 커서 기준 앞 delete_before 자·뒤 delete_after 자(유니코드 코드포인트)를 지우고
+ * commit_text 를 커밋하라는 요청. expect_text 는 지울 원문 — 호출자는 surrounding 을
+ * 다시 조회해 완전 일치할 때만 실행해야 한다.
+ */
+typedef void (*UnimReplaceSurroundingCallback)(guint delete_before,
+                                                guint delete_after,
+                                                const gchar *commit_text,
+                                                const gchar *expect_text,
+                                                gpointer user_data);
+
+void unim_dbus_set_replace_surrounding_callback(UnimDbusContext *ctx,
+                                                 UnimReplaceSurroundingCallback callback,
+                                                 gpointer user_data);
 
 /**
  * CommitText 시그널 콜백 타입

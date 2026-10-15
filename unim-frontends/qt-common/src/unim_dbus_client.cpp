@@ -103,6 +103,10 @@ static void unim_log_message(const char *module, const QString &message)
 #define UNIM_DBUS_DEBUG(...) \
     unim_log_message("QT_DBUS", QString(__VA_ARGS__))
 
+/* 로그용 문자열 길이(코드포인트). 사용자 입력 평문은 로그에 남기지 않는다
+ * (HANJA_WORD_SPEC §2.8). */
+#define UNIM_LOG_ULEN(str) static_cast<int>((str).toUcs4().size())
+
 static void unim_dbus_check_debug_env()
 {
     if (!unim_dbus_debug_checked) {
@@ -209,8 +213,8 @@ UnimDbusKeyResult UnimDbusClient::processKey(quint32 keyval, quint32 keycode, qu
         m_preeditCache = result.preedit;
         m_isComposing = !result.preedit.isEmpty();
 
-        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 결과: consumed=%d, preedit=%s, commit=%s",
-                        result.consumed, qPrintable(result.preedit), qPrintable(result.commit)));
+        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 결과: consumed=%d, preedit=%d자, commit=%d자",
+                        result.consumed, UNIM_LOG_ULEN(result.preedit), UNIM_LOG_ULEN(result.commit)));
     }
     
     return result;
@@ -255,12 +259,12 @@ QString UnimDbusClient::focusOut()
         QString serverCommit = reply.arguments().first().toString();
         if (!serverCommit.isEmpty()) {
             commitStr = serverCommit;
-            UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (서버): %s", qPrintable(commitStr)));
+            UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (서버): %d자", UNIM_LOG_ULEN(commitStr)));
         }
     } else if (m_isComposing && !m_preeditCache.isEmpty()) {
         // DBus 실패 시 로컬 캐시 폴백
         commitStr = m_preeditCache;
-        UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (로컬 폴백): %s", qPrintable(commitStr)));
+        UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (로컬 폴백): %d자", UNIM_LOG_ULEN(commitStr)));
     }
     
     // 상태 초기화
@@ -281,7 +285,7 @@ QString UnimDbusClient::reset()
     // 조합 중인 문자가 있으면 반환
     if (m_isComposing && !m_preeditCache.isEmpty()) {
         commitStr = m_preeditCache;
-        UNIM_DBUS_DEBUG(QString::asprintf("Reset 커밋: %s", qPrintable(commitStr)));
+        UNIM_DBUS_DEBUG(QString::asprintf("Reset 커밋: %d자", UNIM_LOG_ULEN(commitStr)));
         // dedupe: 데몬이 곧 같은 값을 CommitText 시그널로 보내므로 1회 skip 표시.
         // 호출자는 이 반환값을 조합이 시작된 자리에 커밋한다. 시그널은 비동기라
         // 앱이 캐럿을 옮긴 뒤에 도착하므로, 통과시키면 클릭한 자리에 또 박힌다.
@@ -371,8 +375,8 @@ bool UnimDbusClient::getHanjaCandidates(QString &target, QList<UnimHanjaCandidat
         }
         dbusArg.endArray();
         
-        UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaCandidates 결과: target=%s, count=%d",
-                        qPrintable(target), static_cast<int>(candidates.size())));
+        UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaCandidates 결과: target=%d chars, count=%d",
+                        static_cast<int>(target.toUcs4().size()), static_cast<int>(candidates.size())));
     }
     
     return true;
@@ -402,7 +406,7 @@ bool UnimDbusClient::selectHanja(quint32 index, QString &selectedHanja)
     QList<QVariant> args = reply.arguments();
     if (args.size() >= 1) {
         selectedHanja = args.at(0).toString();
-        UNIM_DBUS_DEBUG(QString::asprintf("SelectHanja 결과: '%s'", qPrintable(selectedHanja)));
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectHanja 결과: %d자", UNIM_LOG_ULEN(selectedHanja)));
     }
     
     return true;
@@ -427,7 +431,7 @@ QString UnimDbusClient::cancelHanja()
     if (reply.type() == QDBusMessage::ReplyMessage && reply.arguments().size() >= 1) {
         commit = reply.arguments().at(0).toString();
         if (!commit.isEmpty()) {
-            UNIM_DBUS_DEBUG(QString::asprintf("CancelHanja 커밋: '%s'", qPrintable(commit)));
+            UNIM_DBUS_DEBUG(QString::asprintf("CancelHanja 커밋: %d자", UNIM_LOG_ULEN(commit)));
         }
     }
 
@@ -465,8 +469,9 @@ bool UnimDbusClient::getSpecialCharCandidates(QString &target, QStringList &char
         characters = args.at(1).toStringList();
         topRow = args.at(2).toString();
         
-        UNIM_DBUS_DEBUG(QString::asprintf("GetSpecialCharCandidates 결과: target='%s', count=%d, topRow='%s'",
-                        qPrintable(target), static_cast<int>(characters.size()), qPrintable(topRow)));
+        UNIM_DBUS_DEBUG(QString::asprintf("GetSpecialCharCandidates 결과: target=%d chars, count=%d, topRow=%d chars",
+                        static_cast<int>(target.toUcs4().size()), static_cast<int>(characters.size()),
+                        static_cast<int>(topRow.toUcs4().size())));
     }
     
     return true;
@@ -496,7 +501,7 @@ bool UnimDbusClient::selectSpecialChar(quint32 index, QString &selectedChar)
     QList<QVariant> args = reply.arguments();
     if (args.size() >= 1) {
         selectedChar = args.at(0).toString();
-        UNIM_DBUS_DEBUG(QString::asprintf("SelectSpecialChar 결과: '%s'", qPrintable(selectedChar)));
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectSpecialChar 결과: %d자", UNIM_LOG_ULEN(selectedChar)));
     }
     
     return true;
@@ -521,7 +526,7 @@ QString UnimDbusClient::cancelSpecialChar()
     if (reply.type() == QDBusMessage::ReplyMessage && reply.arguments().size() >= 1) {
         commit = reply.arguments().at(0).toString();
         if (!commit.isEmpty()) {
-            UNIM_DBUS_DEBUG(QString::asprintf("CancelSpecialChar 커밋: '%s'", qPrintable(commit)));
+            UNIM_DBUS_DEBUG(QString::asprintf("CancelSpecialChar 커밋: %d자", UNIM_LOG_ULEN(commit)));
         }
     }
 
@@ -560,6 +565,62 @@ void UnimDbusClient::setSurroundingText(const QString &text, quint32 cursorPos, 
     m_bus.call(msg, QDBus::NoBlock);
 }
 
+void UnimDbusClient::setClientCapabilities(quint32 caps)
+{
+    if (!isValid()) return;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SetClientCapabilities")
+    );
+    msg << caps;
+    m_bus.call(msg, QDBus::NoBlock);
+    UNIM_DBUS_DEBUG(QString::asprintf("SetClientCapabilities: caps=0x%x", caps));
+}
+
+void UnimDbusClient::surroundingHint(quint32 kind, quint32 keyval, quint32 state)
+{
+    if (!isValid()) return;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SurroundingHint")
+    );
+    msg << kind << keyval << state;
+    m_bus.call(msg, QDBus::NoBlock);
+    UNIM_DBUS_DEBUG(QString::asprintf("SurroundingHint: kind=%u", kind));
+}
+
+void UnimDbusClient::setReplaceSurroundingCallback(ReplaceSurroundingCallback callback) {
+    m_replaceSurroundingCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimReplaceSurroundingReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("ReplaceSurroundingText"),
+        receiver,
+        SLOT(onReplaceSurroundingText(quint32,quint32,QString,QString))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("ReplaceSurroundingText signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimReplaceSurroundingReceiver::onReplaceSurroundingText(quint32 deleteBefore, quint32 deleteAfter,
+                                                              const QString &commitText, const QString &expectText) {
+    if (m_client && m_client->m_replaceSurroundingCallback) {
+        UNIM_DBUS_DEBUG(QString::asprintf("ReplaceSurroundingText received: a=%u, b=%u, commit=%d자, expect=%d자",
+                         deleteBefore, deleteAfter, UNIM_LOG_ULEN(commitText), UNIM_LOG_ULEN(expectText)));
+        m_client->m_replaceSurroundingCallback(deleteBefore, deleteAfter, commitText, expectText);
+    }
+}
+
 void UnimDbusClient::setAutoTypeFixCallback(AutoTypeFixCallback callback) {
     m_autoTypeFixCallback = std::move(callback);
     if (!m_connected || m_contextPath.isEmpty()) return;
@@ -579,8 +640,8 @@ void UnimDbusClient::setAutoTypeFixCallback(AutoTypeFixCallback callback) {
 
 void UnimAutoTypeFixReceiver::onAutoTypefixApply(quint32 deleteChars, const QString &commitText, const QString &preeditText) {
     if (m_client && m_client->m_autoTypeFixCallback) {
-        UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix received: delete=%u, commit='%s', preedit='%s'",
-                         deleteChars, qPrintable(commitText), qPrintable(preeditText)));
+        UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix received: delete=%u, commit=%d자, preedit=%d자",
+                         deleteChars, UNIM_LOG_ULEN(commitText), UNIM_LOG_ULEN(preeditText)));
         m_client->m_autoTypeFixCallback(deleteChars, commitText, preeditText);
     }
 }
@@ -607,11 +668,11 @@ void UnimCommitTextReceiver::onCommitText(const QString &text) {
         // dedupe: reset() 이 동기 반환한 커밋의 메아리는 1회 skip.
         // (m_pendingSkipCommit 선언부 주석 참조)
         if (m_client->m_pendingSkipCommit == text) {
-            UNIM_DBUS_DEBUG(QString::asprintf("CommitText dedupe skip: '%s'", qPrintable(text)));
+            UNIM_DBUS_DEBUG(QString::asprintf("CommitText dedupe skip: %d자", UNIM_LOG_ULEN(text)));
             m_client->m_pendingSkipCommit.clear();
             return;
         }
-        UNIM_DBUS_DEBUG(QString::asprintf("CommitText received: '%s'", qPrintable(text)));
+        UNIM_DBUS_DEBUG(QString::asprintf("CommitText received: %d자", UNIM_LOG_ULEN(text)));
         m_client->m_commitTextCallback(text);
     }
 }
@@ -804,8 +865,8 @@ void UnimHanjaCandidatesReorderedReceiver::onReordered(const QDBusMessage &msg) 
     }
 
     UNIM_DBUS_DEBUG(QString::asprintf(
-        "HanjaCandidatesReordered received: target='%s', count=%d, new_cursor=%u, page=%d, sel=(%d,%d), was=%d now=%d",
-        qPrintable(target), n, newCursor, page, selRow, selCol, int(wasBookmarked), int(bookmarked)));
+        "HanjaCandidatesReordered received: target=%d chars, count=%d, new_cursor=%u, page=%d, sel=(%d,%d), was=%d now=%d",
+        static_cast<int>(target.toUcs4().size()), n, newCursor, page, selRow, selCol, int(wasBookmarked), int(bookmarked)));
 
     m_client->m_hanjaReorderedCallback(target, candidates, bookmarks,
                                         newCursor, page, selRow, selCol,
@@ -947,8 +1008,8 @@ bool UnimDbusClient::commitEmoji(const QString &emoji) {
 
     QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        UNIM_DBUS_DEBUG(QString::asprintf("CommitEmoji 실패: emoji='%s', err=%s",
-                         qPrintable(emoji), qPrintable(reply.errorMessage())));
+        UNIM_DBUS_DEBUG(QString::asprintf("CommitEmoji 실패: emoji=%d자, err=%s",
+                         UNIM_LOG_ULEN(emoji), qPrintable(reply.errorMessage())));
         return false;
     }
     return true;

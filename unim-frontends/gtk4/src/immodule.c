@@ -16,6 +16,7 @@
 
 /* DBus 클라이언트 헤더 */
 #include "unim_dbus_client.h"
+#include "unim_surrounding_word.h"
 
 /* X11 위치 계산을 위한 헤더 */
 #ifdef GDK_WINDOWING_X11
@@ -85,6 +86,10 @@ struct _UnimIMContext {
      * Emoji popup 은 idle 트리거라 is_composing=FALSE 인데, 그러면 nav 키가
      * IM 우회 (앱 전달) 되어 popup 조작 불가. popup 가시 중엔 우회 차단. */
     gboolean popup_active;
+
+    /* ReplaceSurroundingText 검증용 retrieve-surrounding 중에는 set_surrounding 이
+     * 데몬으로 SetSurroundingText 를 보내지 않는다(검증 조회가 엔진 상태를 바꾸지 않게). */
+    gboolean suppress_surrounding_send;
 };
 
 G_DEFINE_DYNAMIC_TYPE(UnimIMContext, unim_im_context, GTK_TYPE_IM_CONTEXT)
@@ -249,15 +254,21 @@ unim_is_sensitive(UnimIMContext *unim)
     return unim && (unim->content_purpose == 1 || unim->content_purpose == 2);
 }
 
-/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
- * 평상시(Normal)엔 원문 그대로 — 무회귀. NULL 은 빈 문자열로. */
+/* dev 로그용 내용 표기 — 사용자 입력 평문은 남기지 않고 길이("(N자)")만 찍는다
+ * (HANJA_WORD_SPEC §2.8). 민감 필드(비밀번호/PIN)는 "***". NULL 은 0자.
+ * 한 로그 호출에 여러 번 써도 되도록 스레드 로컬 링 버퍼 4칸을 돌려 쓴다. */
 static inline const char *
 unim_mask(UnimIMContext *unim, const char *text)
 {
+    static __thread char bufs[4][24];
+    static __thread unsigned slot;
+
     if (unim_is_sensitive(unim)) {
         return "***";
     }
-    return text ? text : "";
+    char *buf = bufs[slot++ & 3];
+    g_snprintf(buf, sizeof(bufs[0]), "(%ld자)", text ? (long)g_utf8_strlen(text, -1) : 0L);
+    return buf;
 }
 
 static void
@@ -427,7 +438,7 @@ autofix_deferred_commit_cb(gpointer user_data)
     UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
-    UNIM_DEBUG("AutoTypeFix 지연 commit: '%s', preedit='%s'",
+    UNIM_DEBUG("AutoTypeFix 지연 commit: %s, preedit=%s",
                unim_mask(unim, unim->autofix_commit_text),
                unim_mask(unim, unim->autofix_preedit_text));
 
@@ -455,9 +466,69 @@ on_commit_text(const gchar *text, gpointer user_data)
     UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(user_data);
     if (text && text[0] != '\0') {
-        UNIM_DEBUG("CommitText 시그널 수신: '%s'", unim_mask(unim, text));
+        UNIM_DEBUG("CommitText 시그널 수신: %s", unim_mask(unim, text));
         g_signal_emit_by_name(context, "commit", text);
     }
+}
+
+/* ReplaceSurroundingText 콜백(대상③ 단어 교체, HANJA_WORD_SPEC v1.6 §2.4b.5)
+ *
+ * 커서 앞 a자·뒤 b자를 지우고 commit_text 를 커밋한다. 데몬 캐시가 낡았을 수 있으므로
+ * surrounding 을 다시 묻고, 선택이 없으며 구간이 expect_text 와 완전 일치할 때만 실행한다.
+ * delete_surrounding 이 실패하면 커밋하지 않는다(XTest 폴백 금지 — 오삭제 방지).
+ * 로그에는 a·b·길이·이유만 남긴다(평문 금지). */
+static void
+on_replace_surrounding(guint delete_before, guint delete_after,
+                       const gchar *commit_text, const gchar *expect_text,
+                       gpointer user_data)
+{
+    UnimIMContext *unim = (UnimIMContext *)user_data;
+    GtkIMContext *context = GTK_IM_CONTEXT(unim);
+    const char *reason = NULL;
+
+    if (!unim->is_focused) {
+        reason = "no_focus";
+    } else if (unim_is_sensitive(unim)) {
+        reason = "sensitive";
+    } else if (!commit_text || !commit_text[0]) {
+        reason = "empty_commit";
+    } else {
+        /* surrounding 재조회 — 검증 조회는 데몬에 보내지 않는다 */
+        gboolean handled = FALSE;
+        g_clear_pointer(&unim->surrounding_text, g_free);
+        unim->suppress_surrounding_send = TRUE;
+        g_signal_emit_by_name(context, "retrieve-surrounding", &handled);
+        unim->suppress_surrounding_send = FALSE;
+
+        if (!handled || !unim->surrounding_text) {
+            reason = "verify_mismatch";
+        } else if (unim->selection_index != unim->cursor_index) {
+            reason = "selection";
+        } else if (!unim_replace_expect_matches(unim->surrounding_text,
+                                                 unim->cursor_index, unim->selection_index,
+                                                 delete_before, delete_after, expect_text)) {
+            reason = "verify_mismatch";
+        }
+    }
+
+    if (reason) {
+        UNIM_DEBUG("대상③ 교체 버림: a=%u, b=%u, commit=%ld자, reason=%s",
+                   delete_before, delete_after,
+                   commit_text ? (long)g_utf8_strlen(commit_text, -1) : 0L, reason);
+        return;
+    }
+
+    if (!gtk_im_context_delete_surrounding(context,
+                                           -(gint)delete_before,
+                                           (gint)(delete_before + delete_after))) {
+        UNIM_DEBUG("대상③ 교체 버림: a=%u, b=%u, commit=%ld자, reason=delete_failed",
+                   delete_before, delete_after, (long)g_utf8_strlen(commit_text, -1));
+        return;
+    }
+
+    g_signal_emit_by_name(context, "commit", commit_text);
+    UNIM_DEBUG("대상③ 교체 적용: a=%u, b=%u, commit=%ld자",
+               delete_before, delete_after, (long)g_utf8_strlen(commit_text, -1));
 }
 
 /* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
@@ -468,7 +539,7 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
-    UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit='%s', preedit='%s'",
+    UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit=%s, preedit=%s",
                delete_chars, unim_mask(unim, commit_text), unim_mask(unim, preedit_text));
 
     /* 포커스가 없으면 무시 (다른 프론트엔드가 처리 중) */
@@ -651,6 +722,7 @@ unim_im_context_init(UnimIMContext *context)
     if (context->dbus_ctx) {
         unim_dbus_set_auto_typefix_callback(context->dbus_ctx, on_auto_typefix, context);
         unim_dbus_set_commit_text_callback(context->dbus_ctx, on_commit_text, context);
+        unim_dbus_set_replace_surrounding_callback(context->dbus_ctx, on_replace_surrounding, context);
     }
 
     /* 입력 필드 목적(purpose) mid-focus 갱신 구독 — 재포커스 없이 앱이
@@ -929,11 +1001,24 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         UnimHanjaCandidate *candidates = NULL;
         gsize count = 0;
 
+        /* 선택을 숨기는 위젯(GtkText·GtkTextView 가 아닌 것 — GtkDrawingArea 등)이면
+         * 앱이 보고한 surrounding 의 선택 여부를 믿을 수 없다. 다음 한자키 한 번의
+         * 대상③ 을 막는다(v1.6 승인 6). */
+        if (!unim->client_widget
+            || !(GTK_IS_TEXT(unim->client_widget) || GTK_IS_TEXT_VIEW(unim->client_widget))) {
+            unim_dbus_surrounding_hint(unim->dbus_ctx, UNIM_HINT_SELECTION_UNKNOWN, 0, 0);
+            UNIM_DEBUG("선택 불명 힌트: 위젯 종류 비지원(hint=unknown)");
+        }
+
         /* Standalone — unim-dbus RPC 호출 → unim-gui-gtk 가 팝업 전담 */
         if (unim_dbus_get_hanja_candidates(unim->dbus_ctx, &target, &candidates, &count)) {
             if (count > 0) {
                 /* 후보 즉시 해제 (Standalone 모드: IM 모듈이 직접 표시 안 함) */
                 unim_hanja_candidates_free(candidates, count);
+                /* 팝업이 떠 있는 동안 Esc·방향키·Enter·Backspace 가 앱으로 새지 않게
+                 * 한다(idle 우회 차단 — Backspace 가 앱 선택을 지우던 결함). 해제는
+                 * HidePopup 시그널(on_hide_popup). */
+                unim->popup_active = TRUE;
                 UNIM_DEBUG("한자 후보 %zu개 — Standalone popup 위임", count);
             } else {
                 /* 한자 후보 없음 → 특수문자 후보 확인 */
@@ -954,6 +1039,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
                         &sp_target, &sp_chars, &sp_count, &sp_top_row) && sp_count > 0) {
                     /* 후보 즉시 해제 (Standalone popup 위임) */
                     unim_special_chars_free(sp_chars, sp_count);
+                    unim->popup_active = TRUE;   /* 한자 팝업과 동일 — HidePopup 에서 해제 */
                     UNIM_DEBUG("특수문자 후보 %zu개 — Standalone popup 위임", sp_count);
                 } else {
                     UNIM_DEBUG("특수문자 후보도 없음 → idle Hanja: emoji 트리거 위임");
@@ -1052,10 +1138,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         return FALSE;
     }
 
-    UNIM_DEBUG("엔진 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
+    UNIM_DEBUG("엔진 결과: consumed=%d, preedit=%s, commit=%s",
                result.consumed,
-               unim_is_sensitive(unim) ? "***" : (result.preedit ? result.preedit : "(null)"),
-               unim_is_sensitive(unim) ? "***" : (result.commit ? result.commit : "(null)"));
+               unim_mask(unim, result.preedit),
+               unim_mask(unim, result.commit));
 
     /* 선택 영역 삭제 처리
      * commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·한/영 전환 등)는
@@ -1093,7 +1179,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
 
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
-        UNIM_DEBUG("커밋: \"%s\"", unim_mask(unim, result.commit));
+        UNIM_DEBUG("커밋: %s", unim_mask(unim, result.commit));
         g_signal_emit_by_name(context, "commit", result.commit);
     }
 
@@ -1116,6 +1202,10 @@ unim_im_context_focus_in(GtkIMContext *context)
 
     if (unim->dbus_ctx) {
         unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
+        /* 대상③ 능력 선언 — 교체 가능 + 선택 신뢰(set_surrounding_with_selection·위젯 종류 거름).
+         * FocusIn 마다 보낸다(멱등). */
+        unim_dbus_set_client_capabilities(unim->dbus_ctx,
+            UNIM_CAP_REPLACE_SURROUNDING | UNIM_CAP_SELECTION_RELIABLE);
 
         /* 입력 필드 목적 감지 및 전송 — client_widget 유무와 무관하게 항상
          * 재확인·전송(구 결함: client_widget==NULL 시 스킵 → 이전 컨텍스트의
@@ -1140,7 +1230,7 @@ unim_im_context_focus_out(GtkIMContext *context)
 
         /* 조합 중이던 문자 커밋 */
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("focus_out 커밋: \"%s\"", unim_mask(unim, commit));
+            UNIM_DEBUG("focus_out 커밋: %s", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
@@ -1160,6 +1250,8 @@ unim_im_context_focus_out(GtkIMContext *context)
         }
     }
 
+    /* 방어: 포커스를 잃으면 팝업 세션도 끝난 것 — HidePopup 이 유실돼도 키 우회가 막히지 않게 */
+    unim->popup_active = FALSE;
     unim->is_focused = FALSE;
 }
 
@@ -1176,7 +1268,7 @@ unim_im_context_reset(GtkIMContext *context)
         unim_dbus_reset(unim->dbus_ctx, &commit);
 
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("reset 커밋: \"%s\"", unim_mask(unim, commit));
+            UNIM_DEBUG("reset 커밋: %s", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
@@ -1265,11 +1357,11 @@ unim_im_context_set_surrounding_with_selection(GtkIMContext *context, const char
     unim->cursor_index = cursor_index;
     unim->selection_index = selection_index;
 
-    UNIM_DEBUG("surrounding 업데이트: cursor=%d, selection=%d, text=\"%s\"",
+    UNIM_DEBUG("surrounding 업데이트: cursor=%d, selection=%d, len=%s",
                cursor_index, selection_index, unim_mask(unim, unim->surrounding_text));
 
     /* Surrounding text를 DBus로 전달 */
-    if (unim->dbus_ctx && unim->surrounding_text) {
+    if (unim->dbus_ctx && unim->surrounding_text && !unim->suppress_surrounding_send) {
         /* 바이트 오프셋 → 문자 오프셋 변환 */
         guint cursor_char = (guint)g_utf8_pointer_to_offset(
             unim->surrounding_text, unim->surrounding_text + cursor_index);

@@ -403,6 +403,12 @@ class UnimInputMethod extends Clutter.InputMethod {
         }
         this._contentPurposeRaw = 0;
         this._contentHints = 0;
+        // 5. surrounding 캐시 초기화 — 이전 입력란의 본문이 다음 입력란(surrounding 을
+        // 안 보내는 VTE 등)에서 "지금 필드의 surrounding" 으로 쓰이면 안 된다.
+        // **새 객체**로 갈아 끼워 이전 필드의 참조를 끊는다(SPEC.md §2.8).
+        // focus_in 에서는 지우지 않는다 — Mutter 가 set_surrounding 을
+        // 먼저 보낸 순서라면 유효한 값을 지우게 된다.
+        this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
         // _pendingPurpose 는 지우지 않는다 — 포커스 없는 동안 이미 도착한 다음 필드의
         // purpose 일 수 있으며, 그 몫은 다음 vfunc_focus_in 이 flush 한다.
     }
@@ -615,6 +621,22 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     /**
+     * 비밀번호·PIN 성격의 입력란인지(fail-closed).
+     *
+     * PRIMARY 선택 보강(key_handler `_probePrimaryThenProcess`)처럼 **필드 내용과
+     * 무관한 외부 데이터를 읽는 동작** 전에 반드시 확인한다. 계산값(effective)뿐 아니라
+     * 데몬에 이미 보낸 값과 포커스 전 대기값까지 하나라도 Password(1)/PIN(2) 이면 true —
+     * 순서 경합(purpose 가 포커스보다 늦게 오는 등)에서 놓치느니 과차단이 안전하다.
+     * @returns {boolean}
+     */
+    isSensitivePurpose() {
+        const sensitive = (p) => p === 1 || p === 2;
+        return sensitive(this._effectivePurpose()) ||
+               sensitive(this._sentPurpose) ||
+               (this._pendingPurpose !== null && sensitive(this._pendingPurpose));
+    }
+
+    /**
      * 계산된 effective purpose 를 포커스 상태에 따라 즉시 송신하거나 대기시킨다.
      *
      * 포커스 없음: 다음 vfunc_focus_in 이 flush 할 수 있도록 _pendingPurpose 에 버퍼.
@@ -646,7 +668,7 @@ class UnimInputMethod extends Clutter.InputMethod {
     commitText(text) {
         if (!text || text.length === 0) return;
 
-        unimLog('IME', `commitText: text='${text}', _hasFocus=${this._hasFocus}, _preeditText='${this._preeditText}'`);
+        unimLog('IME', `commitText: len=${Array.from(String(text ?? '')).length}, _hasFocus=${this._hasFocus}, preeditLen=${Array.from(this._preeditText ?? '').length}`); // 평문 금지(HANJA_WORD_SPEC §2.8)
 
         // preedit이 남아있으면 먼저 클리어
         if (this._preeditText.length > 0) {
@@ -735,6 +757,31 @@ class UnimInputMethod extends Clutter.InputMethod {
         } catch (e) {
             unimError('IME', `deleteSurrounding 실패: ${e.message}`);
         }
+    }
+
+    /**
+     * 커서 기준 앞 a자·뒤 b자를 지우고 text 를 확정한다 (대상③ 확정 —
+     * ReplaceSurroundingText 시그널, HANJA_WORD_SPEC §2.4b.5).
+     *
+     * a·b 는 코드포인트(문자) 단위 — 구간이 전부 한글 완성 음절(BMP)이라 Mutter 의
+     * delete_surrounding 단위와 같다. idle 이라 preedit 선클리어가 필요 없다.
+     * Clutter 쪽은 삭제 실패를 알 수 없다(엔진 `c==0` 방어·거부 플래그가 막는다).
+     * 로그는 a·b·길이만 남긴다(평문 금지).
+     *
+     * @param {number} deleteBefore - 커서 앞에서 지울 문자 수
+     * @param {number} deleteAfter - 커서 뒤에서 지울 문자 수
+     * @param {string} text - 확정할 문자열
+     */
+    replaceSurrounding(deleteBefore, deleteAfter, text) {
+        if (!text || text.length === 0) return;
+        try {
+            this.delete_surrounding(-deleteBefore, deleteBefore + deleteAfter);
+            unimLog('IME', `replaceSurrounding: a=${deleteBefore}, b=${deleteAfter}, len=${Array.from(text).length}`);
+        } catch (e) {
+            unimError('IME', `replaceSurrounding 삭제 실패, 커밋 생략: ${e.message}`);
+            return;
+        }
+        this.commitText(text);
     }
 
     /**

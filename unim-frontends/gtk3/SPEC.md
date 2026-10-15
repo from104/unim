@@ -163,17 +163,38 @@ struct _UnimIMContext {
 
 ```
 F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
-  → Wayland: ProcessKey 로 전달 → GNOME extension 이 팝업 처리, return TRUE
+  → [선택 복원] unim_push_selection_for_hanja — Wayland·X11 분기보다 먼저(아래 참고)
+  → Wayland: ProcessKey 로 전달 → GNOME extension 이 팝업 처리(커밋 없이 consumed 면
+    popup_active = TRUE — 선택 변환은 preedit 이 비어 idle 우회가 켜지므로), return TRUE
   → X11 (Standalone): cursor_area 절대 좌표를 데몬에 보고
     → DBus GetHanjaCandidates
-      → 한자 후보 있으면: 후보 배열 즉시 해제, "Standalone popup 위임" 로그
-         (popup-service 가 ShowHanja 경로로 렌더)
+      → 한자 후보 있으면: 후보 배열 즉시 해제, popup_active = TRUE,
+         "Standalone popup 위임" 로그 (popup-service 가 ShowHanja 경로로 렌더)
       → 한자 후보 없으면: DBus GetSpecialCharCandidates
-        → 특수문자 후보 있으면: 후보 배열 즉시 해제, popup-service 위임
+        → 특수문자 후보 있으면: 후보 배열 즉시 해제, popup_active = TRUE, popup-service 위임
         → 둘 다 없으면(idle): ProcessKey 로 dual-purpose Hanja 분기 →
            엔진이 ShowEmojiPopupV2 시그널 발행 → 핸들러가 popup_active 마킹
   → return TRUE (키 소비)
 ```
+
+> [!IMPORTANT]
+> **선택 복원 (`unim_push_selection_for_hanja`, HANJA_WORD_SPEC §2.4.5·§2.10)**:
+> GTK3 의 `set_surrounding` 은 anchor 를 모르므로(anchor=cursor) 한자키 직전에 앱의 선택을 복원해
+> `SetSurroundingText(text, cursor', anchor')` 를 **동기**(`unim_dbus_set_surrounding_text_sync`)로 보낸다.
+> 비밀번호/PIN 이면 아무것도 하지 않는다. 순서: (1) `GtkEditable` → `gtk_editable_get_selection_bounds`,
+> `GtkTextView` → 같은 줄 선택의 insert/selection_bound 줄 오프셋(선택이 없으면 PRIMARY 로 넘어가지 않음),
+> 위젯 선택 문자열이 surrounding 부분 문자열과 다르면 포기 → (2) 그 밖의 위젯은 PRIMARY 소유자가
+> **같은 프로세스**일 때만 `gtk_clipboard_request_text` 가 동기로 돌아오면 `unim_primary_decide`
+> (`gtk-common/src/unim_primary_selection.c`, GNOME 확장 판정의 C 포팅)로 판정(동기로 오지 않으면 포기).
+> **(v1.6, 구현) (2) PRIMARY 폴백은 퇴역**(HANJA_WORD_SPEC §2.10.1) — `unim_primary_selection.c`·`.h` 와
+> `tests/unit-c/test_primary_selection.c` 는 제거됐다. 직접 조회할 수 없는 위젯(GtkDrawingArea 등)이면 대신
+> 한자키 직전에 `SurroundingHint(SELECTION_UNKNOWN)` 을 보내 그 한자키의 대상③(커서가 걸친 단어)을 막는다(이모지).
+> 컨텍스트 FocusIn 마다 `SetClientCapabilities(REPLACE_SURROUNDING|SELECTION_RELIABLE)`(0x3), 대상③ 확정 시그널
+> `ReplaceSurroundingText(uuss: delete_before, delete_after, commit_text, expect_text)` 는 문서 재조회로
+> `expect_text` 와 완전 일치함을 확인한 뒤 `gtk_im_context_delete_surrounding(-a, a+b)` 가 TRUE 일 때만 커밋한다
+> (HANJA_WORD_SPEC §4.6). 페이로드 타입이 `(uuss)` 가 아니면 공용 클라이언트가 무시한다.
+> `selection_index` 는 바꾸지 않는다(CommitText 처리부의 선택 삭제 경로 오작동 방지).
+> 로그는 `how=entry|textview|none, reason=…, sel=N자`(+ 판정 불가 시 `hint=unknown`) — 평문 없음.
 
 > [!IMPORTANT]
 > IM 모듈은 후보 데이터를 받더라도 **즉시 해제**합니다. 후보 렌더링·페이지·선택은
@@ -182,6 +203,19 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 ### 4.3 팝업 활성 중 키 처리 (`popup_active`)
 
 데몬이 `Show*Popup` 시그널을 보내면 `popup_active = TRUE`가 됩니다.
+GTK3 는 X11 pull 경로에서 한자/특수문자 후보가 있어 `GetHanjaCandidates`·`GetSpecialCharCandidates` 로
+팝업을 띄울 때도 **직접** `popup_active = TRUE` 를 세웁니다(`Show*Popup` 시그널이 없는 경로 —
+미설정이면 idle 우회가 Esc·방향키·Enter·Backspace 를 앱으로 흘려 Backspace 가 앱 선택을 지웠음).
+Wayland 분기도 같다: `ProcessKeyEvent` 결과가 소비(consumed)이고 커밋이 없으면 `popup_active = TRUE`
+(선택 변환 대상②는 preedit 이 비어 `is_composing` 이 FALSE 라서 필요). 해제는 `HidePopup`·`focus_out`.
+
+> [!NOTE]
+> **(v1.6 — 아래 위험은 PRIMARY 폴백 퇴역으로 사라졌다. 기록용으로 남긴다.)**
+> PRIMARY 폴백(§4.2 선택 복원 2단계)은 PRIMARY 소유자가 같은 프로세스인지만 본다. 포커스가 없는
+> 다른 위젯(선택이 남은 GtkEntry 등)이 PRIMARY 를 쥐고 같은 문자열이 커서 옆에 있으면, 포커스 위젯에
+> 선택이 없어도 인접 판정이 날 수 있다(확정 시 한글 치환 없이 한자만 삽입). GNOME 확장과 같은
+> 휴리스틱이며 승인된 설계의 알려진 위험이다. GtkEditable·GtkTextView 는 1단계에서 직접 조회하므로 해당 없음.
+해제는 `HidePopup`(`on_hide_popup`)이며, `focus_out` 도 방어적으로 해제합니다.
 이 동안 들어오는 키는 IM 모듈이 직접 해석하지 않고 **그대로 `ProcessKey`로 전달**되며,
 데몬이 그 키를 받아 popup-service의 선택/페이지 이동·확정·취소를 구동합니다.
 
@@ -283,6 +317,7 @@ GTK focus_out 호출
   → 1. DBus FocusOut → 조합 중 텍스트 커밋 (RPC 반환값 사용)
        → commit 시그널 (커밋할 텍스트가 있으면)
        → unim_emit_preedit(unim, "") — preedit-end까지 발사
+  → popup_active = FALSE (방어 — HidePopup 유실 대비)
   → is_focused = FALSE
 ```
 
@@ -348,11 +383,13 @@ GTK set_surrounding(text, len, cursor_index) 호출
 > 선택 영역 정보는 `retrieve-surrounding` 시그널 후 위젯이 업데이트합니다.
 
 > [!NOTE]
-> **한자 단어 확정 — 선택 영역(대상②) 미지원**(`HANJA_WORD_SPEC.md` §2.10):
-> `selection_index`가 항상 `cursor_index`와 같아(anchor 미전달) 엔진이 선택
-> 존재 여부를 판정할 수 없다. idle 상태에서 한자키를 누르면 종전과 동일하게
-> 이모지 팝업으로 간다. GTK4(§7.2)는 `set_surrounding_with_selection`으로
-> anchor 를 별도 전달해 대상②를 지원한다.
+> **한자 단어 확정 — 선택 영역(대상②) 지원(v1.4, `HANJA_WORD_SPEC.md` §2.10)**:
+> `set_surrounding` 의 `selection_index`는 항상 `cursor_index`와 같지만(anchor 미전달),
+> 한자키 직전에 `unim_push_selection_for_hanja`(§4.2)가 위젯 조회(v1.6 부터 PRIMARY 폴백 없음)로
+> 선택을 복원해 `SetSurroundingText` 를 동기로 보낸다. 복원 실패·미지원 위젯이면
+> 선택 없음으로 보며, (v1.6) 선택이 없으면 커서가 걸친 단어(대상③)를 보고 없으면 이모지 팝업으로 간다
+> — 미지원 위젯은 `SELECTION_UNKNOWN` 으로 대상③ 도 막혀 이모지다. GTK4(§7.2)는
+> `set_surrounding_with_selection`으로 anchor 를 별도 전달한다.
 
 ---
 
@@ -387,6 +424,7 @@ GTK set_surrounding(text, len, cursor_index) 호출
 | `unim_dbus_select_special_char` | `SelectSpecialChar` | `selected_char` | 특수문자 선택 |
 | `unim_dbus_cancel_special_char` | `CancelSpecialChar` | `commit_trigger` | 특수문자 모드 취소 |
 | `unim_dbus_set_surrounding_text` | `SetSurroundingText` | — | 주변 텍스트 전달 |
+| `unim_dbus_set_surrounding_text_sync` | `SetSurroundingText` | — | 응답을 기다리는 동기 전송 — 한자키 직전 선택 복원(§4.2) |
 | `unim_dbus_set_content_type` | `SetContentType` | — | 입력 필드 목적 전달 (Password/Email 등) |
 | `unim_dbus_report_cursor_rect` | `ReportCursorRect` | — | 커서 위치 보고 (fire-and-forget) |
 | `unim_dbus_get_config` | `GetConfig` | `value` | 설정 값 조회 (legacy 키 단위) |

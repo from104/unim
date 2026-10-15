@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+# 사용자 디렉터리(~/.local/share/gnome-shell/extensions)에 같은 UUID 의 사본(예: 개발용
+# `make dev-extension` 이 남긴 것)이 있으면 GNOME Shell 은 그쪽을 먼저 로드해 이 패키지가
+# 설치한 확장을 가린다 — 새 버전이 설치돼도 옛 코드가 계속 돌아 증상이 "그대로"처럼 보인다
+# (2026-10-04 실측: 0.4.1 사본이 0.4.4 설치본을 가림). 지우지는 않고 알리기만 한다.
+case "$1" in
+    configure)
+        uuid="unim-gnome@from104.github.io"
+        for d in /home/*/.local/share/gnome-shell/extensions/"$uuid" \
+                 /root/.local/share/gnome-shell/extensions/"$uuid"; do
+            if [ -d "$d" ]; then
+                echo "unim-gnome: 경고 — $d 가 시스템 설치본을 가립니다. 옮기거나 지운 뒤 재로그인하세요." >&2
+                echo "unim-gnome: WARNING — $d shadows the packaged extension. Move or remove it, then log out and back in." >&2
+            fi
+        done
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

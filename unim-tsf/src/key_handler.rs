@@ -7,7 +7,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{Config, InputCategory};
-use unim::input_engine::{HanjaReplacement, InputEngine};
+use unim::input_engine::{HanjaReplacement, HanjaSource, InputEngine};
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::auto_typefix::{self, AutoTypeFixState};
@@ -644,7 +644,7 @@ pub fn handle_key_down(
     // 갱신만 보고). 아래 commit/preedit 처리로 내려가면 조합 음절만 지워지고 접두가 남으므로
     // 여기서 교체하고 끝낸다(ATF 오케스트레이션도 건너뛴다 — 버퍼는 교체 함수가 폐기).
     if let Some(rep) = engine.take_hanja_replacement() {
-        let schedule_flush = apply_hanja_replacement(
+        let schedule_flush = apply_hanja_payload(
             engine,
             comp_mgr,
             context,
@@ -988,6 +988,77 @@ pub fn handle_key_down(
     }
 
     KeyDownOutcome { eaten: result.consumed, schedule_flush, atf_fallback }
+}
+
+/// 한자 단어 교체 페이로드 분기 — 대상③ 은 커서 기준 앞·뒤 삭제(`apply_surrounding_word_replacement`),
+/// 그 외(대상①·RecentWord)는 종전 `apply_hanja_replacement`. 키보드·마우스 확정 두 호출부 공용.
+/// 반환: b1 Phase2 플러시 예약 필요 여부.
+#[allow(clippy::too_many_arguments)]
+fn apply_hanja_payload(
+    engine: &mut InputEngine,
+    comp_mgr: &mut CompositionManager,
+    context: &ITfContext,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+    composition_unsupported: bool,
+    preedit_win: &mut Option<PreeditWindow>,
+    fallback_pending: &AtomicUsize,
+    atf_state: &mut AutoTypeFixState,
+    rep: &HanjaReplacement,
+) -> bool {
+    if rep.source == HanjaSource::SurroundingWord {
+        return apply_surrounding_word_replacement(context, tid, atf_state, rep);
+    }
+    apply_hanja_replacement(
+        engine,
+        comp_mgr,
+        context,
+        tid,
+        comp_sink,
+        composition_unsupported,
+        preedit_win,
+        fallback_pending,
+        atf_state,
+        rep,
+    )
+}
+
+/// 대상③ 교체 적용(HANJA_WORD_SPEC §4.4·§2.4b.5) — 문서 범위 `[c−a, c+b)` 를 한 편집 세션에서
+/// 대조(target 과 같을 때만)하고 `SetText` 로 치환한다.
+///
+/// 대상③ 은 idle(조합 없음)에서만 열리므로 조합 종료·오버레이 정리가 필요 없다. 실패
+/// (`range_failed`·`selection`·`delete_failed`·`verify_mismatch`)하면 문서를 건드리지 않고
+/// 커밋하지 않는다. 성공하면 ATF 상태를 비운다(§2.6 — 키스트로크 버퍼·undo 기준이 문서와
+/// 어긋난다). 사용자 평문은 남기지 않는다(§2.8) — 글자 수·이유만.
+/// 반환: 항상 false(교체는 preedit "" 라 b1 플러시 불필요).
+fn apply_surrounding_word_replacement(
+    context: &ITfContext,
+    tid: u32,
+    atf_state: &mut AutoTypeFixState,
+    rep: &HanjaReplacement,
+) -> bool {
+    let result = composition::replace_around_cursor(
+        context,
+        tid,
+        rep.delete_chars,
+        rep.delete_after_chars,
+        &rep.expect_text,
+        &rep.text,
+    );
+    if result.is_ok() {
+        atf_state.reset_on_focus();
+    }
+    crate::register::dbg_log(&format!(
+        "surrounding word replace: a={} b={} text_len={} result={}",
+        rep.delete_chars,
+        rep.delete_after_chars,
+        rep.text.chars().count(),
+        match result {
+            Ok(()) => "ok",
+            Err(reason) => reason,
+        }
+    ));
+    false
 }
 
 /// 한자 단어 대상① 교체 페이로드를 문서에 적용한다 (키보드·마우스 확정 공용,
@@ -1379,7 +1450,7 @@ pub fn apply_reverse_event(
     if let Some(rep) = engine.take_hanja_replacement() {
         match context {
             Some(ctx) => {
-                let schedule_flush = apply_hanja_replacement(
+                let schedule_flush = apply_hanja_payload(
                     engine,
                     comp_mgr,
                     ctx,

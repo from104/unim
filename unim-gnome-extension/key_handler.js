@@ -10,7 +10,12 @@
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
 import { unimLog, unimError } from './logging.js';
+import {
+    createPointerState, classifyPointer, hintKeyLogName,
+    HINT_KEY, HINT_PRIMARY_CHANGED,
+} from './pointer_hints.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 /** 바이패스할 수정자 키들 */
 const MODIFIER_KEYSYMS = new Set([
@@ -212,6 +217,14 @@ export class KeyHandler {
         this._processingKey = false;
         /** @type {Array<{keyval: number, keycode: number, state: number, event: Clutter.Event}>} 재진입 키 큐 */
         this._keyQueue = [];
+        /**
+         * 포인터 분류 상태(pointer_hints.js) — 마우스 선택은 길이를 알 수 없으므로
+         * 사건의 성격(평이동/선택)만 엔진에 보고한다(§2.8).
+         * @type {import('./pointer_hints.js').PointerState}
+         */
+        this._pointerState = createPointerState();
+        /** @type {number} global.display.get_selection() owner-changed 시그널 ID */
+        this._selectionOwnerId = 0;
     }
 
     /**
@@ -228,12 +241,15 @@ export class KeyHandler {
 
         // 1. Backend에 커스텀 IM 등록 (Wayland 텍스트 입력 가로채기)
         this._registerWithBackend();
+        this._watchPrimaryOwner();
 
         // 2. 폴백 (Backend 미등록 시 또는 Shell UI용)
         this._keyPressId = global.stage.connect(
             'captured-event',
             (actor, event) => {
                 if (event.type() !== Clutter.EventType.KEY_PRESS) {
+                    // 마우스·터치는 사건의 성격만 엔진에 보고하고 이벤트는 건드리지 않는다.
+                    this._reportPointer(event);
                     return Clutter.EVENT_PROPAGATE;
                 }
                 // Backend 등록 완료 시 vfunc이 이미 처리하므로 스킵
@@ -413,6 +429,101 @@ export class KeyHandler {
         this._drainKeyQueue();
     }
 
+    // ===========================================
+    // 대상③ 거부 신호 보고 (HANJA_WORD_SPEC §2.4b.6, SPEC.md §2.8)
+    //
+    // 확장은 선택을 추정하지 않는다. 엔진이 직접 볼 수 없는 사건 — 포인터(클릭·선택 드래그)와
+    // PRIMARY 소유자 변경 — 만 `SurroundingHint` 로 보고하고, 판정은 엔진이 한다.
+    // PRIMARY 내용은 읽지 않는다(클립보드 읽기·쓰기 금지).
+    // ===========================================
+
+    /**
+     * SurroundingHint 를 데몬에 보낸다(fire-and-forget). 동기 호출은 금지 — 키 hot path 에서
+     * 셸 메인 스레드를 잡으면 고정키 래치 해제와 경합한다(`_bypassCombo` 주석).
+     * 로그는 kind 와 키 종류뿐이다(문자 키는 `char`, 내용 없음).
+     *
+     * @param {number} kind
+     * @param {number} [keyval]
+     * @param {number} [state]
+     * @private
+     */
+    _sendHint(kind, keyval = 0, state = 0) {
+        if (!this._dbusIME?.isConnected) return;
+        try {
+            this._dbusIME.surroundingHintAsync(kind, keyval, state);
+            unimLog('KEY', `SurroundingHint: kind=${kind}` +
+                           (kind === HINT_KEY ? ` key=${hintKeyLogName(keyval)}` : ''));
+        } catch (e) {
+            unimError('KEY', `SurroundingHint 송신 오류: ${e.message}`);
+        }
+    }
+
+    /**
+     * 포인터 사건 1건을 분류해 힌트로 보고한다(stage captured-event 에서 호출).
+     * 모션은 주 버튼이 눌린 동안만 본다 — 평소 마우스 이동은 비용 없이 건너뛴다.
+     * @param {Clutter.Event} event
+     * @private
+     */
+    _reportPointer(event) {
+        try {
+            const E = Clutter.EventType;
+            const t = event.type();
+            let ev = null;
+            if (t === E.MOTION) {
+                if (!this._pointerState.down) return;
+                const [x, y] = event.get_coords();
+                ev = { type: 'motion', x, y };
+            } else if (t === E.BUTTON_PRESS) {
+                const [x, y] = event.get_coords();
+                ev = {
+                    type: 'press', button: event.get_button(), x, y,
+                    shift: !!(event.get_state() & Clutter.ModifierType.SHIFT_MASK),
+                    nowMs: GLib.get_monotonic_time() / 1000,
+                };
+            } else if (t === E.BUTTON_RELEASE) {
+                ev = { type: 'release', button: event.get_button() };
+            } else if (t === E.TOUCH_BEGIN) {
+                ev = { type: 'touch' };
+            } else {
+                return;
+            }
+            const r = classifyPointer(this._pointerState, ev);
+            this._pointerState = r.state;
+            if (r.hint) this._sendHint(r.hint);
+        } catch (e) {
+            unimError('KEY', `포인터 사건 보고 오류(무시): ${e.message}`);
+        }
+    }
+
+    /**
+     * PRIMARY 소유자 변경을 감시한다 — 선택이 생겼거나 바뀌었다는 신호일 뿐이다.
+     * 내용·mime 은 조회하지 않는다.
+     * @private
+     */
+    _watchPrimaryOwner() {
+        if (this._selectionOwnerId) return;
+        try {
+            const sel = global.display.get_selection();
+            this._selectionOwnerId = sel.connect('owner-changed', (_sel, selectionType) => {
+                if (selectionType === Meta.SelectionType.SELECTION_PRIMARY)
+                    this._sendHint(HINT_PRIMARY_CHANGED);
+            });
+        } catch (e) {
+            unimError('KEY', `PRIMARY 소유자 감시 설치 실패(선택 신호 둔감): ${e.message}`);
+        }
+    }
+
+    /** `_watchPrimaryOwner` 해제. @private */
+    _unwatchPrimaryOwner() {
+        if (!this._selectionOwnerId) return;
+        try {
+            global.display.get_selection().disconnect(this._selectionOwnerId);
+        } catch (e) {
+            unimError('KEY', `PRIMARY 소유자 감시 해제 실패: ${e.message}`);
+        }
+        this._selectionOwnerId = 0;
+    }
+
     /**
      * commit + preedit 송출 (race 회피).
      *
@@ -455,48 +566,56 @@ export class KeyHandler {
      */
     _drainKeyQueue() {
         while (this._keyQueue.length > 0) {
-            const entry = this._keyQueue.shift();
-
-            if (MODIFIER_KEYSYMS.has(entry.keyval)) {
-                this._inputMethod.notify_key_event(entry.event, false);
-                continue;
-            }
-
-            if ((entry.state & BYPASS_MODIFIER_MASK)
-                && !this._matchesAtfHotkey(entry.keycode, entry.state)) {
-                // 큐에 들어온 시점에 이미 vfunc 스택을 벗어났으므로 여기서는
-                // return false 를 쓸 수 없다 — notify_key_event 로 되돌려 보낸다.
-                // 뒷정리는 hot path 와 같은 비동기 경로를 쓴다.
-                this._bypassCombo(entry.keyval, entry.keycode,
-                                  this._tagRepeatBits(entry.state, entry.event),
-                                  this._matchesAutoEnglishCombo(entry.keycode, entry.state));
-                this._inputMethod.notify_key_event(entry.event, false);
-                continue;
-            }
-
-            if (!this._dbusIME.isConnected) {
-                this._inputMethod.notify_key_event(entry.event, false);
-                continue;
-            }
-
-            this._processingKey = true;
-            let result;
-            try {
-                result = this._dbusIME.processKey(entry.keyval, entry.keycode, this._tagRepeatBits(entry.state, entry.event));
-            } finally {
-                this._processingKey = false;
-            }
-
-            if (!result) {
-                this._inputMethod.notify_key_event(entry.event, false);
-                continue;
-            }
-
-            const { consumed, preedit, commit } = result;
-            // _handleVfuncKey와 동일한 race 회피 (commit→preedit 분리)
-            this._commitAndPreedit(commit, preedit);
-            this._inputMethod.notify_key_event(entry.event, consumed);
+            this._processQueuedEntry(this._keyQueue.shift());
         }
+    }
+
+    /**
+     * 큐 항목 1건 처리 — `_drainKeyQueue` 의 한 회차 본문.
+     *
+     * @param {{keyval: number, keycode: number, state: number, event: Clutter.Event}} entry
+     * @private
+     */
+    _processQueuedEntry(entry) {
+        if (MODIFIER_KEYSYMS.has(entry.keyval)) {
+            this._inputMethod.notify_key_event(entry.event, false);
+            return;
+        }
+
+        if ((entry.state & BYPASS_MODIFIER_MASK)
+            && !this._matchesAtfHotkey(entry.keycode, entry.state)) {
+            // 큐에 들어온 시점에 이미 vfunc 스택을 벗어났으므로 여기서는
+            // return false 를 쓸 수 없다 — notify_key_event 로 되돌려 보낸다.
+            // 뒷정리는 hot path 와 같은 비동기 경로를 쓴다.
+            this._bypassCombo(entry.keyval, entry.keycode,
+                              this._tagRepeatBits(entry.state, entry.event),
+                              this._matchesAutoEnglishCombo(entry.keycode, entry.state));
+            this._inputMethod.notify_key_event(entry.event, false);
+            return;
+        }
+
+        if (!this._dbusIME.isConnected) {
+            this._inputMethod.notify_key_event(entry.event, false);
+            return;
+        }
+
+        this._processingKey = true;
+        let result;
+        try {
+            result = this._dbusIME.processKey(entry.keyval, entry.keycode, this._tagRepeatBits(entry.state, entry.event));
+        } finally {
+            this._processingKey = false;
+        }
+
+        if (!result) {
+            this._inputMethod.notify_key_event(entry.event, false);
+            return;
+        }
+
+        const { consumed, preedit, commit } = result;
+        // _handleVfuncKey와 동일한 race 회피 (commit→preedit 분리)
+        this._commitAndPreedit(commit, preedit);
+        this._inputMethod.notify_key_event(entry.event, consumed);
     }
 
     /**
@@ -513,6 +632,8 @@ export class KeyHandler {
      *     mutter 가 이어서 보낼 키보다 먼저 앱에 닿아야 하므로 여기서 동기로 한다.
      *  2. 엔진 통지 — 전부 비동기. 응답이 필요 없고, D-Bus 가 연결 단위로 메시지
      *     순서를 보존하므로 다음 키의 ProcessKeyEvent 보다 먼저 도달한다.
+     *
+     * 3. 엔진을 거치지 않는 키 자체는 `SurroundingHint(KEY)` 로 알린다(비동기).
      *
      * 데몬은 Reset·조합 트리거 처리 중 비운 조합을 CommitText 로 되쏘는데, 위 1
      * 에서 이미 같은 글자를 커밋했으므로 메아리 가드를 무장해 흘려보낸다.
@@ -534,6 +655,10 @@ export class KeyHandler {
         }
 
         if (!this._dbusIME?.isConnected) return committed;
+
+        // 엔진을 거치지 않고 앱으로 가는 키 — 낡음·거부 플래그 판정을 위해 알린다(§2.8).
+        // 로컬 커밋(위 1) 뒤, Reset·조합 트리거 통지 전에 보낸다. 비동기라 키 경로를 막지 않는다.
+        this._sendHint(HINT_KEY, keyval, taggedState);
 
         if (isAutoEnglishTrigger) {
             // 조합 트리거(예: `key:Ctrl+B`) — 키 자체는 앱으로 가고, 엔진은 이
@@ -689,7 +814,7 @@ export class KeyHandler {
                 }
                 this._inputMethod.setKeyHandler(null);
                 this._inputMethod.setToggleKeyNotifier(null);
-            } catch (e) {
+                            } catch (e) {
                 unimError('KEY', `Backend 해제 중 오류: ${e.message}`);
             }
         }
@@ -709,6 +834,7 @@ export class KeyHandler {
 
         // Backend에서 원래 IM 복원
         this._unregisterFromBackend();
+        this._unwatchPrimaryOwner();
 
         this._enabled = false;
         unimLog('KEY', '전역 키 인터셉션 중지');
@@ -752,14 +878,14 @@ export class KeyHandler {
      * @private
      */
     _handleKeyPress(event) {
+        const keyval = event.get_key_symbol();
+        const keycode = event.get_key_code();
+        const state = event.get_state();
+
         // 0. 재진입 방지 (call_sync 중 GLib 메인 루프 재진입 차단)
         if (this._processingKey) {
             return Clutter.EVENT_STOP;
         }
-
-        const keyval = event.get_key_symbol();
-        const keycode = event.get_key_code();
-        const state = event.get_state();
 
         const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
 

@@ -16,6 +16,7 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import { VirtualKeyboard } from './vkbd.js';
 import { UnimIndicator } from './indicator.js';
 import { UnimDbusIME } from './dbus_ime.js';
+import { SURROUNDING_WORD_REPLACE_KEY } from './capabilities.js';
 import { PopupView, unpackPopupRender } from './popup_view.js';
 import { UnimInputMethod } from './unim_input_method.js';
 import { KeyHandler } from './key_handler.js';
@@ -75,7 +76,11 @@ export default class UnimExtension extends Extension {
     }
 
     enable() {
-        unimLog('EXTENSION', 'Extension 활성화 시작...');
+        // 어느 사본이 로드됐는지 남긴다 — 사용자 디렉터리의 옛 사본(make dev-extension)이
+        // 같은 UUID 의 시스템 설치본을 가리면 새 코드가 로드되지 않는데 겉으로는 구분이 안 된다
+        // (2026-10-04 실측: 0.4.1 사본이 0.4.4 설치본을 가려 수정이 반영되지 않음).
+        unimLog('EXTENSION', `Extension 활성화 시작... version=${this.metadata?.version ?? '?'} ` +
+                             `path=${this.path ?? '?'}`);
         try {
             this._settings = this.getSettings();
             this._vkbd = new VirtualKeyboard();
@@ -89,6 +94,8 @@ export default class UnimExtension extends Extension {
             // DBus 연결 (IME 모드 무관 — 인디케이터 모드 동기화 공용)
             // PR #3 부터 emoji 트리거 키바인딩은 제거됨 (engine 이 직접 키 받음).
             this._dbusIME = new UnimDbusIME();
+            // 대상③ 실측 스위치(HANJA_WORD_SPEC §6.5 (10)) — 연결·FocusIn 전에 주입해 첫 능력 선언부터 반영.
+            this._dbusIME.setSurroundingWordReplace(this._readSurroundingWordReplace());
             // 데몬 교체(`--replace`)·재시작을 확장이 스스로 따라가게 한다.
             this._dbusIME.setDaemonLifecycleCallbacks({
                 onReady: () => this._onDaemonReady(),
@@ -119,6 +126,12 @@ export default class UnimExtension extends Extension {
             if (this._settings.get_boolean('enable-ime')) {
                 this._enableIME();
             }
+
+            // 실측 스위치 실시간 반영: 바뀌면 dbus_ime 가 현재 컨텍스트에 능력을 다시 선언한다.
+            // 시그널 ID 는 _settingsChangedIds 에 쌓여 disable() 에서 해제된다.
+            this._connectSettingChanged(SURROUNDING_WORD_REPLACE_KEY, () => {
+                this._dbusIME?.setSurroundingWordReplace(this._readSurroundingWordReplace());
+            });
 
             this._connectSettingChanged('enable-ime', () => {
                 const enabled = this._settings.get_boolean('enable-ime');
@@ -277,7 +290,7 @@ export default class UnimExtension extends Extension {
                     // 도착 시점의 캐럿(=클릭한 자리)에 같은 글자가 한 번 더 들어간다.
                     if (text && this._inputMethod) {
                         if (this._inputMethod.shouldSuppressCommitEcho(text)) {
-                            unimLog('EXT', `CommitText 메아리 무시: '${text}'`);
+                            unimLog('EXT', `CommitText 메아리 무시: len=${Array.from(text).length}`);
                             return;
                         }
                         this._inputMethod.commitText(text);
@@ -290,9 +303,20 @@ export default class UnimExtension extends Extension {
                         this._inputMethod.updatePreedit(visible ? text : '');
                     }
                 },
+                onReplaceSurrounding: (deleteBefore, deleteAfter, commitText, _expectText) => {
+                    // 대상③ 확정(HANJA_WORD_SPEC §2.4b.5) — 커서 앞 a자·뒤 b자를 지우고 확정한다.
+                    // GNOME 은 expect 대조 없이 실행한다(mutter 캐시뿐). onAutoTypeFix 와 같은
+                    // 포커스 게이트: 포커스가 없으면 버린다(문서 무변경). 로그는 a·b·길이만.
+                    if (!this._inputMethod?._hasFocus) {
+                        unimLog('EXT', `ReplaceSurrounding 버림: reason=nofocus, a=${deleteBefore}, b=${deleteAfter}`);
+                        return;
+                    }
+                    this._inputMethod.replaceSurrounding(deleteBefore, deleteAfter, commitText);
+                },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
-                        unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                        // 평문 금지(HANJA_WORD_SPEC §2.8) — 길이만 남긴다.
+                        unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commitLen=${Array.from(commitText ?? '').length}, preeditLen=${Array.from(preeditText ?? '').length}`);
                         // 한자 단어 교체 잔상 방지: 남은 preedit(조합 중인 음절)이 있으면
                         // BS 를 보내기 전에 먼저 지운다 — 안 지우면 아래 backspace 로 실제
                         // 문서 텍스트를 지우는 동안 화면엔 옛 조합 음절이 겹쳐 보인다.
@@ -657,6 +681,22 @@ export default class UnimExtension extends Extension {
         }
 
         return defaults;
+    }
+
+    /**
+     * 대상③ 실측 스위치(`surrounding-word-replace`) 읽기. 스키마가 옛것(키 없음)이면 false —
+     * 키가 없는 스키마에서 get_boolean 은 치명 오류라 has_key 로 먼저 확인한다.
+     * @returns {boolean}
+     * @private
+     */
+    _readSurroundingWordReplace() {
+        try {
+            if (!this._settings?.settings_schema?.has_key(SURROUNDING_WORD_REPLACE_KEY)) return false;
+            return this._settings.get_boolean(SURROUNDING_WORD_REPLACE_KEY) === true;
+        } catch (e) {
+            unimError('EXTENSION', `${SURROUNDING_WORD_REPLACE_KEY} 읽기 실패, false 사용: ${e.message}`);
+            return false;
+        }
     }
 
     /**

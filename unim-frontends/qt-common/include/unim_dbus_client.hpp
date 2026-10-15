@@ -170,6 +170,27 @@ public:
     void setSurroundingText(const QString &text, quint32 cursorPos, quint32 anchorPos);
 
     /**
+     * 클라이언트 능력 선언 (fire-and-forget) — 0x1 교체 가능 / 0x2 선택 신뢰 / 0x4 포인터 힌트.
+     * FocusIn 직후마다 보낸다(멱등). 보내지 않으면 0(대상③ 꺼짐).
+     */
+    void setClientCapabilities(quint32 caps);
+
+    /**
+     * surrounding 신선도·선택 힌트 (fire-and-forget).
+     * kind: 1 KEY, 2 POINTER_PLAIN, 3 POINTER_SELECT, 4 선택 소유자 변경, 5 SELECTION_UNKNOWN
+     * (kind≠1 이면 keyval·state 는 0).
+     */
+    void surroundingHint(quint32 kind, quint32 keyval, quint32 state);
+
+    /**
+     * ReplaceSurroundingText 콜백 설정 (대상③ 커서 주변 단어 교체, v1.6)
+     * 커서 기준 앞 deleteBefore 자·뒤 deleteAfter 자(코드포인트)를 지우고 commitText 를 커밋하라는 요청.
+     * expectText 는 지울 원문 — 콜백은 surrounding 을 다시 조회해 완전 일치할 때만 실행해야 한다.
+     */
+    using ReplaceSurroundingCallback = std::function<void(quint32 deleteBefore, quint32 deleteAfter, const QString &commitText, const QString &expectText)>;
+    void setReplaceSurroundingCallback(ReplaceSurroundingCallback callback);
+
+    /**
      * AutoTypeFix 콜백 설정
      * @param callback (delete_chars, commit_text, preedit_text)를 받는 콜백
      */
@@ -304,6 +325,7 @@ private:
     /// GTK 모듈의 pending_skip_commit 과 같은 방식.
     QString m_pendingSkipCommit;
     AutoTypeFixCallback m_autoTypeFixCallback;
+    ReplaceSurroundingCallback m_replaceSurroundingCallback;
     CommitTextCallback m_commitTextCallback;
     HanjaBookmarkChangedCallback m_hanjaBookmarkCallback;
     HanjaCandidatesReorderedCallback m_hanjaReorderedCallback;
@@ -312,6 +334,7 @@ private:
     HidePopupCallback m_hidePopupCallback;
 
     friend class UnimAutoTypeFixReceiver;
+    friend class UnimReplaceSurroundingReceiver;
     friend class UnimCommitTextReceiver;
     friend class UnimHanjaBookmarkReceiver;
     friend class UnimHanjaCandidatesReorderedReceiver;
@@ -330,6 +353,21 @@ public:
         : QObject(parent), m_client(client) {}
 public slots:
     void onAutoTypefixApply(quint32 deleteChars, const QString &commitText, const QString &preeditText);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * ReplaceSurroundingText DBus 시그널 수신 헬퍼 (QObject 필요)
+ */
+class UnimReplaceSurroundingReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimReplaceSurroundingReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onReplaceSurroundingText(quint32 deleteBefore, quint32 deleteAfter,
+                                  const QString &commitText, const QString &expectText);
 private:
     UnimDbusClient *m_client;
 };

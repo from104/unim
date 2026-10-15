@@ -133,6 +133,10 @@ unim_log_message(const char *module, const char *format, ...)
 #define UNIM_DBUS_DEBUG(fmt, ...) \
     unim_log_message("GTK_DBUS", fmt, ##__VA_ARGS__)
 
+/* 로그용 문자열 길이(코드포인트). 사용자 입력 평문은 로그에 남기지 않는다
+ * (HANJA_WORD_SPEC §2.8) — NULL 은 0. */
+#define UNIM_LOG_ULEN(s) ((glong)((s) ? g_utf8_strlen((s), -1) : 0))
+
 static void
 unim_dbus_check_debug_env(void)
 {
@@ -161,6 +165,10 @@ struct _UnimDbusContext {
     UnimAutoTypeFixCallback auto_typefix_callback;
     gpointer auto_typefix_user_data;
     guint auto_typefix_signal_id;
+    /* ReplaceSurroundingText 콜백 (대상③ 단어 교체, v1.6) */
+    UnimReplaceSurroundingCallback replace_surrounding_callback;
+    gpointer replace_surrounding_user_data;
+    guint replace_surrounding_signal_id;
     /* CommitText 콜백 (Standalone 팝업 마우스 클릭 커밋용) */
     UnimCommitTextCallback commit_text_callback;
     gpointer commit_text_user_data;
@@ -279,6 +287,10 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     if (ctx->auto_typefix_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->auto_typefix_signal_id);
     }
+    /* ReplaceSurroundingText 시그널 구독 해제 */
+    if (ctx->replace_surrounding_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->replace_surrounding_signal_id);
+    }
     /* CommitText 시그널 구독 해제 */
     if (ctx->commit_text_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->commit_text_signal_id);
@@ -369,8 +381,8 @@ unim_dbus_process_key(UnimDbusContext *ctx,
     ctx->preedit_cache = g_strdup(preedit_str);
     ctx->is_composing = (preedit_str && strlen(preedit_str) > 0);
 
-    UNIM_DBUS_DEBUG("ProcessKeyEvent 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
-                     consumed, preedit_str, commit_str);
+    UNIM_DBUS_DEBUG("ProcessKeyEvent 결과: consumed=%d, preedit=%ld자, commit=%ld자",
+                     consumed, UNIM_LOG_ULEN(preedit_str), UNIM_LOG_ULEN(commit_str));
 
     g_variant_unref(ret);
     return TRUE;
@@ -439,7 +451,7 @@ unim_dbus_focus_out(UnimDbusContext *ctx, gchar **commit)
         g_variant_get(result, "(&s)", &server_commit);
         if (commit && server_commit && strlen(server_commit) > 0) {
             *commit = g_strdup(server_commit);
-            UNIM_DBUS_DEBUG("FocusOut 커밋 (서버): \"%s\"", *commit);
+            UNIM_DBUS_DEBUG("FocusOut 커밋 (서버): %ld자", UNIM_LOG_ULEN(*commit));
         }
         g_variant_unref(result);
     } else {
@@ -449,7 +461,7 @@ unim_dbus_focus_out(UnimDbusContext *ctx, gchar **commit)
         if (ctx->is_composing && ctx->preedit_cache && strlen(ctx->preedit_cache) > 0) {
             if (commit && !*commit) {
                 *commit = g_strdup(ctx->preedit_cache);
-                UNIM_DBUS_DEBUG("FocusOut 커밋 (로컬 폴백): \"%s\"", *commit);
+                UNIM_DBUS_DEBUG("FocusOut 커밋 (로컬 폴백): %ld자", UNIM_LOG_ULEN(*commit));
             }
         }
     }
@@ -475,7 +487,7 @@ unim_dbus_reset(UnimDbusContext *ctx, gchar **commit)
     if (ctx->is_composing && ctx->preedit_cache && strlen(ctx->preedit_cache) > 0) {
         if (commit) {
             *commit = g_strdup(ctx->preedit_cache);
-            UNIM_DBUS_DEBUG("Reset 커밋: \"%s\"", *commit);
+            UNIM_DBUS_DEBUG("Reset 커밋: %ld자", UNIM_LOG_ULEN(*commit));
             /* dedupe: daemon이 곧 CommitText signal로 같은 값을 보낼 예정이므로
              * signal handler가 1회 skip하도록 표시 */
             g_free(ctx->pending_skip_commit);
@@ -599,6 +611,90 @@ unim_dbus_set_surrounding_text(UnimDbusContext *ctx,
     );
 }
 
+void
+unim_dbus_set_client_capabilities(UnimDbusContext *ctx, guint32 caps)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    /* fire-and-forget — InputContext 는 데몬에서 직렬 처리된다 */
+    g_dbus_connection_call(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SetClientCapabilities",
+        g_variant_new("(u)", caps),
+        NULL,
+        G_DBUS_CALL_FLAGS_NO_AUTO_START,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        NULL,
+        NULL
+    );
+    UNIM_DBUS_DEBUG("SetClientCapabilities: caps=0x%x", caps);
+}
+
+void
+unim_dbus_surrounding_hint(UnimDbusContext *ctx, guint32 kind,
+                            guint32 keyval, guint32 state)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    /* fire-and-forget */
+    g_dbus_connection_call(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SurroundingHint",
+        g_variant_new("(uuu)", kind, keyval, state),
+        NULL,
+        G_DBUS_CALL_FLAGS_NO_AUTO_START,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        NULL,
+        NULL
+    );
+    UNIM_DBUS_DEBUG("SurroundingHint: kind=%u", kind);
+}
+
+gboolean
+unim_dbus_set_surrounding_text_sync(UnimDbusContext *ctx,
+                                     const gchar *text,
+                                     guint cursor_pos,
+                                     guint anchor_pos)
+{
+    GError *error = NULL;
+    GVariant *ret;
+
+    if (!ctx || !ctx->connection || !ctx->context_path || !text) return FALSE;
+
+    /* 응답을 기다린다 — 이후 GetHanjaCandidates 가 이 선택을 반드시 본다 */
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SetSurroundingText",
+        g_variant_new("(suu)", text, cursor_pos, anchor_pos),
+        G_VARIANT_TYPE_UNIT,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        /* 텍스트는 남기지 않는다(평문 로그 금지) */
+        UNIM_DBUS_DEBUG("SetSurroundingText(sync) 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_unref(ret);
+    return TRUE;
+}
+
 /* =========================================
  * 한자 변환 관련 함수 구현
  * ========================================= */
@@ -663,6 +759,9 @@ unim_dbus_get_hanja_candidates(UnimDbusContext *ctx,
         }
     }
 
+    /* target_str 은 ret 이 빌려준 포인터 — unref 전에 길이를 구한다(평문 로그 금지) */
+    glong target_len = g_utf8_strlen(target_str, -1);
+
     g_variant_iter_free(iter);
     g_variant_unref(ret);
 
@@ -670,8 +769,8 @@ unim_dbus_get_hanja_candidates(UnimDbusContext *ctx,
         *count = n_candidates;
     }
 
-    UNIM_DBUS_DEBUG("GetHanjaCandidates 결과: target='%s', count=%zu",
-                     target_str, n_candidates);
+    UNIM_DBUS_DEBUG("GetHanjaCandidates 결과: target=%ld자, count=%zu",
+                     target_len, n_candidates);
 
     return TRUE;
 }
@@ -717,7 +816,7 @@ unim_dbus_select_hanja(UnimDbusContext *ctx,
         *selected_hanja = g_strdup(hanja_str);
     }
 
-    UNIM_DBUS_DEBUG("SelectHanja 결과: '%s'", hanja_str);
+    UNIM_DBUS_DEBUG("SelectHanja 결과: %ld자", UNIM_LOG_ULEN(hanja_str));
 
     g_variant_unref(ret);
     return TRUE;
@@ -756,7 +855,7 @@ unim_dbus_cancel_hanja(UnimDbusContext *ctx)
         g_variant_get(ret, "(&s)", &text);
         if (text && strlen(text) > 0) {
             commit = g_strdup(text);
-            UNIM_DBUS_DEBUG("CancelHanja 커밋: '%s'", commit);
+            UNIM_DBUS_DEBUG("CancelHanja 커밋: %ld자", UNIM_LOG_ULEN(commit));
         }
         g_variant_unref(ret);
     }
@@ -850,6 +949,10 @@ unim_dbus_get_special_char_candidates(UnimDbusContext *ctx,
         }
     }
 
+    /* 빌린 포인터는 unref 전에 길이만 뽑는다(평문 로그 금지) */
+    glong target_len = g_utf8_strlen(target_str, -1);
+    glong top_row_len = g_utf8_strlen(top_row_str, -1);
+
     g_variant_iter_free(iter);
     g_variant_unref(ret);
 
@@ -857,8 +960,8 @@ unim_dbus_get_special_char_candidates(UnimDbusContext *ctx,
         *count = n_chars;
     }
 
-    UNIM_DBUS_DEBUG("GetSpecialCharCandidates 결과: target='%s', count=%zu, top_row='%s'",
-                     target_str, n_chars, top_row_str);
+    UNIM_DBUS_DEBUG("GetSpecialCharCandidates 결과: target=%ld자, count=%zu, top_row=%ld자",
+                     target_len, n_chars, top_row_len);
 
     return TRUE;
 }
@@ -904,7 +1007,7 @@ unim_dbus_select_special_char(UnimDbusContext *ctx,
         *selected_char = g_strdup(ch_str);
     }
 
-    UNIM_DBUS_DEBUG("SelectSpecialChar 결과: '%s'", ch_str);
+    UNIM_DBUS_DEBUG("SelectSpecialChar 결과: %ld자", UNIM_LOG_ULEN(ch_str));
 
     g_variant_unref(ret);
     return TRUE;
@@ -943,7 +1046,7 @@ unim_dbus_cancel_special_char(UnimDbusContext *ctx)
         g_variant_get(ret, "(&s)", &text);
         if (text && strlen(text) > 0) {
             commit = g_strdup(text);
-            UNIM_DBUS_DEBUG("CancelSpecialChar 커밋: '%s'", commit);
+            UNIM_DBUS_DEBUG("CancelSpecialChar 커밋: %ld자", UNIM_LOG_ULEN(commit));
         }
         g_variant_unref(ret);
     }
@@ -1165,9 +1268,9 @@ on_auto_typefix_signal(GDBusConnection *connection G_GNUC_UNUSED,
     if (delete_chars > 0
         || (commit_text && commit_text[0] != '\0')
         || (preedit_text && preedit_text[0] != '\0')) {
-        UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, commit='%s', preedit='%s'",
-                         delete_chars, commit_text ? commit_text : "",
-                         preedit_text ? preedit_text : "");
+        UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, commit=%ld자, preedit=%ld자",
+                         delete_chars, UNIM_LOG_ULEN(commit_text),
+                         UNIM_LOG_ULEN(preedit_text));
         ctx->auto_typefix_callback(delete_chars,
                                     commit_text ? commit_text : "",
                                     preedit_text ? preedit_text : "",
@@ -1212,6 +1315,71 @@ unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
                      ctx->context_path, ctx->auto_typefix_signal_id);
 }
 
+/* ReplaceSurroundingText 시그널 핸들러 — a·b·길이만 로그(평문 금지) */
+static void
+on_replace_surrounding_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                               const gchar *sender_name G_GNUC_UNUSED,
+                               const gchar *object_path G_GNUC_UNUSED,
+                               const gchar *interface_name G_GNUC_UNUSED,
+                               const gchar *signal_name G_GNUC_UNUSED,
+                               GVariant *parameters,
+                               gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->replace_surrounding_callback) return;
+
+    guint delete_before = 0, delete_after = 0;
+    const gchar *commit_text = NULL;
+    const gchar *expect_text = NULL;
+
+    /* 시그니처가 다르면(구버전 데몬의 (uus) 등) g_variant_get 이 정의되지 않은 동작이므로
+     * 타입 문자열만 로그하고 무시한다 — 문서 무변경(fail-closed). */
+    if (!parameters || !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(uuss)"))) {
+        UNIM_DBUS_DEBUG("ReplaceSurroundingText 시그널 무시: 타입 불일치(type=%s)",
+                         parameters ? g_variant_get_type_string(parameters) : "null");
+        return;
+    }
+
+    g_variant_get(parameters, "(uu&s&s)", &delete_before, &delete_after,
+                  &commit_text, &expect_text);
+
+    UNIM_DBUS_DEBUG("ReplaceSurroundingText 시그널 수신: a=%u, b=%u, commit=%ld자, expect=%ld자",
+                     delete_before, delete_after,
+                     UNIM_LOG_ULEN(commit_text), UNIM_LOG_ULEN(expect_text));
+    ctx->replace_surrounding_callback(delete_before, delete_after,
+                                       commit_text ? commit_text : "",
+                                       expect_text ? expect_text : "",
+                                       ctx->replace_surrounding_user_data);
+}
+
+void
+unim_dbus_set_replace_surrounding_callback(UnimDbusContext *ctx,
+                                            UnimReplaceSurroundingCallback callback,
+                                            gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->replace_surrounding_callback = callback;
+    ctx->replace_surrounding_user_data = user_data;
+
+    /* 자기 context(또는 팝업 소유 context)의 ReplaceSurroundingText 시그널 구독 */
+    ctx->replace_surrounding_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "ReplaceSurroundingText",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_replace_surrounding_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("ReplaceSurroundingText 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->replace_surrounding_signal_id);
+}
+
 /* CommitText 시그널 핸들러 (Standalone 팝업 마우스 클릭 커밋) */
 static void
 on_commit_text_signal(GDBusConnection *connection,
@@ -1236,12 +1404,12 @@ on_commit_text_signal(GDBusConnection *connection,
          * 이 같은 값을 CommitText signal로 또 emit. 1회만 skip해서 이중 commit
          * 을 방지한다. */
         if (ctx->pending_skip_commit && strcmp(text, ctx->pending_skip_commit) == 0) {
-            UNIM_DBUS_DEBUG("CommitText 시그널 dedupe skip: text='%s'", text);
+            UNIM_DBUS_DEBUG("CommitText 시그널 dedupe skip: text=%ld자", UNIM_LOG_ULEN(text));
             g_free(ctx->pending_skip_commit);
             ctx->pending_skip_commit = NULL;
             return;
         }
-        UNIM_DBUS_DEBUG("CommitText 시그널 수신: text='%s'", text);
+        UNIM_DBUS_DEBUG("CommitText 시그널 수신: text=%ld자", UNIM_LOG_ULEN(text));
         ctx->commit_text_callback(text, ctx->commit_text_user_data);
     }
 }
@@ -1507,8 +1675,8 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     g_ptr_array_free(hanjas, TRUE);
     g_ptr_array_free(meanings, TRUE);
 
-    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 수신: target='%s', count=%zu, new_cursor=%u, page=%d, was=%d now=%d",
-                     target, count, new_cursor, page, was_bookmarked, bookmarked);
+    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 수신: target=%ld자, count=%zu, new_cursor=%u, page=%d, was=%d now=%d",
+                     target ? (glong)g_utf8_strlen(target, -1) : 0L, count, new_cursor, page, was_bookmarked, bookmarked);
 
     ctx->hanja_reordered_callback(
         target, cands, count,
@@ -1795,7 +1963,7 @@ unim_dbus_commit_emoji(UnimDbusContext *ctx, const gchar *emoji)
         &error
     );
     if (error) {
-        UNIM_DBUS_DEBUG("CommitEmoji 실패: emoji='%s', err=%s", emoji, error->message);
+        UNIM_DBUS_DEBUG("CommitEmoji 실패: emoji=%ld자, err=%s", UNIM_LOG_ULEN(emoji), error->message);
         g_error_free(error);
         return FALSE;
     }

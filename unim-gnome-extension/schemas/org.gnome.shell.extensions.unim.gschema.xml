@@ -49,6 +49,14 @@
       <description>Enable real-time Korean input method (Clutter.InputMethod, Wayland only)</description>
     </key>
 
+    <!-- 실측 전용 스위치 — prefs UI 에 노출하지 않는다. GUI·CLI(config.yaml) 설정 동기 대상이 아닌
+         GNOME 전용 GSettings 키 예외(unim-gnome-extension/SPEC.md §5.1). -->
+    <key type="b" name="surrounding-word-replace">
+      <default>false</default>
+      <summary>Enable cursor-word Hanja replacement (measurement only)</summary>
+      <description>HANJA_WORD_SPEC §6.5 (10) 실측용 — 실측 전에는 켜지 말 것. Declares the REPLACE_SURROUNDING capability so the engine confirms Hanja for the word under the cursor via delete_surrounding + commit. Do not enable before the mutter delete_surrounding unit measurement is done; verify with the daemon's REPLACE_VERIFY log.</description>
+    </key>
+
     <!-- ============================================ -->
     <!-- TypeFix Shortcut Settings (Main.wm.addKeybinding) -->
     <!-- ============================================ -->

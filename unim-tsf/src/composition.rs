@@ -1663,6 +1663,9 @@ const HANJA_SURROUNDING_WINDOW: usize = 4096;
 /// 이를 넘는 선택은 잘린 채로 넘기지 않고 읽기 실패로 처리한다(잘린 선택이 사전과
 /// 우연히 일치하면 선택 전체가 치환되므로).
 const HANJA_SELECTION_CAP: usize = 256;
+/// 대상③ 커서 뒤 읽기 폭(UTF-16 코드 유닛). 후보 길이 상한 18자를 넉넉히 덮는다
+/// (HANJA_WORD_SPEC §4.4 — 뒤로 최소 18자).
+const HANJA_AFTER_CURSOR_WINDOW: usize = 64;
 
 /// 커서(선택 끝) 앞 창 `window` 와 선택 텍스트 `sel` 을 **같은 문자열 위의 문자 오프셋**
 /// 으로 환산한다. 창의 끝 `sel.len()` 유닛이 선택과 일치하지 않으면 None(앱 보고 불일치 —
@@ -1671,7 +1674,16 @@ const HANJA_SELECTION_CAP: usize = 256;
 /// 앞부분과 선택을 따로 디코드해 이어 붙이므로 오프셋은 엔진이 받는 문자열의 `chars()`
 /// 단위와 정확히 맞는다. 창 첫머리가 서로게이트 쌍 중간에서 잘려도(lone low surrogate)
 /// U+FFFD 1자로 디코드될 뿐 두 오프셋이 같은 기준을 쓰므로 어긋나지 않는다.
-fn hanja_surrounding_from_utf16(window: &[u16], sel: &[u16]) -> Option<SelectionReadResult> {
+///
+/// `after`(대상③, HANJA_WORD_SPEC §4.4): 선택이 비어 있을 때만 의미가 있는 커서 **뒤** 읽기.
+/// 문서 텍스트는 `앞 + 뒤` 이고 cursor = anchor = 앞 문자 수다. 선택이 있으면 호출부가 빈
+/// 슬라이스를 넘기므로 종전과 같다. 뒤 끝이 서로게이트 쌍 중간에서 잘려도 U+FFFD 1자일 뿐
+/// 한글 구간 밖이라 엔진의 구간 추출을 막지 않는다.
+fn hanja_surrounding_from_utf16(
+    window: &[u16],
+    sel: &[u16],
+    after: &[u16],
+) -> Option<SelectionReadResult> {
     let split = window.len().checked_sub(sel.len())?;
     if &window[split..] != sel {
         return None;
@@ -1680,8 +1692,9 @@ fn hanja_surrounding_from_utf16(window: &[u16], sel: &[u16]) -> Option<Selection
     let selected = String::from_utf16_lossy(&window[split..]);
     let anchor = before.chars().count() as u32;
     let cursor = anchor + selected.chars().count() as u32;
+    let tail = String::from_utf16_lossy(after);
     Some(SelectionReadResult {
-        surrounding_text: before + &selected,
+        surrounding_text: before + &selected + &tail,
         cursor,
         anchor,
     })
@@ -1747,8 +1760,34 @@ impl ITfEditSession_Impl for ReadHanjaSurroundingEditSession_Impl {
             // fetched 초과값 방어 — 슬라이스 인덱스 초과 패닉→host abort 차단.
             let n = (got as usize).min(buf.len());
 
+            // 3. 대상③ — 선택이 없고 조합 중도 아니면 커서 뒤도 읽는다(§4.4). 선택이 있으면
+            //    종전대로(대상②), 조합 중이면(collapse) 대상① 이라 뒤가 필요 없다. 뒤 읽기
+            //    실패·거부는 빈 뒤로 퇴화한다(엔진이 구간 없음 → 이모지, fail-closed).
+            let mut after_buf = [0u16; HANJA_AFTER_CURSOR_WINDOW];
+            let mut after_n = 0usize;
+            if !self.collapse && sel_n == 0 {
+                if let Ok(after_range) = sel_range.Clone() {
+                    if after_range.Collapse(ec, TF_ANCHOR_END).is_ok() {
+                        let mut shifted_end: i32 = 0;
+                        let moved = after_range.ShiftEnd(
+                            ec,
+                            HANJA_AFTER_CURSOR_WINDOW as i32,
+                            &mut shifted_end,
+                            std::ptr::null(),
+                        );
+                        // ShiftEnd 가 못 움직였으면(문서 끝·거부) GetText 는 빈 값이다.
+                        if moved.is_ok() && shifted_end > 0 {
+                            let mut got_after: u32 = 0;
+                            if after_range.GetText(ec, 0, &mut after_buf, &mut got_after).is_ok() {
+                                after_n = (got_after as usize).min(after_buf.len());
+                            }
+                        }
+                    }
+                }
+            }
+
             *self.result_slot.lock().unwrap() =
-                hanja_surrounding_from_utf16(&buf[..n], &sel_buf[..sel_n]);
+                hanja_surrounding_from_utf16(&buf[..n], &sel_buf[..sel_n], &after_buf[..after_n]);
         }
         Ok(())
     }
@@ -1778,6 +1817,144 @@ pub fn read_hanja_surrounding(
     }
     let result = slot.lock().unwrap().take();
     result
+}
+
+/// 대상③ 확정 전 내용 대조 — 범위 텍스트(UTF-16)가 `expect` 와 완전히 같고 길이가 `a+b`
+/// 인지 본다(HANJA_WORD_SPEC §2.4b.5 "TSF 확정 전 내용 대조"). 대상 구간은 전부 한글 완성
+/// 음절(BMP)이라 1자 = 1 유닛 — 유닛 수가 a+b 와 다르면 구간이 어긋난 것이다.
+fn around_cursor_matches(range_text: &[u16], expect: &str, before: u32, after: u32) -> bool {
+    let want: Vec<u16> = expect.encode_utf16().collect();
+    !want.is_empty()
+        && want.len() == (before as usize) + (after as usize)
+        && range_text == want.as_slice()
+}
+
+/// 대상③ 교체 EditSession — 커서 기준 앞 `before`·뒤 `after` 자 범위 `[c−a, c+b)` 를
+/// 한 읽기-쓰기 세션에서 검증하고 `text` 로 치환한다(HANJA_WORD_SPEC §4.4·§2.4b.5).
+/// 결과(이유 코드)는 `result_slot` 에 싣는다(DoEditSession 자체는 항상 Ok — 호출부가 슬롯을 본다).
+#[implement(ITfEditSession)]
+struct ReplaceAroundCursorEditSession {
+    context: ITfContext,
+    before: u32,
+    after: u32,
+    expect: String,
+    text: String,
+    result_slot: Arc<Mutex<Option<std::result::Result<(), &'static str>>>>,
+}
+
+impl ReplaceAroundCursorEditSession_Impl {
+    unsafe fn run(&self, ec: u32) -> std::result::Result<(), &'static str> {
+        // 1. 실제 캐럿 range. 얻지 못하면 범위를 알 수 없으니 문서를 건드리지 않는다.
+        let mut sel = [TF_SELECTION::default()];
+        let mut fetched: u32 = 0;
+        if self
+            .context
+            .GetSelection(ec, TF_DEFAULT_SELECTION, &mut sel, &mut fetched)
+            .is_err()
+            || fetched == 0
+        {
+            return Err("range_failed");
+        }
+        // GetSelection 이 채운 참조를 소유권째 가져온다(해제 누락 방지).
+        let Some(sel_range) = ManuallyDrop::take(&mut sel[0].range) else {
+            return Err("range_failed");
+        };
+        // 대상③ 은 "선택이 없다" 를 전제로 한 명시 삭제다 — 읽기와 확정 사이 선택이 생겼으면 거부.
+        match sel_range.IsEmpty(ec) {
+            Ok(empty) if empty.as_bool() => {}
+            Ok(_) => return Err("selection"),
+            Err(_) => return Err("range_failed"),
+        }
+
+        // 2. [c−a, c+b) — 커서에서 접은 range 를 앞뒤로 늘린다. 실제 이동량이 요청과
+        //    다르면(문서 경계·앱 거부) 지우는 범위를 알 수 없어 포기한다.
+        let range = sel_range.Clone().map_err(|_| "range_failed")?;
+        range.Collapse(ec, TF_ANCHOR_START).map_err(|_| "range_failed")?;
+        if self.before > 0 {
+            let mut shifted: i32 = 0;
+            range
+                .ShiftStart(ec, -(self.before as i32), &mut shifted, std::ptr::null())
+                .map_err(|_| "delete_failed")?;
+            if shifted != -(self.before as i32) {
+                return Err("delete_failed");
+            }
+        }
+        if self.after > 0 {
+            let mut shifted: i32 = 0;
+            range
+                .ShiftEnd(ec, self.after as i32, &mut shifted, std::ptr::null())
+                .map_err(|_| "delete_failed")?;
+            if shifted != self.after as i32 {
+                return Err("delete_failed");
+            }
+        }
+
+        // 3. 범위 텍스트가 target(한글 원문)과 완전히 같을 때만 치환한다.
+        let want = (self.before as usize) + (self.after as usize);
+        let mut buf = vec![0u16; want + 2];
+        let mut got: u32 = 0;
+        range
+            .GetText(ec, 0, &mut buf, &mut got)
+            .map_err(|_| "verify_mismatch")?;
+        let n = (got as usize).min(buf.len());
+        if !around_cursor_matches(&buf[..n], &self.expect, self.before, self.after) {
+            return Err("verify_mismatch");
+        }
+
+        // 4. 치환. 교체 range 를 selection 으로 명시해 Blink 의 "selection 밖 편집" 무시를 막는다.
+        let wide: Vec<u16> = self.text.encode_utf16().collect();
+        let _ = select_replacement_range(&self.context, ec, &range);
+        if range.SetText(ec, 0, &wide).is_err() {
+            // 교체 range 를 선택으로 세운 채 실패하면 사용자에게 단어 선택이 남는다 —
+            // 원래 캐럿(접힌 선택, 1단계에서 얻은 range)으로 되돌린다. 복원 실패는 무시한다.
+            let _ = select_replacement_range(&self.context, ec, &sel_range);
+            return Err("delete_failed");
+        }
+
+        // 5. 캐럿은 삽입 텍스트 끝(다음 입력이 한자 뒤에 쌓이도록).
+        let _ = range.Collapse(ec, TF_ANCHOR_END);
+        let _ = move_caret_to_end(&self.context, ec, &range);
+        Ok(())
+    }
+}
+
+impl ITfEditSession_Impl for ReplaceAroundCursorEditSession_Impl {
+    fn DoEditSession(&self, ec: u32) -> Result<()> {
+        let r = unsafe { self.run(ec) };
+        *self.result_slot.lock().unwrap() = Some(r);
+        Ok(())
+    }
+}
+
+/// 대상③ 확정 — 커서 기준 앞 `before`·뒤 `after` 자를 `text` 로 치환한다. 동기 읽기-쓰기
+/// 편집 세션 1회(HANJA_WORD_SPEC §4.4). 실패하면 문서는 무변경이고 이유 코드(§2.8)를
+/// 돌려준다: `range_failed`(범위 획득 실패·세션 거부) · `selection`(선택이 생김) ·
+/// `delete_failed`(이동량 불일치·SetText 실패) · `verify_mismatch`(범위 텍스트 ≠ expect).
+pub fn replace_around_cursor(
+    context: &ITfContext,
+    tid: u32,
+    before: u32,
+    after: u32,
+    expect: &str,
+    text: &str,
+) -> std::result::Result<(), &'static str> {
+    let slot: Arc<Mutex<Option<std::result::Result<(), &'static str>>>> =
+        Arc::new(Mutex::new(None));
+    let session = ReplaceAroundCursorEditSession {
+        context: context.clone(),
+        before,
+        after,
+        expect: expect.to_string(),
+        text: text.to_string(),
+        result_slot: slot.clone(),
+    };
+    let session_intf: ITfEditSession = session.into();
+    unsafe {
+        // 세션 요청 자체가 거부되면 슬롯이 비어 있다 → range_failed(문서 무변경).
+        let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+    }
+    let result = slot.lock().unwrap().take();
+    result.unwrap_or(Err("range_failed"))
 }
 
 /// b1/D3 read-back — 이미 보유한 edit cookie(`ec`)로 커서 앞 텍스트의 글자 수를 잰다.
@@ -1832,7 +2009,7 @@ pub(crate) fn read_text_before_cursor_len(context: &ITfContext, ec: u32) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use super::hanja_surrounding_from_utf16;
+    use super::{around_cursor_matches, hanja_surrounding_from_utf16};
 
     fn u16s(s: &str) -> Vec<u16> {
         s.encode_utf16().collect()
@@ -1840,7 +2017,7 @@ mod tests {
 
     #[test]
     fn hanja_surrounding_no_selection_counts_chars() {
-        let r = hanja_surrounding_from_utf16(&u16s("오늘 대한민국"), &[]).unwrap();
+        let r = hanja_surrounding_from_utf16(&u16s("오늘 대한민국"), &[], &[]).unwrap();
         assert_eq!(r.surrounding_text, "오늘 대한민국");
         assert_eq!((r.anchor, r.cursor), (7, 7));
     }
@@ -1848,7 +2025,7 @@ mod tests {
     #[test]
     fn hanja_surrounding_selection_offsets_in_chars() {
         // 비-BMP 문자(2 유닛)가 앞에 있어도 오프셋은 문자 단위.
-        let r = hanja_surrounding_from_utf16(&u16s("😀 대한민국"), &u16s("대한민국")).unwrap();
+        let r = hanja_surrounding_from_utf16(&u16s("😀 대한민국"), &u16s("대한민국"), &[]).unwrap();
         assert_eq!(r.surrounding_text, "😀 대한민국");
         assert_eq!((r.anchor, r.cursor), (2, 6));
     }
@@ -1859,14 +2036,43 @@ mod tests {
         let mut w = u16s("😀");
         w.remove(0);
         w.extend(u16s("국가"));
-        let r = hanja_surrounding_from_utf16(&w, &u16s("국가")).unwrap();
+        let r = hanja_surrounding_from_utf16(&w, &u16s("국가"), &[]).unwrap();
         assert_eq!(r.surrounding_text.chars().count(), 3);
         assert_eq!((r.anchor, r.cursor), (1, 3));
     }
 
     #[test]
+    fn hanja_surrounding_after_cursor_keeps_cursor_before_tail() {
+        // 대상③ — 커서 뒤 읽기: 텍스트 = 앞 + 뒤, cursor = anchor = 앞 문자 수.
+        let r = hanja_surrounding_from_utf16(&u16s("😀국어"), &[], &u16s("교육 만세")).unwrap();
+        assert_eq!(r.surrounding_text, "😀국어교육 만세");
+        assert_eq!((r.anchor, r.cursor), (3, 3));
+    }
+
+    #[test]
+    fn hanja_surrounding_after_cut_in_surrogate_is_one_char() {
+        // 뒤 읽기 끝이 서로게이트 쌍 중간에서 잘려도 U+FFFD 1자 — 앞 오프셋은 그대로.
+        let mut tail = u16s("교육😀");
+        tail.pop();
+        let r = hanja_surrounding_from_utf16(&u16s("국어"), &[], &tail).unwrap();
+        assert_eq!(r.surrounding_text.chars().count(), 5);
+        assert_eq!((r.anchor, r.cursor), (2, 2));
+    }
+
+    #[test]
+    fn around_cursor_matches_requires_exact_utf16() {
+        assert!(around_cursor_matches(&u16s("국어교육"), "국어교육", 2, 2));
+        assert!(!around_cursor_matches(&u16s("국어교욱"), "국어교육", 2, 2));
+        // 길이가 a+b 와 다르면 불일치(이동량 위조·잘린 읽기 방어).
+        assert!(!around_cursor_matches(&u16s("국어교육"), "국어교육", 1, 2));
+        assert!(!around_cursor_matches(&u16s("국어교"), "국어교육", 2, 2));
+        // 빈 expect 는 불일치 — 데몬은 항상 비어 있지 않게 보내므로 방어.
+        assert!(!around_cursor_matches(&[], "", 0, 0));
+    }
+
+    #[test]
     fn hanja_surrounding_mismatch_or_oversized_selection_fails() {
-        assert!(hanja_surrounding_from_utf16(&u16s("대한민국"), &u16s("민족")).is_none());
-        assert!(hanja_surrounding_from_utf16(&u16s("국"), &u16s("대한민국")).is_none());
+        assert!(hanja_surrounding_from_utf16(&u16s("대한민국"), &u16s("민족"), &[]).is_none());
+        assert!(hanja_surrounding_from_utf16(&u16s("국"), &u16s("대한민국"), &[]).is_none());
     }
 }

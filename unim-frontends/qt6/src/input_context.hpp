@@ -42,6 +42,9 @@ public:
 private:
     void updatePreedit();
     void commitString(const QString &str);
+    /* surrounding 질의·전송. force=true 면 dedupe 캐시를 무시하고 항상 보낸다(키 시점 송신).
+     * 반환: ImAnchorPosition 질의가 유효 값을 돌려줬는지(false 면 선택 여부 불명). */
+    bool pushSurrounding(bool force);
 
     UnimDbusClient *m_dbus;
     QObject *m_focusObject;

@@ -116,11 +116,14 @@ static inline bool unim_is_sensitive(quint32 purpose)
     return purpose == 1 || purpose == 2;
 }
 
-/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
- * QString 을 돌려줘 호출부의 qPrintable() 임시 수명 문제를 피한다. 평상시엔 원문 그대로. */
+/* dev 로그용 내용 표기 — 사용자 입력 평문은 남기지 않고 길이("(N자)")만 찍는다
+ * (HANJA_WORD_SPEC §2.8). 민감 필드(비밀번호/PIN)는 "***".
+ * QString 을 돌려줘 호출부의 qPrintable() 임시 수명 문제를 피한다. */
 static inline QString unim_mask(quint32 purpose, const QString &text)
 {
-    return unim_is_sensitive(purpose) ? QStringLiteral("***") : text;
+    return unim_is_sensitive(purpose)
+               ? QStringLiteral("***")
+               : QStringLiteral("(%1자)").arg(text.toUcs4().size());
 }
 
 static void unim_check_debug_env()
@@ -233,9 +236,68 @@ UnimInputContext::UnimInputContext()
                 m_composing = false;
             }
         });
+        // ReplaceSurroundingText 시그널 콜백 등록 (대상③ 커서 주변 단어 교체, v1.6)
+        // 데몬 캐시가 낡았을 수 있으므로 surrounding 을 다시 묻고, 선택이 없으며 구간이
+        // expect 와 완전 일치할 때만 교체한다. 로그에는 a·b·길이·이유만 남긴다(평문 금지).
+        m_dbus->setReplaceSurroundingCallback([this](quint32 a, quint32 b,
+                                                     const QString &commitText,
+                                                     const QString &expectText) {
+            auto drop = [&](const char *reason) {
+                UNIM_DEBUG(QString::asprintf("대상③ 교체 버림: a=%u, b=%u, commit=%d자, reason=%s",
+                           a, b, static_cast<int>(commitText.toUcs4().size()), reason));
+            };
+            QObject *focusObj = QGuiApplication::focusObject();
+            if (!focusObj) { drop("no_focus"); return; }
+            const char *className = focusObj->metaObject()->className();
+            if (className && std::strstr(className, "TerminalDisplay") != nullptr) {
+                drop("terminal"); return;
+            }
+            if (unim_is_sensitive(m_contentPurpose)) { drop("sensitive"); return; }
+            if (commitText.isEmpty() || expectText.isEmpty()) { drop("verify_mismatch"); return; }
+
+            // surrounding 재조회 — anchor 가 유효하고 cursor 와 다르면 선택이 있다
+            QInputMethodQueryEvent q(
+                Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+            QCoreApplication::sendEvent(focusObj, &q);
+            const QString text = q.value(Qt::ImSurroundingText).toString();
+            const QVariant cursorVar = q.value(Qt::ImCursorPosition);
+            const QVariant anchorVar = q.value(Qt::ImAnchorPosition);
+            if (!cursorVar.isValid()) { drop("verify_mismatch"); return; }
+            if (anchorVar.isValid() && anchorVar.toInt() != cursorVar.toInt()) {
+                drop("selection"); return;
+            }
+
+            // 코드포인트(문자) 단위 대조 — text[c-a, c+b) == expect
+            const auto textUcs = text.toUcs4();
+            const auto expectUcs = expectText.toUcs4();
+            const quint32 c = unim_toCharOffset(text, cursorVar.toInt());
+            const quint32 total = static_cast<quint32>(textUcs.size());
+            if (c < a || c > total || b > total - c
+                || static_cast<quint32>(expectUcs.size()) != a + b) {
+                drop("verify_mismatch"); return;
+            }
+            for (quint32 i = 0; i < a + b; ++i) {
+                if (textUcs[static_cast<int>(c - a + i)] != expectUcs[static_cast<int>(i)]) {
+                    drop("verify_mismatch"); return;
+                }
+            }
+
+            // 앞 a자·뒤 b자의 UTF-16 길이(BMP 밖 문자는 2단위)
+            int aU16 = 0, bU16 = 0;
+            for (quint32 i = 0; i < a + b; ++i) {
+                const int units = (expectUcs[static_cast<int>(i)] > 0xFFFFu) ? 2 : 1;
+                (i < a ? aU16 : bU16) += units;
+            }
+
+            QInputMethodEvent ev;
+            ev.setCommitString(commitText, -aU16, aU16 + bU16);
+            QCoreApplication::sendEvent(focusObj, &ev);
+            UNIM_DEBUG(QString::asprintf("대상③ 교체 적용: a=%u, b=%u, commit=%d자",
+                       a, b, static_cast<int>(commitText.toUcs4().size())));
+        });
         // CommitText 시그널 콜백 등록 (Standalone 팝업 마우스 클릭 커밋)
         m_dbus->setCommitTextCallback([this](const QString &text) {
-            UNIM_DEBUG(QString::asprintf("CommitText: '%s'", qPrintable(unim_mask(m_contentPurpose, text))));
+            UNIM_DEBUG(QString::asprintf("CommitText: %s", qPrintable(unim_mask(m_contentPurpose, text))));
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
             QInputMethodEvent ev;
@@ -359,33 +421,45 @@ void UnimInputContext::update(Qt::InputMethodQueries queries)
          * 비교해 값이 실제로 바뀐 경우에만 DBus 로 보낸다(설정된 커스텀 hanja_keys 포함 —
          * F9/Hangul_Hanja 하드코딩 pull 경로(아래 filterEvent 의 Key_F9 분기)에는
          * 별도 재질의를 두지 않는다, HANJA_WORD_SPEC.md §4.5 "중복" 참고). */
-        if (m_focusObject && m_dbus) {
-            QString surrText;
-            quint32 cursorChars = 0;
-            quint32 anchorChars = 0;
-
-            /* 비번/PIN 필드는 재질의 결과를 버리고 빈 값만 후보로 삼는다(§2.8 프런트
-             * 이중 게이트) — 엔진이 버리더라도 평문을 DBus 로 실어 보내지 않는다. */
-            if (!unim_is_sensitive(m_contentPurpose)) {
-                QInputMethodQueryEvent surrQuery(
-                    Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
-                QCoreApplication::sendEvent(m_focusObject, &surrQuery);
-                surrText = surrQuery.value(Qt::ImSurroundingText).toString();
-                cursorChars = unim_toCharOffset(surrText, surrQuery.value(Qt::ImCursorPosition).toInt());
-                anchorChars = unim_toCharOffset(surrText, surrQuery.value(Qt::ImAnchorPosition).toInt());
-            }
-
-            /* 빈 텍스트도 전송(§4.5) — stale 선택 제거 목적. 값이 안 바뀌면 스팸 방지. */
-            if (surrText != m_surroundingTextCache ||
-                cursorChars != m_surroundingCursorCache ||
-                anchorChars != m_surroundingAnchorCache) {
-                m_surroundingTextCache = surrText;
-                m_surroundingCursorCache = cursorChars;
-                m_surroundingAnchorCache = anchorChars;
-                m_dbus->setSurroundingText(surrText, cursorChars, anchorChars);
-            }
-        }
+        pushSurrounding(false);
     }
+}
+
+/* surrounding 질의·전송. update() 는 값이 바뀐 때만(force=false), filterEvent 는 매 키마다
+ * (force=true — 한자키 시점 송신을 포함하는 상위 집합, HANJA_WORD_SPEC v1.6 §4.5)
+ * 부른다. 비번/PIN 필드는 재질의 결과를 버리고 ("",0,0) 만 보낸다(§2.8 프런트 이중 게이트).
+ * ImAnchorPosition 이 invalid 면 anchor 를 cursor 로 두고(가짜 선택 방지) false 를 돌려준다. */
+bool UnimInputContext::pushSurrounding(bool force)
+{
+    if (!m_focusObject || !m_dbus) return true;
+
+    QString surrText;
+    quint32 cursorChars = 0;
+    quint32 anchorChars = 0;
+    bool anchorValid = true;
+
+    if (!unim_is_sensitive(m_contentPurpose)) {
+        QInputMethodQueryEvent surrQuery(
+            Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+        QCoreApplication::sendEvent(m_focusObject, &surrQuery);
+        surrText = surrQuery.value(Qt::ImSurroundingText).toString();
+        cursorChars = unim_toCharOffset(surrText, surrQuery.value(Qt::ImCursorPosition).toInt());
+        const QVariant anchorVar = surrQuery.value(Qt::ImAnchorPosition);
+        anchorValid = anchorVar.isValid();
+        anchorChars = anchorValid ? unim_toCharOffset(surrText, anchorVar.toInt()) : cursorChars;
+    }
+
+    /* 빈 텍스트도 전송(§4.5) — stale 선택 제거 목적. 값이 안 바뀌면 스팸 방지(force 제외). */
+    if (force ||
+        surrText != m_surroundingTextCache ||
+        cursorChars != m_surroundingCursorCache ||
+        anchorChars != m_surroundingAnchorCache) {
+        m_surroundingTextCache = surrText;
+        m_surroundingCursorCache = cursorChars;
+        m_surroundingAnchorCache = anchorChars;
+        m_dbus->setSurroundingText(surrText, cursorChars, anchorChars);
+    }
+    return anchorValid;
 }
 
 void UnimInputContext::invokeAction(QInputMethod::Action action, int cursorPosition)
@@ -424,6 +498,13 @@ bool UnimInputContext::filterEvent(const QEvent *event)
          key == Qt::Key_ScrollLock ||
          key == Qt::Key_AltGr)) {
         return false;
+    }
+
+    /* 키 시점 surrounding 송신(HANJA_WORD_SPEC v1.6 §2.4.6, I6) — 한자키 직전 엔진이 최신
+     * 문맥·선택을 알게 한다. Qt 모듈은 사용자 지정 hanja_keys 를 모르므로 매 키마다 보낸다.
+     * anchor 를 알 수 없는 위젯이면 SELECTION_UNKNOWN 힌트로 다음 한자키 한 번의 대상③ 을 막는다. */
+    if (!pushSurrounding(true)) {
+        m_dbus->surroundingHint(5 /* SELECTION_UNKNOWN */, 0, 0);
     }
 
     /* 한자 키 처리 (F9 또는 Hangul_Hanja) — Standalone: unim-gui-gtk 팝업 전담 */
@@ -591,6 +672,8 @@ void UnimInputContext::setFocusObject(QObject *object)
 
     if (m_dbus && object) {
         m_dbus->focusIn(m_windowId);
+        /* 대상③ 능력 선언 — 교체 가능(0x1) + 선택 신뢰(0x2). FocusIn 마다 보낸다(멱등). */
+        m_dbus->setClientCapabilities(0x3);
 
         /* 입력 필드 목적 감지: purposeFromHints() 참고 (ImhHiddenText 만 차단하는
          * 정책 근거를 그쪽 주석에 정리). update(Qt::ImHints) 와 판정 로직을 공유한다. */

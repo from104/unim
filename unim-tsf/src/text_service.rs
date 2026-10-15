@@ -11,7 +11,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{CommitUnit, Config, ContentPurpose, InputCategory};
-use unim::input_engine::{AtfToggleKind, InputEngine};
+use unim::input_engine::{
+    AtfToggleKind, InputEngine, SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+};
 use unim::notify::{Lang, NotifyEvent};
 
 use crate::auto_typefix::AutoTypeFixState;
@@ -207,6 +209,9 @@ impl UnimTextService {
         // 한자 단어 교체 페이로드를 드레인하는 호스트(key_handler::apply_hanja_replacement) —
         // 엔진 생성 직후마다 켠다(재생성 시 false 로 돌아간다, HANJA_WORD_SPEC §2.2.2-4).
         engine.set_hanja_word_replace_capable(true);
+        // 대상③(커서가 걸친 단어) 능력 — 문서 범위 교체(R)와 App-pull 선택(S, GetSelection).
+        // 재생성 시 0 으로 돌아가므로 생성 지점마다 켠다(HANJA_WORD_SPEC §4.4·§4.6).
+        engine.set_surrounding_word_caps(SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE);
         // 초기 한/영 모드 (기본 카테고리 기준)
         let is_korean = engine.input_category() == InputCategory::Korean;
         Self {
@@ -526,6 +531,10 @@ impl UnimTextService {
             let mut new_engine = InputEngine::new(&new_config);
             // 초기 생성과 동일 — 빠지면 리로드 뒤 단어 변환이 조용히 꺼진다(PLAN §1 #28).
             new_engine.set_hanja_word_replace_capable(true);
+            // 대상③ 능력도 같은 이유로 다시 켠다(빠지면 리로드 뒤 커서 단어 변환이 조용히 꺼진다).
+            new_engine.set_surrounding_word_caps(
+                SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE,
+            );
             // engine → config → composition → popup → atf 순(다른 경로와 동일).
             let mut engine_guard = self.engine.lock().unwrap();
             let mut config_guard = self.config.lock().unwrap();
