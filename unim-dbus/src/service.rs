@@ -34,6 +34,20 @@ pub enum SelectHanjaOutcome {
     /// 교체(`AutoTypefixApply`) — 대상①(확정 접두 > 0). `delete_chars` 만큼 앞을 지우고
     /// `text` 를 커밋한다.
     Replace { delete_chars: u32, text: String },
+    /// 커서 주변 교체(`ReplaceSurroundingText`) — 대상③(§4.1b). 커서 기준 앞 a자·뒤 b자를
+    /// 지우고 `commit_text` 를 커밋한다. 프런트는 `expect_text` 와 문서를 대조한다.
+    ReplaceSurrounding(ReplaceSurrounding),
+}
+
+/// `ReplaceSurroundingText` 시그널 페이로드 — 대상③ 확정(HANJA_WORD_SPEC §4.6).
+///
+/// 단위는 유니코드 코드포인트(문자). `expect_text` 는 지울 한글 원문(항상 비어 있지 않음).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplaceSurrounding {
+    pub delete_before: u32,
+    pub delete_after: u32,
+    pub commit_text: String,
+    pub expect_text: String,
 }
 
 /// 엔진에 보내는 요청
@@ -73,10 +87,11 @@ pub enum EngineRequest {
     },
     /// 전역 모드 설정 (모든 컨텍스트에 적용)
     SetGlobalMode { is_korean: bool },
-    /// 한자 후보 조회
+    /// 한자 후보 조회 — 응답 `(후보, closed_popup)`. `closed_popup` 은 이 호출로 열려 있던
+    /// 한자 팝업이 닫혔음(대상③ 후보 소진, I4) — 서비스가 `HidePopup` 을 발행한다.
     GetHanjaCandidates {
         context_id: u32,
-        response: oneshot::Sender<HanjaCandidateResponse>,
+        response: oneshot::Sender<(HanjaCandidateResponse, bool)>,
     },
     /// 한자 선택
     SelectHanja {
@@ -137,6 +152,19 @@ pub enum EngineRequest {
         context_id: u32,
         purpose: u32,
         response: oneshot::Sender<bool>,
+    },
+    /// 클라이언트 능력 선언(`SetClientCapabilities`) — 응답 없음. 비트는
+    /// `unim::input_engine::SURROUNDING_CAP_*`. 엔진 재생성을 건너 유지된다(carry).
+    SetClientCapabilities { context_id: u32, caps: u32 },
+    /// 컨텍스트의 프런트 종류 이름(`GNOME`·`GTK3`…) — 응답 없음. `REPLACE_VERIFY` 로그 전용
+    /// 관측 정보라 `CreateContext` 직후 한 번만 보낸다(IBus 호환 컨텍스트는 보내지 않아 `unknown`).
+    NoteFrontend { context_id: u32, name: String },
+    /// 프런트가 엔진 밖에서 관측한 사건(`SurroundingHint`) — 응답 없음.
+    SurroundingHint {
+        context_id: u32,
+        kind: u32,
+        keyval: u32,
+        state: u32,
     },
     /// Surrounding text 설정
     SetSurroundingText {
@@ -226,6 +254,8 @@ pub enum EngineRequest {
     /// 응답: 정리된 context_id (popup 활성 context 가 없으면 None).
     CancelEmojiPopup {
         context_id: u32,
+        /// 이모지를 문서에 커밋했는가 — true 면 워커가 대상③ 신선도를 낡음으로 표시한다.
+        committed: bool,
         response: oneshot::Sender<Option<u32>>,
     },
 
@@ -313,6 +343,9 @@ pub struct EngineResponse {
     /// 소유하고 토글을 실측한 `engine_worker` 가 직렬화해 실어 보낸다(stale 위험 0).
     /// `atf_toggled` 가 Some 일 때만 Some.
     pub atf_config_json: Option<String>,
+    /// 대상③ 확정(`HanjaSource::SurroundingWord`) — 서비스가 `ReplaceSurroundingText` 를
+    /// 자기 InputContext path 로, HidePopup 뒤에 발행한다(`AutoTypefixApply` 와 같은 위치).
+    pub replace_surrounding: Option<ReplaceSurrounding>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -562,6 +595,15 @@ impl InputMethodService {
         response_rx
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        // 교체 검증 로그용 프런트 이름(관측 전용, 응답 없음).
+        self.engine_tx
+            .send(EngineRequest::NoteFrontend {
+                context_id: id,
+                name: detect_frontend_type(client_name).to_string(),
+            })
+            .await
+            .ok();
 
         // InputContext 핸들러를 DBus에 등록
         let handler = InputContextHandler::new(
@@ -1550,7 +1592,7 @@ impl InputMethodService {
                 } else {
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
+                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
                         target_path_str,
                         target_cat_id,
                         items.len(),
@@ -1560,7 +1602,7 @@ impl InputMethodService {
                         y,
                         w,
                         h,
-                        home_row
+                        home_row.chars().count()
                     );
                 }
             }
@@ -1798,6 +1840,7 @@ impl InputMethodService {
         let (cleanup_tx, cleanup_rx) = oneshot::channel();
         let cleanup_send = self.engine_tx.send(EngineRequest::CancelEmojiPopup {
             context_id: caller_id,
+            committed: true,
             response: cleanup_tx,
         }).await;
         if cleanup_send.is_ok() {
@@ -1885,8 +1928,8 @@ impl InputMethodService {
 
         unim_log!(
             "DBUS",
-            "[DBus] CommitEmoji(global): emoji='{}', path={}",
-            emoji,
+            "[DBus] CommitEmoji(global): emoji={}자, path={}",
+            emoji.chars().count(),
             target_path_str
         );
         Ok(())
@@ -2158,6 +2201,73 @@ impl InputContextHandler {
         }
     }
 
+    /// `ReplaceSurroundingText` 와 `HidePopup` 시그널을 popup-owner path 로 redirect 발행.
+    ///
+    /// 대상③(커서 주변 단어)의 마우스 확정 경로 — `redirect_replace_and_hide` 와 같은 path
+    /// 선택 규칙이되 시그널이 `ReplaceSurroundingText(a, b, text, expect)` 다. 프런트가
+    /// 문서를 `expect` 와 대조한 뒤 교체하므로 순서는 교체 → 팝업 닫기(HANJA_WORD_SPEC §4.6).
+    async fn redirect_replace_surrounding_and_hide(&self, rs: &ReplaceSurrounding) {
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.path.clone());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_replace_surrounding_and_hide: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return;
+            }
+        };
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "ReplaceSurroundingText",
+                &(
+                    rs.delete_before,
+                    rs.delete_after,
+                    rs.commit_text.as_str(),
+                    rs.expect_text.as_str(),
+                ),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_surrounding_and_hide ReplaceSurroundingText 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_surrounding_and_hide HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+    }
+
     /// PopupRender 시그널 발행 헬퍼 — engine view_model 페이로드를 unpack 하여 emit.
     /// frontend (GNOME / gui-gtk) 가 본 시그널로 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더.
     async fn emit_popup_render(signal_ctx: &SignalContext<'_>, rs: &PopupRenderPayload) {
@@ -2202,8 +2312,15 @@ impl InputContextHandler {
 // zbus `#[interface]` 매크로가 자동 생성하는 trampoline 메서드는 시그널 컨텍스트 등을
 // 위해 인자가 7개를 초과하기 쉽다. 매크로 외부에서 조정 불가하므로 impl 블록 전체에
 // `too_many_arguments` 를 silence (실제 사용자 facing API 는 DBus 시그니처로 제한됨).
+//
+// [직렬 디스패치] zbus_macros 4.4.0 iface.rs:377 은 `spawn` 속성을 반전해 읽는다
+// (`!spawn.unwrap_or(false)`). 즉 `spawn = true` 일 때 메서드별 태스크 생성이 꺼진다.
+// 같은 연결에서 SetSurroundingText(응답 없이 보냄) → GetHanjaCandidates/ProcessKeyEvent 가
+// 도착한 순서대로 엔진 채널에 들어가게 하려는 것이다(태스크가 갈라지면 순서가 뒤집혀
+// 낡은 선택으로 한자 변환이 일어난다). zbus 5 로 올리면 `spawn = false` 로 바꿀 것 —
+// 테스트(unim-dbus/tests/surrounding_order.rs)가 spawn_tasks_for_methods()==false 를 단언한다.
 #[allow(clippy::too_many_arguments)]
-#[interface(name = "org.atit.unim.InputContext")]
+#[interface(name = "org.atit.unim.InputContext", spawn = true)]
 impl InputContextHandler {
     /// 키 이벤트 처리
     /// 반환값: (consumed, preedit, commit)
@@ -2269,10 +2386,10 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row='{}'",
+                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row={}자",
                         target.chars().count(),
                         candidates.len(),
-                        top_row
+                        top_row.chars().count()
                     );
                 }
                 PopupAction::ShowSpecial {
@@ -2295,8 +2412,8 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowSpecialPopup 시그널 발행: target='{}', count={}",
-                        target,
+                        "[DBus] ShowSpecialPopup 시그널 발행: target={}자, count={}",
+                        target.chars().count(),
                         characters.len()
                     );
                 }
@@ -2327,7 +2444,7 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
+                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
                         target_cat_id,
                         items.len(),
                         recent.len(),
@@ -2336,7 +2453,7 @@ impl InputContextHandler {
                         y,
                         w,
                         h,
-                        home_row
+                        home_row.chars().count()
                     );
                 }
                 PopupAction::HidePopup => {
@@ -2462,6 +2579,27 @@ impl InputContextHandler {
                 .ok();
         }
 
+        // 대상③ 키보드 확정: 자기 InputContext path 로 ReplaceSurroundingText 발행
+        // (HidePopup 뒤 — AutoTypefixApply 와 같은 위치). 평문 대신 수치만 남긴다(§2.8).
+        if let Some(rs) = &response.replace_surrounding {
+            unim_log!(
+                "DBUS",
+                "[DBus] ReplaceSurroundingText 시그널: a={}, b={}, commit={}자",
+                rs.delete_before,
+                rs.delete_after,
+                rs.commit_text.chars().count()
+            );
+            Self::replace_surrounding_text(
+                &signal_ctx,
+                rs.delete_before,
+                rs.delete_after,
+                &rs.commit_text,
+                &rs.expect_text,
+            )
+            .await
+            .ok();
+        }
+
         // AutoTypeFix 토글 단축키: engine_worker 가 config 를 반전·persist 한 뒤 새 값을
         // 실어 보냈으면, GUI/GNOME 확장이 토글 상태를 즉시 반영하도록 config_changed 를
         // 방출한다. 이 시그널은 팩토리(InputMethodService) 인터페이스 소속이라 per-context
@@ -2534,10 +2672,10 @@ impl InputContextHandler {
                     if let Some(commit_text) = commit_opt {
                         unim_log!(
                             "DBUS",
-                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text={}자",
                             context_id,
                             epoch,
-                            commit_text
+                            commit_text.chars().count()
                         );
                         InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
                     }
@@ -2545,10 +2683,10 @@ impl InputContextHandler {
                     let cursor_pos = preedit.chars().count() as u32;
                     unim_log!(
                         "DBUS",
-                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit='{}', visible={}",
+                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit={}자, visible={}",
                         context_id,
                         epoch,
-                        preedit,
+                        preedit.chars().count(),
                         visible
                     );
                     InputContextHandler::update_preedit_text(&ctx, &preedit, cursor_pos, visible)
@@ -2560,11 +2698,11 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'",
+            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit={}자, commit={}자",
             keyval,
             response.consumed,
-            preedit,
-            commit
+            preedit.chars().count(),
+            commit.chars().count()
         );
 
         Ok((response.consumed, preedit, commit))
@@ -2943,7 +3081,7 @@ impl InputContextHandler {
                 .ok();
                 unim_log!(
                     "DBUS",
-                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
+                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
                     target_cat_id,
                     items.len(),
                     recent.len(),
@@ -2952,7 +3090,7 @@ impl InputContextHandler {
                     y,
                     w,
                     h,
-                    home_row
+                    home_row.chars().count()
                 );
             }
             // 향후 확장 지점 (예: "hanja_popup", "special_popup")
@@ -3051,14 +3189,37 @@ impl InputContextHandler {
             })
             .await
             .ok();
-        unim_log!(
-            "DBUS",
-            "[DBus] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}",
-            self.id,
-            cursor_pos,
-            anchor_pos,
-            text.len()
-        );
+        // 로그는 엔진 워커가 처리 시점에 남긴다(DBus 계층에서는 엔진 반영 순서를 알 수 없다).
+        Ok(())
+    }
+
+    /// 클라이언트 능력 선언 — 응답 없이 보낸다(InputContext 는 직렬 처리). 비트는
+    /// `0x1 REPLACE_SURROUNDING`·`0x2 SELECTION_RELIABLE`·`0x4 POINTER_HINTS`.
+    /// 보내지 않으면 0(종전 동작). 프런트는 FocusIn 직후마다 보낸다(멱등).
+    async fn set_client_capabilities(&self, caps: u32) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SetClientCapabilities {
+                context_id: self.id,
+                caps,
+            })
+            .await
+            .ok();
+        Ok(())
+    }
+
+    /// 프런트가 엔진 밖에서 관측한 사건 보고 — 응답 없이 보낸다.
+    /// `kind`: 1 KEY·2 POINTER_PLAIN·3 POINTER_SELECT·4 PRIMARY_CHANGED·5 SELECTION_UNKNOWN.
+    /// `kind != 1` 이면 keyval·state 는 0. 알 수 없는 kind 는 엔진이 무시하고 로그를 남긴다.
+    async fn surrounding_hint(&self, kind: u32, keyval: u32, state: u32) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SurroundingHint {
+                context_id: self.id,
+                kind,
+                keyval,
+                state,
+            })
+            .await
+            .ok();
         Ok(())
     }
 
@@ -3123,6 +3284,19 @@ impl InputContextHandler {
         preedit_text: &str,
     ) -> zbus::Result<()>;
 
+    /// 커서 주변 교체 시그널 (엔진 → 프론트엔드) — 대상③ 한자 확정(HANJA_WORD_SPEC §4.6).
+    /// 커서 기준 앞 `delete_before`자·뒤 `delete_after`자(유니코드 코드포인트)를 지우고
+    /// `commit_text` 를 커밋한다. GTK·Qt 프런트는 문서를 다시 조회해 해당 구간이
+    /// `expect_text` 와 완전 일치할 때만 실행한다.
+    #[zbus(signal)]
+    async fn replace_surrounding_text(
+        signal_ctx: &SignalContext<'_>,
+        delete_before: u32,
+        delete_after: u32,
+        commit_text: &str,
+        expect_text: &str,
+    ) -> zbus::Result<()>;
+
     // =========================================
     // 한자 / 특수문자 / 이모지 popup 관련 메서드 — **internal-only**
     // =========================================
@@ -3155,16 +3329,16 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let response = response_rx
+        let (response, closed_popup) = response_rx
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
         unim_log!(
             "DBUS",
-            "[DBus] GetHanjaCandidates: target={}자, count={}, top_row='{}'",
+            "[DBus] GetHanjaCandidates: target={}자, count={}, top_row={}자",
             response.target.chars().count(),
             response.candidates.len(),
-            response.top_row
+            response.top_row.chars().count()
         );
 
         // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
@@ -3190,6 +3364,13 @@ impl InputContextHandler {
                 "DBUS",
                 "[DBus] GetHanjaCandidates -> ShowHanjaPopup 시그널 발행 (Standalone)"
             );
+        }
+
+        // 대상③ 후보 소진(I4): 열려 있던 팝업이 이 호출로 닫혔다 — 이어지는 ProcessKey 폴백이
+        // 이모지 팝업을 열 수 있도록 자기 path 에 HidePopup 을 낸다(재커밋 없음).
+        if closed_popup {
+            Self::hide_popup(&signal_ctx).await.ok();
+            unim_log!("DBUS", "[DBus] GetHanjaCandidates: 팝업 닫힘 → HidePopup");
         }
 
         Ok((response.target, response.candidates))
@@ -3229,6 +3410,12 @@ impl InputContextHandler {
             SelectHanjaOutcome::Replace { delete_chars, text } => {
                 self.redirect_replace_and_hide(delete_chars, &text).await;
                 (text, delete_chars)
+            }
+            // 대상③(커서 주변 단어): 앞 a자·뒤 b자 교체를 expect 대조 시그널로 (§4.6).
+            SelectHanjaOutcome::ReplaceSurrounding(rs) => {
+                self.redirect_replace_surrounding_and_hide(&rs).await;
+                let n = rs.delete_before;
+                (rs.commit_text, n)
             }
             // 한자 모드 아님 / 범위 밖 — 종전처럼 빈 문자열로 CommitText 생략·HidePopup 만.
             SelectHanjaOutcome::None => {
@@ -3534,10 +3721,10 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] GetSpecialCharCandidates: target='{}', count={}, top_row='{}'",
-            response.target,
+            "[DBus] GetSpecialCharCandidates: target={}자, count={}, top_row={}자",
+            response.target.chars().count(),
             response.characters.len(),
-            response.top_row
+            response.top_row.chars().count()
         );
 
         // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
@@ -3630,9 +3817,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] CancelSpecialChar: context_id={}, commit='{}'",
+            "[DBus] CancelSpecialChar: context_id={}, commit={}자",
             self.id,
-            commit_text
+            commit_text.chars().count()
         );
         Ok(commit_text)
     }
@@ -3656,6 +3843,7 @@ impl InputContextHandler {
         let (cleanup_tx, cleanup_rx) = oneshot::channel();
         if self.engine_tx.send(EngineRequest::CancelEmojiPopup {
             context_id: self.id,
+            committed: !emoji.is_empty(),
             response: cleanup_tx,
         }).await.is_ok() {
             match cleanup_rx.await {
@@ -3677,9 +3865,9 @@ impl InputContextHandler {
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(
             "DBUS",
-            "[DBus] CommitEmoji: context_id={}, emoji='{}', HidePopup 시그널 발행 OK",
+            "[DBus] CommitEmoji: context_id={}, emoji={}자, HidePopup 시그널 발행 OK",
             self.id,
-            emoji
+            emoji.chars().count()
         );
         Ok(())
     }

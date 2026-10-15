@@ -34,3 +34,9 @@ serde_yaml = "0.9"
 # Logging
 log = "0.4"
 
+
+[dev-dependencies]
+# 순서 시험(tests/surrounding_order.rs) — peer-to-peer 연결로 버스 데몬 없이 서버/클라이언트 구성
+zbus = { version = "4", default-features = false, features = ["tokio", "p2p"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+tempfile = "3"

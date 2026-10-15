@@ -5,7 +5,7 @@
 //! 담당한다.
 
 use super::engine::InputEngine;
-use super::types::{InputResult, PageDirection, PopupAction};
+use super::types::{HanjaSource, InputResult, PageDirection, PopupAction};
 use crate::config::Config;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::popup::{EmojiCatMeta, PopupKey, PopupKeyResult, PopupKind, PopupState};
@@ -194,6 +194,12 @@ impl InputEngine {
                 // 대상①(확정 접두 있음)은 교체 페이로드로 나간다 — commit_buffer 에 넣으면
                 // 접두 삭제 없이 이중 삽입된다. 응답은 preedit ""(조합 음절 선삭제).
                 let replaced = self.pending_hanja_replacement.is_some();
+                // 대상③ 은 응답 preedit "" 와 같은 효과의 consumed — idle 에서 preedit-end 가
+                // 헛발사되지 않는다(I5). 대상① 은 종전대로 preedit_updated.
+                let surrounding_word = self
+                    .pending_hanja_replacement
+                    .as_ref()
+                    .is_some_and(|p| p.source == HanjaSource::SurroundingWord);
                 unim_log!(
                     "ENGINE",
                     "팝업 한자 선택: [{}] {}자 (교체={})",
@@ -205,7 +211,9 @@ impl InputEngine {
                     self.commit_buffer.push_str(&text);
                 }
                 self.popup_pending_action = Some(PopupAction::HidePopup);
-                return if replaced {
+                return if surrounding_word {
+                    InputResult::consumed()
+                } else if replaced {
                     InputResult::preedit_updated()
                 } else {
                     InputResult::committed()

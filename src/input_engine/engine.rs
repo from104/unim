@@ -23,6 +23,16 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// surrounding preedit 포함 학습용 직전 보고 관측(조합 중·cursor==anchor 보고 한 건).
+///
+/// `head` = 커서 앞 텍스트에서 preedit 을 뺀 앞부분, `tail` = 그 보고 시점 preedit 의 끝 글자.
+/// 평문 로그 금지(§2.8) — 비교에만 쓰고 기록하지 않는다.
+#[derive(Debug, Clone)]
+pub(super) struct PreeditLearnObs {
+    pub(super) head: String,
+    pub(super) tail: char,
+}
+
 /// "무효 키 집합이 바뀔 때만 로그" 게이트의 메모 — 필드 라벨별 마지막 서명(B2).
 ///
 /// `parse_switch_keys`/`parse_auto_english_triggers`/`parse_atf_hotkeys` 는 config
@@ -155,12 +165,40 @@ pub struct InputEngine {
     /// surrounding text 가 preedit(조합 텍스트)을 포함하는 호스트(TSF)만 true.
     /// 접두 정합성 검증의 `prefix+pre` 절을 이 플래그로 게이트한다. `reset()` 에서 보존.
     pub(super) surrounding_includes_preedit: bool,
+    /// 관측으로 학습한 "이 컨텍스트의 surrounding 은 preedit 을 포함한다"(LibreOffice VCL 등).
+    /// `set_surrounding_text` 의 두 보고 대조로만 켜지고(`learn_obs`), 포커스 이동
+    /// (`clear_learned_includes_preedit`)·엔진 재생성(`new`)에서 해제된다. `reset()` 에서는
+    /// 보존한다(앱·포커스 컨텍스트 속성). 접두 검증의 `prefix+pre` 절만 이 값을 읽는다.
+    pub(super) learned_includes_preedit: bool,
+    /// 학습용 직전 보고 관측(저장 surrounding 과 무관한 비교 전용). 확정·비움·조합 종료·
+    /// 리셋·불일치 보고에서 지운다.
+    pub(super) learn_obs: Option<PreeditLearnObs>,
     /// 이 컨텍스트가 `set_surrounding_text` 를 한 번이라도 받았는지(빈 값 포함).
     ///
     /// true 인 컨텍스트에서는 surrounding 이 비어 있어도 접두 검증을 **실패**로 본다
     /// (Wayland 미수신 마커 `("",0,0)` — HANJA_WORD_SPEC Q9(b)). 앱·포커스 컨텍스트
     /// 속성이라 `reset()` 에서 보존하고, 엔진 재생성(`new`)에서만 false 로 시작한다.
     pub(super) surrounding_seen: bool,
+    /// 클라이언트 능력 비트(`SURROUNDING_CAP_*`) — 대상③·낡음 게이트의 전제. 0(기본)이면
+    /// v1.5 와 바이트 동일. `reset()`·재생성(carry)에서 보존한다(HANJA_WORD_SPEC §2.4b).
+    pub(super) surrounding_caps: u32,
+    /// 마지막 surrounding 보고 뒤 커서·문서를 바꿀 사건(확정·통과 키·포인터)이 있었는가.
+    pub(super) surrounding_stale: bool,
+    /// 앱에 선택이 있을 수 있다는 거부 플래그(드래그·Shift+이동·Ctrl+A·FocusIn 등).
+    pub(super) selection_possible: bool,
+    /// `selection_possible` 을 올린 원인(로그용).
+    pub(super) selection_flag_cause: super::surrounding_word::SelFlagCause,
+    /// 다음 한자키 한 번에만 걸리는 "선택 불명" 표시(I3).
+    pub(super) selection_unknown_once: bool,
+    /// pull 경로에서 대상③ 후보가 소진돼 이어지는 폴백 키가 이모지를 열어야 함.
+    pub(super) surrounding_word_exhausted: bool,
+    /// 이번 `press_key` 진입 시 내려진 `surrounding_word_exhausted` 값(한자 idle 분기용).
+    pub(super) sw_exhausted_key: bool,
+    /// 대상③ 후보 목록(순서대로 한자키 재타로 순환)과 현재 위치·앞/뒤 삭제 글자 수.
+    pub(super) hanja_sw_cands: Vec<super::surrounding_word::SwCand>,
+    pub(super) hanja_sw_idx: usize,
+    pub(super) hanja_sw_before: u32,
+    pub(super) hanja_sw_after: u32,
     /// 특수문자 모드 활성화 여부
     pub(super) special_char_mode: bool,
     /// 현재 특수문자 후보 목록
@@ -324,7 +362,20 @@ impl InputEngine {
             hanja_output_format: config.engine.korean.hanja_output_format,
             hanja_word_replace_capable: false,
             surrounding_includes_preedit: false,
+            learned_includes_preedit: false,
+            learn_obs: None,
             surrounding_seen: false,
+            surrounding_caps: 0,
+            surrounding_stale: false,
+            selection_possible: false,
+            selection_flag_cause: Default::default(),
+            selection_unknown_once: false,
+            surrounding_word_exhausted: false,
+            sw_exhausted_key: false,
+            hanja_sw_cands: Vec::new(),
+            hanja_sw_idx: 0,
+            hanja_sw_before: 0,
+            hanja_sw_after: 0,
             special_char_mode: false,
             special_char_candidates: Vec::new(),
             special_char_target: String::new(),
@@ -726,6 +777,18 @@ impl InputEngine {
         self.surrounding_includes_preedit = includes;
     }
 
+    /// 관측 학습으로 켜진 "surrounding 이 preedit 을 포함" 상태(진단·테스트용).
+    pub fn learned_includes_preedit(&self) -> bool {
+        self.learned_includes_preedit
+    }
+
+    /// 학습 상태·관측을 해제한다 — 포커스 이동(FocusIn)에서 호출(앱이 바뀌면 보고 방식도
+    /// 바뀐다). FocusOut·Reset 은 엔진 재생성(`new`)이 같은 효과.
+    pub fn clear_learned_includes_preedit(&mut self) {
+        self.learned_includes_preedit = false;
+        self.learn_obs = None;
+    }
+
     /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
     /// 반영한다 (hot-reload 재적용).
     ///
@@ -862,7 +925,11 @@ impl InputEngine {
     /// - `content_purpose`/`surrounding_*`(`surrounding_seen` 포함)/`saved_category` —
     ///   앱·포커스 컨텍스트(조합 상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
     /// - 호스트 능력 플래그(`hanja_word_replace_capable`·`surrounding_includes_preedit`)
+    ///   ·학습 상태 `learned_includes_preedit`(관측 `learn_obs` 만 비움)
     ///   ·`hanja_output_format` — 호스트/config 속성.
+    /// - 대상③ 능력·신선도·선택 거부 상태(`surrounding_caps`·`surrounding_stale`·
+    ///   `selection_possible`·`selection_unknown_once`·`surrounding_word_exhausted`) —
+    ///   앱·포커스 컨텍스트 속성이라 보존한다(대상 후보 `hanja_sw_*` 만 비운다).
     ///
     /// 한자 단어 상태(최근 확정 음절 버퍼·`hanja_source` 등 대상 필드·교체 페이로드)는
     /// 비운다 — 리셋은 버퍼 리셋 조건이다(HANJA_WORD_SPEC §2.2.1).
@@ -888,6 +955,7 @@ impl InputEngine {
         self.reset_hanja_word_fields();
         self.recent_clear();
         self.recent_mark = 0;
+        self.learn_obs = None;
         self.pending_hanja_replacement = None;
 
         // 고정키 래치 마스킹 잔류도 비운다 — 조합 리셋 시점의 미소비 마스크가
@@ -938,7 +1006,12 @@ impl InputEngine {
         self.flush_preedit();
         let text = self.commit_buffer.clone();
         self.commit_buffer.clear();
-        if text.is_empty() { None } else { Some(text) }
+        if text.is_empty() {
+            None
+        } else {
+            self.note_surrounding_commit();
+            Some(text)
+        }
     }
 
     /// chord idle 만료 flush: idle timer 경로 전용 (preedit 유지).

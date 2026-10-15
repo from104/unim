@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::notify_task::{build_notify_outs, detect_auto_lang, NotifyOut};
+use crate::replace_verify::ReplaceVerifier;
 use crate::service::{
     popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
 };
@@ -623,6 +624,7 @@ fn try_autotypefix_undo(
         chord_pending: None,
         atf_toggled: None,
         atf_config_json: None,
+        replace_surrounding: None,
     })
 }
 
@@ -644,6 +646,14 @@ fn handle_focus_in(
     keystroke_buffers.remove(&context_id);
     undo_states.remove(&context_id);
     recent_corrections.remove(&context_id);
+
+    // 한자 단어: surrounding preedit 포함 관측 학습은 앱(포커스) 속성이라 포커스 이동 시 해제.
+    // (FocusOut·Reset 은 엔진 재생성이 이미 초기화한다.)
+    if let Some(engine) = contexts.get_mut(&context_id) {
+        engine.clear_learned_includes_preedit();
+        // 대상③: 이전 앱의 신선도·선택 가능 표시를 믿지 않는다(능력 비트는 유지).
+        engine.surrounding_word_focus_in();
+    }
 
     // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 사용)
     context_windows.insert(context_id, window_id.to_string());
@@ -893,6 +903,70 @@ fn apply_content_type(
     popup_closed
 }
 
+/// `CancelHanja` RPC 의 엔진 쪽 처리 — 한자 모드일 때만 정리하고 취소 텍스트를 돌려준다.
+///
+/// cancel 전에 팝업 진입 당시 preedit 전체를 저장해 즉시 커밋할 수 있도록 반환한다
+/// (단어 모드·다음절 preedit 포함). 대상②(선택 영역)는 "" — 커밋 없이 팝업만 닫는다.
+/// 한자 모드였으면 빈 문자열이라도 Some 으로 돌려 HidePopup 을 보장한다.
+///
+/// 한자 모드가 아니면 아무것도 건드리지 않는다 — 팝업 서비스의 한자 창 hide 훅이 늦게
+/// 보내는 CancelHanja 가, 그 사이 열린 이모지 팝업 상태(popup_state)까지 지워 Escape 가
+/// 앱으로 새던 경합(L3 v1.6 qt5 cursor-exhaust)을 막는다. 이모지 팝업은
+/// `CancelEmojiPopup` RPC 가 따로 닫는다.
+fn cancel_hanja_if_active(engine: &mut InputEngine) -> Option<String> {
+    if !engine.is_hanja_mode() {
+        return None;
+    }
+    let t = engine.hanja_cancel_text();
+    engine.cancel_hanja();
+    if !t.is_empty() {
+        engine.mark_surrounding_stale(); // 원문 재커밋 — 문서가 바뀐다
+    }
+    Some(t)
+}
+
+/// pull 경로(`GetHanjaCandidates`)의 한자 변환 시작. 열려 있던 한자 팝업이 이 호출로
+/// 닫혔으면(대상③ 후보 소진, I4) true — 서비스가 `HidePopup` 을 내 이어지는 `ProcessKey`
+/// 폴백이 이모지 팝업을 열 수 있게 한다.
+fn start_hanja_pull(engine: &mut InputEngine) -> bool {
+    let was_hanja_mode = engine.is_hanja_mode();
+    engine.start_hanja_conversion();
+    was_hanja_mode && !engine.is_hanja_mode()
+}
+
+/// `SelectHanja` 확정의 채널 결정. 반환 `(결과, 교체 채널 여부)`.
+///
+/// 교체 페이로드가 없으면 일반 커밋, 있으면 출처로 분기한다 — 대상③(`SurroundingWord`)은
+/// `ReplaceSurroundingText`, 대상①은 `AutoTypefixApply` 교체.
+fn select_hanja_outcome(
+    engine: &mut InputEngine,
+    index: usize,
+) -> (crate::service::SelectHanjaOutcome, bool) {
+    use crate::service::{ReplaceSurrounding, SelectHanjaOutcome};
+    match engine.select_hanja(index) {
+        Some(text) => match engine.take_hanja_replacement() {
+            Some(r) if r.source == unim::input_engine::HanjaSource::SurroundingWord => (
+                SelectHanjaOutcome::ReplaceSurrounding(ReplaceSurrounding {
+                    delete_before: r.delete_chars,
+                    delete_after: r.delete_after_chars,
+                    commit_text: r.text,
+                    expect_text: r.expect_text,
+                }),
+                true,
+            ),
+            Some(r) => (
+                SelectHanjaOutcome::Replace {
+                    delete_chars: r.delete_chars,
+                    text: r.text,
+                },
+                true,
+            ),
+            None => (SelectHanjaOutcome::Commit(text), false),
+        },
+        None => (SelectHanjaOutcome::None, false),
+    }
+}
+
 /// 데몬용 엔진 생성 — `InputEngine::new` 의 유일한 진입점(테스트 제외).
 ///
 /// 데몬은 한자 단어 교체 페이로드(`take_hanja_replacement`)를 `AutoTypefixApply` 로
@@ -969,7 +1043,13 @@ fn reset_engine_and_capture_commit(
     // 되돌리면 비밀번호 칸 클릭 한 번에 ATF·한영 차단이 풀리고 키가 ATF 버퍼에 남는다.
     let purpose = engine.content_purpose();
     let pre_password_mode = engine.saved_category();
+    // 대상③ 능력·신선도·선택 거부 상태는 앱·포커스 속성 — 재생성을 건너 이월한다.
+    let sw_carry = engine.surrounding_word_carry();
     *engine = new_daemon_engine(config, window_id);
+    engine.restore_surrounding_word_carry(sw_carry);
+    if !commit_text.is_empty() {
+        engine.mark_surrounding_stale(); // 조합·원문 재커밋이 문서에 들어간다
+    }
     if preserve_mode {
         // 비밀번호 칸이면 영문 강제 이전 모드로 되돌린 뒤 아래에서 다시 저장·강제한다.
         engine.set_input_category(pre_password_mode.unwrap_or(current_mode));
@@ -1158,11 +1238,20 @@ fn run_engine_worker(
     let mut pending_korean_rebuild: HashSet<u32> = HashSet::new();
     // 상황 알림: 게이트 + 알림 채널 (NOTIFY_SPEC §3.2). `notify.*` 설정은 `config` 를 그대로 따른다.
     let mut notify = NotifyHub::new(notify_tx);
+    // 대상③ 교체 검증(관측 전용, `replace_verify.rs`): 컨텍스트별 발행 직전 surrounding(메모리만)과
+    // 프런트 이름. 평문은 로그에 남기지 않는다(HANJA_WORD_SPEC §2.8).
+    let mut replace_verify = ReplaceVerifier::new();
+    let mut context_frontends: HashMap<u32, String> = HashMap::new();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
+        // 교체 검증: 3초 안에 다음 SetSurroundingText 가 오지 않은 대기를 timeout 으로 확정한다.
+        // (워커에는 타이머가 없어 다음 요청 진입 시 청산한다.)
+        for line in replace_verify.sweep(Instant::now()) {
+            unim_log!("ENGINE_WORKER", "{}", line);
+        }
         // ===== 설정 파일 변경 감지·리로드 (2초 throttling) =====
         //
         // ⚠️ 이 블록은 **조합 중인 글자를 죽일 수 있는 자리**다. 리로드 자체는
@@ -1330,6 +1419,8 @@ fn run_engine_worker(
                 undo_states.remove(&id);
                 recent_corrections.remove(&id);
                 last_key_presses.remove(&id);
+                replace_verify.cancel(id);
+                context_frontends.remove(&id);
                 // 알림 게이트: 컨텍스트별 1회·비밀번호 칸 기록 정리 (규칙 4 맵은 여기서만 지운다).
                 notify.gate.on_destroy(id);
                 if last_focused_context_id == Some(id) {
@@ -1379,6 +1470,7 @@ fn run_engine_worker(
                         chord_pending: None,
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: None,
                     });
                     continue;
                 }
@@ -1442,6 +1534,7 @@ fn run_engine_worker(
                                 chord_pending: None,
                                 atf_toggled: None,
                                 atf_config_json: None,
+                                replace_surrounding: None,
                             });
                             continue;
                         }
@@ -1999,15 +2092,55 @@ fn run_engine_worker(
                     // 한자 단어 교체: 기존 교체 채널(`auto_typefix` → AutoTypefixApply)에
                     // 실어 보낸다. 아래 역방향 분기(`!fix_has_replay`)가 응답을 preedit ""·
                     // commit 없음으로 만들어 프런트가 조합 음절을 먼저 지운다(§2.6·§4.1).
+                    // 대상③(커서 주변 단어)은 AutoTypefixApply 가 아니라 전용 시그널
+                    // (`ReplaceSurroundingText`)로 내보낸다 — 응답은 preedit·commit 변경 없음
+                    // (엔진이 consumed 를 돌려준다, I5).
+                    let mut sw_repl: Option<crate::service::ReplaceSurrounding> = None;
                     if let Some(r) = hanja_repl {
-                        unim_log!(
-                            "ENGINE_WORKER",
-                            "[Engine Worker] 한자 단어 교체: delete={}, text={}자",
-                            r.delete_chars,
-                            r.text.chars().count()
-                        );
-                        auto_typefix_result = Some((r.delete_chars, r.text, String::new()));
-                        fix_has_replay = false;
+                        if r.source == unim::input_engine::HanjaSource::SurroundingWord {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] 대상③ 교체: a={}, b={}, text={}자",
+                                r.delete_chars,
+                                r.delete_after_chars,
+                                r.text.chars().count()
+                            );
+                            // 교체 검증용 스냅샷(발행 직전 surrounding — 메모리 전용, 로그 평문 없음).
+                            let (st, sc, _) = engine.surrounding_text();
+                            replace_verify.issue(
+                                context_id,
+                                context_frontends
+                                    .get(&context_id)
+                                    .map(String::as_str)
+                                    .unwrap_or(""),
+                                st,
+                                sc,
+                                r.delete_chars,
+                                r.delete_after_chars,
+                                &r.text,
+                                Instant::now(),
+                            );
+                            sw_repl = Some(crate::service::ReplaceSurrounding {
+                                delete_before: r.delete_chars,
+                                delete_after: r.delete_after_chars,
+                                commit_text: r.text,
+                                expect_text: r.expect_text,
+                            });
+                        } else {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] 한자 단어 교체: delete={}, text={}자",
+                                r.delete_chars,
+                                r.text.chars().count()
+                            );
+                            auto_typefix_result = Some((r.delete_chars, r.text, String::new()));
+                            fix_has_replay = false;
+                        }
+                    }
+                    // ATF 교정 프레임은 문서를 바꿨다 — 대상③ 신선도를 낡음으로(한자 교체는 엔진이
+                    // 이미 표시했다).
+                    if auto_typefix_result.is_some() && !hanja_replaced {
+                        engine.mark_surrounding_stale();
                     }
 
                     // AutoTypeFix 트리거 시:
@@ -2066,6 +2199,7 @@ fn run_engine_worker(
                         // atf_config 불변 대여 종료 후 아래 블록에서 실측값으로 채운다.
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: sw_repl,
                     }
                 } else {
                     EngineResponse {
@@ -2079,6 +2213,7 @@ fn run_engine_worker(
                         chord_pending: None,
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: None,
                     }
                 };
 
@@ -2194,6 +2329,7 @@ fn run_engine_worker(
                 window_id,
                 response,
             } => {
+                replace_verify.cancel(context_id);
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
                 let refocus = last_focused_context_id == Some(context_id);
                 let prev_focus = last_focused_context_id
@@ -2234,6 +2370,7 @@ fn run_engine_worker(
                 context_id,
                 response,
             } => {
+                replace_verify.cancel(context_id);
                 // AutoTypeFix: 포커스 아웃 시 word_buffer, undo 상태, 재트리거 기록 초기화
                 keystroke_buffers.remove(&context_id);
                 undo_states.remove(&context_id);
@@ -2346,29 +2483,35 @@ fn run_engine_worker(
                 let top_row =
                     unim::config::english_layout_top_row_labels(&config.engine.english.layout)
                         .to_string();
-                let resp = if let Some(engine) = contexts.get_mut(&context_id) {
+                let (resp, closed_popup) = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 먼저 한자 변환을 시작하여 후보를 생성
-                    engine.start_hanja_conversion();
+                    let closed = start_hanja_pull(engine);
                     // Pull 방식 요청이므로 Push용 popup_pending_action 소비하여 제거
                     // (이후 ProcessKeyEvent에서 stale 시그널이 발행되지 않도록)
                     engine.take_popup_action();
 
                     let render_state = build_render_state(engine);
-                    crate::service::HanjaCandidateResponse {
-                        target: engine.get_hanja_target().to_string(),
-                        candidates: engine.get_hanja_candidates(),
-                        top_row,
-                        render_state,
-                    }
+                    (
+                        crate::service::HanjaCandidateResponse {
+                            target: engine.get_hanja_target().to_string(),
+                            candidates: engine.get_hanja_candidates(),
+                            top_row,
+                            render_state,
+                        },
+                        closed,
+                    )
                 } else {
-                    crate::service::HanjaCandidateResponse {
-                        target: String::new(),
-                        candidates: Vec::new(),
-                        top_row,
-                        render_state: None,
-                    }
+                    (
+                        crate::service::HanjaCandidateResponse {
+                            target: String::new(),
+                            candidates: Vec::new(),
+                            top_row,
+                            render_state: None,
+                        },
+                        false,
+                    )
                 };
-                let _ = response.send(resp);
+                let _ = response.send((resp, closed_popup));
             }
 
             EngineRequest::SelectHanja {
@@ -2381,21 +2524,29 @@ fn run_engine_worker(
                 // context 에 살아있을 수 있다).
                 let target_id = resolve_popup_owner(&contexts, context_id);
                 let outcome = if let Some(engine) = contexts.get_mut(&target_id) {
-                    match engine.select_hanja(index) {
-                        Some(text) => match engine.take_hanja_replacement() {
-                            // 대상①(확정 접두 > 0): CommitText 대신 교체 채널. 소비 후
-                            // ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기(§4.1).
-                            Some(r) => {
-                                keystroke_buffers.remove(&target_id);
-                                crate::service::SelectHanjaOutcome::Replace {
-                                    delete_chars: r.delete_chars,
-                                    text: r.text,
-                                }
-                            }
-                            None => crate::service::SelectHanjaOutcome::Commit(text),
-                        },
-                        None => crate::service::SelectHanjaOutcome::None,
+                    let (outcome, replaced) = select_hanja_outcome(engine, index);
+                    // 대상③ 마우스 확정 — 교체 검증 스냅샷(시그널은 popup-owner path 로 나간다).
+                    if let crate::service::SelectHanjaOutcome::ReplaceSurrounding(rs) = &outcome {
+                        let (st, sc, _) = engine.surrounding_text();
+                        replace_verify.issue(
+                            target_id,
+                            context_frontends
+                                .get(&target_id)
+                                .map(String::as_str)
+                                .unwrap_or(""),
+                            st,
+                            sc,
+                            rs.delete_before,
+                            rs.delete_after,
+                            &rs.commit_text,
+                            Instant::now(),
+                        );
                     }
+                    if replaced {
+                        // 교체 채널 확정 후 ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기(§4.1).
+                        keystroke_buffers.remove(&target_id);
+                    }
+                    outcome
                 } else {
                     crate::service::SelectHanjaOutcome::None
                 };
@@ -2412,12 +2563,7 @@ fn run_engine_worker(
                     // 반환한다(단어 모드·다음절 preedit 포함 — 종전 `get_hanja_target()` 은
                     // 앞 preedit 을 흘렸다). 대상②(선택 영역)는 "" — 커밋 없이 팝업만 닫는다.
                     // 한자 모드였으면 빈 문자열이라도 Some 으로 돌려 HidePopup 을 보장한다.
-                    Some(engine) => {
-                        let was_active = engine.is_hanja_mode();
-                        let t = engine.hanja_cancel_text();
-                        engine.cancel_hanja();
-                        was_active.then_some(t)
-                    }
+                    Some(engine) => cancel_hanja_if_active(engine),
                     None => None,
                 };
                 let _ = response.send(target);
@@ -2522,6 +2668,7 @@ fn run_engine_worker(
 
             EngineRequest::CancelEmojiPopup {
                 context_id,
+                committed,
                 response,
             } => {
                 // popup-owner 로 라우팅 — popup_state 가 살아있는 context 를 찾아
@@ -2532,6 +2679,9 @@ fn run_engine_worker(
                 let cleaned = if let Some(engine) = contexts.get_mut(&target_id) {
                     if engine.popup_state().is_some() {
                         engine.cancel_emoji_popup();
+                        if committed {
+                            engine.note_surrounding_commit(); // 이모지가 문서에 들어갔다
+                        }
                         Some(target_id)
                     } else {
                         None
@@ -2666,15 +2816,61 @@ fn run_engine_worker(
                 }
             }
 
+            EngineRequest::NoteFrontend { context_id, name } => {
+                context_frontends.insert(context_id, name);
+            }
+
+            EngineRequest::SetClientCapabilities { context_id, caps } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_surrounding_word_caps(caps);
+                }
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] SetClientCapabilities: context_id={}, caps=0x{:x}",
+                    context_id,
+                    caps
+                );
+            }
+
+            EngineRequest::SurroundingHint {
+                context_id,
+                kind,
+                keyval,
+                state,
+            } => {
+                // 로그는 엔진이 남긴다(키 이름만, 글자 평문 금지).
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.surrounding_hint(kind, keyval, state);
+                }
+            }
+
             EngineRequest::SetSurroundingText {
                 context_id,
                 text,
                 cursor_pos,
                 anchor_pos,
             } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
-                    engine.set_surrounding_text(text, cursor_pos, anchor_pos);
+                // 교체 검증: 발행 뒤 첫 보고를 원래 surrounding 과 비교(관측 전용 — 엔진 저장과 무관).
+                if let Some(line) = replace_verify.on_surrounding(context_id, &text, Instant::now())
+                {
+                    unim_log!("ENGINE_WORKER", "{}", line);
                 }
+                let stored = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_surrounding_text(text, cursor_pos, anchor_pos);
+                    // 비밀번호 필드면 저장 후 0 이 된다. 평문은 남기지 않고 길이만 기록.
+                    Some(engine.surrounding_text().0.chars().count())
+                } else {
+                    None
+                };
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}자, stored={}",
+                    context_id,
+                    cursor_pos,
+                    anchor_pos,
+                    stored.unwrap_or(0),
+                    stored.is_some()
+                );
             }
 
             EngineRequest::GlobalTypeFix {
@@ -2689,7 +2885,11 @@ fn run_engine_worker(
                             ctx_id,
                             direction
                         );
-                        engine.typefix_convert(direction)
+                        let r = engine.typefix_convert(direction);
+                        if r.is_some() {
+                            engine.mark_surrounding_stale(); // 교정이 문서를 바꿨다
+                        }
+                        r
                     } else {
                         None
                     }
@@ -2967,12 +3167,12 @@ fn run_engine_worker(
                     .to_string();
                     unim_log!(
                         "ENGINE_WORKER",
-                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}, home='{}'",
+                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}, home={}자",
                         idx,
                         target_cat_id,
                         items.len(),
                         cats.len(),
-                        home_row
+                        home_row.chars().count()
                     );
                     Some(EmojiShowPayload {
                         target_cat_id,
@@ -3989,5 +4189,125 @@ mod tests {
         assert!(e.last_toggle_blocked());
         e.press_key(KeyCode::A, m, &config);
         assert!(!e.last_toggle_blocked(), "다음 키에서 false 로 리셋");
+    }
+
+    // === 대상③ 커서 주변 단어 배선 (HANJA_WORD_SPEC v1.6 §2.4b·§4.6) ===
+
+    /// 엔진 재생성(FocusOut/Reset)은 대상③ 능력·낡음·선택 표시를 이월한다 — 능력을 잃으면
+    /// 대상③ 이 조용히 꺼지고, 낡음을 잃으면 문서가 바뀐 뒤에도 대상③ 이 열린다.
+    #[test]
+    fn reset_engine_carries_surrounding_word_state() {
+        use unim::input_engine::{
+            SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+            SURROUNDING_HINT_POINTER_SELECT,
+        };
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        let caps = SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE;
+        e.set_surrounding_word_caps(caps);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!e.surrounding_stale());
+        e.surrounding_hint(SURROUNDING_HINT_POINTER_SELECT, 0, 0);
+        assert!(e.surrounding_stale() && e.selection_possible());
+
+        reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(e.surrounding_word_caps(), caps);
+        assert!(e.surrounding_stale());
+        assert!(e.selection_possible());
+
+        // 재커밋 텍스트가 있으면(조합 중 Reset) 낡음으로 표시한다.
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(caps);
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in [KeyCode::R, KeyCode::N, KeyCode::R] {
+            e.press_key(k, ModifierState::default(), &config);
+        }
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!e.surrounding_stale());
+        let captured = reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(captured.as_deref(), Some("국"));
+        assert!(e.surrounding_stale());
+    }
+
+    /// 대상③ 마우스 확정(`SelectHanja`)은 `ReplaceSurrounding` 결과(앞 a·뒤 b·expect)로 나가고
+    /// 교체 채널로 취급된다(키스트로크 버퍼 폐기 대상).
+    #[test]
+    fn select_hanja_surrounding_word_outcome_is_replace_surrounding() {
+        use crate::service::{ReplaceSurrounding, SelectHanjaOutcome};
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 2, 2);
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        e.take_popup_action();
+        assert_eq!(e.surrounding_word_span(), Some((2, 2)));
+
+        let (outcome, replaced) = select_hanja_outcome(&mut e, 0);
+        assert!(replaced);
+        assert_eq!(
+            outcome,
+            SelectHanjaOutcome::ReplaceSurrounding(ReplaceSurrounding {
+                delete_before: 2,
+                delete_after: 2,
+                commit_text: "國語敎育".to_string(),
+                expect_text: "국어교육".to_string(),
+            })
+        );
+        assert_eq!(drain_commit(&mut e), None, "CommitText 로는 나가지 않는다");
+    }
+
+    /// pull 경로에서 대상③ 후보가 소진되면 `closed_popup` — 서비스가 HidePopup 을 낸다.
+    #[test]
+    fn get_hanja_candidates_reports_closed_popup_on_exhaust() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        // 후보 3건(국어교육·교육·육) — 열기와 순환은 닫힘이 아니다.
+        for _ in 0..3 {
+            assert!(!start_hanja_pull(&mut e));
+            assert!(e.is_hanja_mode());
+        }
+        assert!(start_hanja_pull(&mut e), "소진 호출이 팝업을 닫았다");
+        assert!(!e.is_hanja_mode());
+        // 대상 없음 호출(이미 닫힘)은 닫힘이 아니다.
+        assert!(!start_hanja_pull(&mut e));
+    }
+
+    /// 한자 모드가 아닐 때 늦게 도착한 CancelHanja 는 이모지 팝업 상태를 지우지 않는다.
+    #[test]
+    fn late_cancel_hanja_keeps_emoji_popup() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "ibus-test");
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(!e.is_hanja_mode());
+        assert!(e.is_emoji_popup_active());
+        assert_eq!(cancel_hanja_if_active(&mut e), None);
+        assert!(e.is_emoji_popup_active(), "이모지 팝업 상태가 보존된다");
+    }
+
+    /// 한자 모드였다면 종전처럼 정리하고 Some 을 돌려준다.
+    #[test]
+    fn cancel_hanja_if_active_cleans_hanja_mode() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!start_hanja_pull(&mut e));
+        assert!(e.is_hanja_mode());
+        assert!(cancel_hanja_if_active(&mut e).is_some());
+        assert!(!e.is_hanja_mode());
+    }
+
+    /// IBus 호환 컨텍스트는 능력을 선언하지 않는다 → 대상③ 은 꺼져 있다(종전 동작).
+    #[test]
+    fn ibus_context_has_no_caps() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "ibus-test");
+        assert_eq!(e.surrounding_word_caps(), 0);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(!e.is_hanja_mode());
+        assert!(e.is_emoji_popup_active());
     }
 }

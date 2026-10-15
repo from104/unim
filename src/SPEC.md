@@ -115,7 +115,7 @@ pub struct InputEngine {
     // ── 한자 단어 입력 (docs/dev/specs/HANJA_WORD_SPEC.md) ──
     recent_syllables: String,               // 최근 확정 음절 버퍼 (앱에 커밋한 한글 완성 음절열, ≤17자)
     recent_mark: usize,                     // press_key 래퍼가 저장한 commit_buffer 길이 (델타 흡수 기준점)
-    hanja_source: HanjaSource,              // Syllable(종전) / RecentWord / WordBuffer / Selection
+    hanja_source: HanjaSource,              // Syllable(종전) / RecentWord / WordBuffer / Selection / SurroundingWord(대상③)
     hanja_committed_chars: u32,             // 확정 접두 길이 (RecentWord 만 > 0)
     hanja_recommit: String,                 // 취소 시 재커밋 = 진입 시 preedit 전체 (Selection "")
     hanja_commit_prefix: String,            // 확정 문자열 앞 (단어 모드 비일치 접두 / 선택 앞 공백)
@@ -123,8 +123,17 @@ pub struct InputEngine {
     pending_hanja_replacement: Option<HanjaReplacement>, // 교체 페이로드 (take_hanja_replacement)
     hanja_output_format: HanjaOutputFormat, // config 캐시 (set_hanja_output_format 비파괴)
     hanja_word_replace_capable: bool,       // 호스트 능력 플래그 (기본 false — IMM32·capi 바이트 동일)
-    surrounding_includes_preedit: bool,     // TSF 만 true — 접두 검증 prefix+pre 절 게이트
+    surrounding_includes_preedit: bool,     // TSF 만 true(호스트 선언) — 접두 검증 prefix+pre 절 게이트(학습과 OR)
+    learned_includes_preedit: bool,         // 관측 학습: surrounding 이 preedit 포함 (두 보고 대조, FocusIn·재생성 해제) — prefix+pre 절 게이트
+    learn_obs: Option<PreeditLearnObs>,     // 학습용 직전 보고(앞부분·preedit 끝 글자), 확정·리셋 시 비움
     surrounding_seen: bool,                 // set_surrounding_text 를 받은 적 있음 (빈 값 포함)
+    // ── 대상③ 커서 주변 단어 (HANJA_WORD_SPEC v1.6 §2.4b, surrounding_word.rs) ──
+    surrounding_caps: u32,                  // 클라이언트 능력 비트 (0x1 REPLACE · 0x2 SELECTION_RELIABLE · 0x4 POINTER_HINTS). 0 = v1.5 와 바이트 동일
+    surrounding_stale: bool,                // 마지막 surrounding 보고 뒤 문서를 바꿀 사건(확정·통과 키·포인터 힌트)이 있었음
+    selection_possible: bool,               // 선택 거부 플래그 (Shift+이동·Ctrl+A·드래그·PRIMARY 변경·FocusIn). SELECTION_RELIABLE 이면 무시
+    selection_unknown_once: bool,           // "다음 한자키 한 번" 선택 불명 표시 (SetSurroundingText·FocusIn·비한자키 press_key 가 내림)
+    surrounding_word_exhausted: bool,       // pull 경로 후보 소진 — 다음 키(또는 새 surrounding)에서 내려가고 폴백 키가 이모지를 연다
+    hanja_sw_cands / hanja_sw_idx / hanja_sw_before / hanja_sw_after,  // 후보 목록(길이↓·등급·시작↑)·현재 위치·앞 a자/뒤 b자
 }
 ```
 
@@ -134,7 +143,12 @@ pub struct InputEngine {
 |---|---|---|---|
 | `recent_syllables`·`hanja_source` 등 대상 필드·`pending_hanja_replacement` | 비움 | 기본값 | 버퍼만 비움 |
 | `hanja_word_replace_capable`·`surrounding_includes_preedit` | 보존(호스트 속성) | false — 호스트가 생성 직후 다시 켠다 | 보존 |
+| `learned_includes_preedit` | 보존(앱·포커스 컨텍스트; 데몬 `Reset` 은 엔진 재생성이라 해제) · 관측 `learn_obs` 는 비움 | false (데몬 FocusIn 도 `clear_learned_includes_preedit` 로 해제) | 보존 |
 | `surrounding_seen` | 보존(앱·포커스 컨텍스트 — `surrounding_*` 와 동일) | false | 보존 |
+| `surrounding_caps`·`surrounding_stale`·`selection_possible`·`selection_unknown_once`·`surrounding_word_exhausted` | 보존(앱·포커스 컨텍스트) | false — 데몬이 `surrounding_word_carry()` / `restore_surrounding_word_carry()` 로 이월 | 보존 |
+| `hanja_sw_*` (대상③ 후보·위치·a·b) | 비움 | 기본값 | 비움 |
+
+**대상③ 공개 API** (`InputEngine`): `set_surrounding_word_caps` / `surrounding_word_caps` · `surrounding_hint(kind, keyval, state)` · `surrounding_word_focus_in()` · `surrounding_word_carry()` / `restore_surrounding_word_carry(c)` · `mark_surrounding_stale()`(낡음만) / `note_surrounding_commit()`(낡음 + 선택 플래그 해제) · 진단 `surrounding_stale()` / `selection_possible()` / `surrounding_word_span()`. 교체 페이로드 `HanjaReplacement` 는 `delete_after_chars`·`source`·`expect_text` 를 갖고, `source == SurroundingWord` 면 호스트가 `ReplaceSurroundingText(delete_chars, delete_after_chars, text, expect_text)` 로 내보낸다. `unim-capi` 영향 없음(능력 기본 0).
 | `hanja_output_format` | 보존 | config 값 | config 재동기 |
 
 `surrounding_seen` 계약(Q9(b), Wayland U4): `set_surrounding_text` 가 한 번이라도 불린 컨텍스트(빈 값·비밀번호 필드 포함)에서는 이후 surrounding 이 비어 있으면 대상① 접두 검증(`recent_prefix_verified`)을 **실패**로 보아 확정 접두가 있는 대상① 을 단음절로 퇴화시킨다. Wayland 프런트는 text-input 활성화 `Done` 에서 `SetSurroundingText("",0,0)` 마커를 보내 surrounding 미지원 앱을 이 경로에 태운다. 한 번도 받지 않은 컨텍스트(XIM 등)는 종전대로 검증을 생략한다. 엔진 재생성(데몬 FocusOut·Reset 은 `InputEngine::new`)은 플래그를 false 로 되돌리지만 버퍼도 함께 비므로 확정 접두 교체가 생기지 않고, 이후 프런트가 surrounding 을 다시 보내면 곧바로 true 가 된다.
@@ -178,7 +192,7 @@ flowchart TD
     SHRINK{"한자 팝업 + 한자키<br/>+ 대상①·2자 이상?"}
     HK{"Hanja 키?\n(설정: hanja_keys)"}
     IDLE{"preedit/조합 idle?"}
-    SEL{"선택 영역이<br/>사전 정확 일치 한글?"}
+    SEL{"신뢰 가능한 신선한 선택이<br/>있고 사전 정확 일치 한글?"}
     MOD{"수정자 키만?<br/>(Shift/Ctrl/Alt 등)"}
     CTRL{"Ctrl/Alt/Super<br/>눌림?"}
     COMPOSE_CHECK{"조합 중?"}
@@ -204,14 +218,17 @@ flowchart TD
     IDLE -->|"No (조합 중)"| HC["start_hanja_conversion()<br/>대상① 또는 종전(마지막 음절)"]
     IDLE -->|Yes| SEL
     SEL -->|Yes| HC2["대상② 한자 팝업"]
-    SEL -->|"No (선택 없음·불일치)"| EMO["start_emoji_popup() (종전 idle)"]
+    SEL -->|"불일치·낡은 선택"| EMO["start_emoji_popup() (종전 idle)"]
+    SEL -->|"선택 없음 (v1.6 개정안)"| CW{"대상③ 조건?<br/>능력·신선·거부 플래그 없음·커서가 걸친 사전 단어"}
+    CW -->|Yes| HC3["대상③ 한자 팝업<br/>확정 = ReplaceSurroundingText(a,b)"]
+    CW -->|No| EMO
     HK -->|No| CATEGORY
     CATEGORY -->|Korean| KOREAN
     CATEGORY -->|English| ENGLISH
 ```
 
 > [!NOTE]
-> 한자키 분기는 언어 분기 **직전**(POPUP_SPEC §9.2)에 있어 영문 모드에서도 동작한다. 불일치 선택에서 이모지로 폴백하는 것은 HANJA_WORD_SPEC Q8(a) — 사전에 정확히 있는 한글 선택만 한자 팝업이다.
+> 한자키 분기는 언어 분기 **직전**(POPUP_SPEC §9.2)에 있어 영문 모드에서도 동작한다. 불일치 선택에서 이모지로 폴백하는 것은 HANJA_WORD_SPEC Q8(a) — 사전에 정확히 있는 한글 선택만 한자 팝업이다. **(v1.6 개정안, 미구현)** 선택이 없으면 커서가 걸친 단어(대상③, HANJA_WORD_SPEC §2.4b)를 먼저 보고, 없을 때만 이모지다. 대상③ 을 위한 엔진 상태(`surrounding_stale`·`selection_possible`·`surrounding_word_exhausted`·능력 비트)는 컨텍스트 상태로 엔진 재생성에서 이월하고 FocusIn 에서 초기화한다.
 
 ### 2.4 한국어 키 처리 (`process_korean_key`)
 
@@ -801,6 +818,10 @@ pub struct HanjaEntry {
      일치 없으면 종전(마지막 음절 — Syllable, 단어 모드는 접두 보존).
    - idle: 앱 선택 영역(selection_span — 오프셋 초과·a≥b 는 거부, 클램프 금지)이 앞뒤 공백
      제외 전부 완성 음절·18자 이하·사전 정확 일치면 Selection(공백은 커밋 접두/접미).
+     (능력 선언 컨텍스트에서는 낡은 선택 스냅샷을 쓰지 않는다.)
+   - idle + 선택 없음: 대상③ — 커서가 걸친 한글 구간의 사전 일치 후보를 길이↓·등급(커서에서
+     끝남 0 / 시작 1 / 가로지름 2)·시작↑ 로 정렬(`SurroundingWord`, 능력 `REPLACE` ∧
+     (`SELECTION_RELIABLE` ∨ `POINTER_HINTS`) · 신선 · 선택 거부 플래그 없음 · 커서≠0).
 3. hanja_dict.search(target) → 후보 리스트 (즐겨찾기 우선 stable sort)
 4. hanja_mode = true, 대상 필드 저장, ShowHanja(뜻은 display_meaning)
 5. InputResult::hanja_candidates() 반환
@@ -809,9 +830,12 @@ pub struct HanjaEntry {
    - RecentWord: 교체 페이로드 HanjaReplacement{delete_chars, preedit_chars, text} 를 남기고
      commit_buffer 에는 넣지 않는다 → preedit_updated() (호스트가 take_hanja_replacement 로
      드레인해 AutoTypefixApply(delete_chars, text, "") 로 발행)
+   - SurroundingWord: 페이로드 {delete_chars=a, delete_after_chars=b, source, expect_text=target} 를
+     남기고 commit_buffer 에는 넣지 않는다 → consumed() (호스트가 ReplaceSurroundingText 로 발행)
    - 그 외: commit_buffer 에 push → committed()
 8. 취소(Escape·미지원 키) → hanja_cancel_text()(= 진입 시 preedit 전체, Selection 은 "") 재커밋
    → cancel_hanja() → 모드 해제
+9a. 대상③ 팝업 중 한자키 재타 → 다음 후보(`cycle_surrounding_word`). 마지막 후보 다음은 재커밋 없이 닫고 push 는 곧바로 이모지, pull 은 `surrounding_word_exhausted` 를 세워 같은 키의 폴백 `ProcessKey` 가 이모지를 연다
 9. 팝업 중 한자키 재타 → 대상① target 접미 축소(사전에 있는 더 짧은 접미, 최종 1자). push(`press_key` 팝업 분기)·pull(`start_hanja_conversion` 재호출 — Qt·GTK4·GTK3 X11·XIM) 두 경로 모두. 한 키가 두 경로를 다 타지 않으므로 이중 축소는 없다
 ```
 

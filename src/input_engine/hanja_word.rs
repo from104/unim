@@ -3,10 +3,12 @@
 //! - 버퍼: `press_key` 래퍼(`recent_track_after_key`)가 키마다 커밋 델타를 흡수하고
 //!   리셋 조건(비한글 커밋·통과 키·한/영 전환·팝업·비밀번호)에서 비운다(§2.2.1).
 //! - 대상 결정: `resolve_hanja_target` — 대상①(버퍼+preedit / 단어 모드 preedit 의 최장
-//!   사전 접미) → 종전(마지막 음절), idle 이면 대상②(앱 선택 영역)(§2.2.2·§2.3·§2.4).
+//!   사전 접미) → 종전(마지막 음절), idle 이면 대상②(앱 선택 영역) → 대상③(커서 주변
+//!   단어, `surrounding_word.rs`)(§2.2.2·§2.3·§2.4·§2.4b).
 //! - 팝업 중 한자키 재타 = target 접미 축소(`shrink_hanja_target`, Q7(a)).
 
 use super::engine::InputEngine;
+use super::surrounding_word::SwCand;
 use super::types::{HanjaSource, InputResult, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP};
 use crate::config::InputCategory;
 use crate::hangul::char::HangulCharExt;
@@ -20,6 +22,8 @@ pub(super) enum Resolve {
     /// idle + 앱 선택 영역이 있으나 사전 정확 일치 한글이 아님 — 호출부는 종전 idle
     /// 동작(이모지 팝업)으로 폴백한다(Q8(a)). 한자 팝업은 띄우지 않는다.
     NoMatchSelection,
+    /// 대상③ 커서 주변 단어 후보 목록(정렬 완료, 비어 있지 않음).
+    SurroundingWord(Vec<SwCand>),
     /// 대상 없음(비밀번호 차단·idle 선택 없음·조합 중 preedit 비어 있음).
     None,
 }
@@ -36,6 +40,9 @@ pub(super) struct HanjaTargetSpec {
     /// 확정 문자열 앞/뒤에 그대로 붙일 문자열.
     pub(super) prefix: String,
     pub(super) suffix: String,
+    /// 대상③ 만: 커서 앞/뒤 삭제 글자 수. 그 외 0.
+    pub(super) delete_before: u32,
+    pub(super) delete_after: u32,
 }
 
 impl InputEngine {
@@ -46,11 +53,13 @@ impl InputEngine {
     /// 최근 확정 음절 버퍼를 비웁니다.
     pub fn recent_clear(&mut self) {
         self.recent_syllables.clear();
+        self.learn_obs = None; // 중간 확정·리셋 — 학습 관측은 끊긴다
     }
 
     /// 버퍼 끝 1자를 제거합니다 (Backspace 통과 — 앱이 커서 앞 1자를 지웠다).
     pub(super) fn recent_pop(&mut self) {
         self.recent_syllables.pop();
+        self.learn_obs = None;
     }
 
     /// 커밋된 문자 1개를 버퍼에 반영합니다.
@@ -74,6 +83,7 @@ impl InputEngine {
             self.recent_syllables.drain(..n);
         }
         self.recent_syllables.push(c);
+        self.learn_obs = None; // 중간 확정 — 학습 관측은 끊긴다
     }
 
     /// `commit_buffer[recent_mark..]` 의 문자를 버퍼에 흡수하고 mark 를 끝으로 전진한다.
@@ -201,6 +211,10 @@ impl InputEngine {
         self.hanja_recommit.clear();
         self.hanja_commit_prefix.clear();
         self.hanja_commit_suffix.clear();
+        self.hanja_sw_cands.clear();
+        self.hanja_sw_idx = 0;
+        self.hanja_sw_before = 0;
+        self.hanja_sw_after = 0;
     }
 
     // =========================================
@@ -216,7 +230,7 @@ impl InputEngine {
         let pre: Vec<char> = self.preedit_cache.chars().collect();
         let p = pre.len();
         if p == 0 && !self.korean_context.is_composing() {
-            return self.selection_target(); // 대상②
+            return self.resolve_idle(); // 대상② → 대상③
         }
         let Some(&last) = pre.last() else {
             return Resolve::None;
@@ -230,6 +244,8 @@ impl InputEngine {
             recommit: pre_s.clone(),
             prefix: pre[..p - 1].iter().collect(),
             suffix: String::new(),
+            delete_before: 0,
+            delete_after: 0,
         };
         // 미완성 자모 → 종전(마지막 글자, 초성 특수문자 폴백은 start_hanja_conversion).
         if !last.is_hangul_syllable() {
@@ -274,6 +290,8 @@ impl InputEngine {
                     recommit: pre_s,
                     prefix: String::new(),
                     suffix: String::new(),
+                    delete_before: 0,
+                    delete_after: 0,
                 });
             }
             // 단어 모드 / preedit 내부 일치 — 접미 앞 preedit 은 커밋 접두로 보존.
@@ -284,6 +302,8 @@ impl InputEngine {
                 recommit: pre_s.clone(),
                 prefix: pre[..p - l].iter().collect(),
                 suffix: String::new(),
+                delete_before: 0,
+                delete_after: 0,
             });
         }
         // 종전(마지막 음절). 단어 모드는 접두를 보존한다.
@@ -299,7 +319,8 @@ impl InputEngine {
     /// - surrounding 을 한 번도 받지 않은 컨텍스트(XIM 등)는 검증 생략(통과).
     /// - 받은 적 있는 컨텍스트에서 빈 surrounding 은 실패(Wayland 미수신 마커, Q9(b)).
     /// - 커서 오프셋 초과(단위 불일치)·커서 앞 빈 문자열은 실패(fail-closed).
-    /// - `prefix+pre` 절은 surrounding 이 조합 텍스트를 포함하는 호스트(TSF)에서만.
+    /// - `prefix+pre` 절은 surrounding 이 조합 텍스트를 포함하는 컨텍스트에서만 —
+    ///   호스트 선언(TSF) 또는 관측 학습(`learned_includes_preedit`, LibreOffice 등).
     fn recent_prefix_verified(&self, prefix: &str, pre: &str) -> bool {
         if self.surrounding_text.is_empty() {
             return !self.surrounding_seen;
@@ -313,16 +334,108 @@ impl InputEngine {
         if before.is_empty() {
             return false; // "" 는 모든 문자열의 접미 — 잘림 절 공허 통과 금지
         }
-        // GTK/Qt/Wayland/GNOME: surrounding 은 preedit 을 포함하지 않는다.
+        // 대부분의 GTK/Qt/Wayland/GNOME 앱: surrounding 은 preedit 을 포함하지 않는다.
+        // (포함 앱도 들쭉날쭉 미포함 보고를 하므로 이 절은 항상 유지한다.)
         if before.ends_with(prefix) || prefix.ends_with(before.as_str()) {
             return true;
         }
         // Wayland/GNOME 클릭 드리프트("…대한민국" 뒤 클릭 + "국")에서 full 절이 뚫리지 않게.
-        if !self.surrounding_includes_preedit {
+        if !(self.surrounding_includes_preedit || self.learned_includes_preedit) {
             return false;
         }
         let full = format!("{prefix}{pre}");
-        before.ends_with(&full) || full.ends_with(before.as_str())
+        // 잘림 절은 before 가 preedit 보다 길 때만 — before == pre 는 앱이 preedit 만 보고한
+        // 것(문단·필드 처음)이라 recent 가 문서에 없다는 뜻이고, full = prefix+pre 의 접미라
+        // 어떤 prefix 든 공허 통과하기 때문이다(클릭 후 새 문단에서 이전 글자 삭제 방지).
+        before.ends_with(&full)
+            || (before.chars().count() > pre.chars().count() && full.ends_with(before.as_str()))
+    }
+
+    /// idle(조합 없음) 한자키의 대상 결정 — 대상② 앱 선택 → 대상③ 커서 주변 단어(§2.4b).
+    ///
+    /// 능력을 선언한 컨텍스트(`caps != 0`)에서는 선택 스냅샷이 낡았으면(마지막 보고 뒤
+    /// 문서를 바꿀 사건) 대상②도 쓰지 않고 이모지로 폴백한다(I1). `caps == 0` 은 v1.5 와
+    /// 바이트 동일. 한자키마다 판정 로그 1줄(수치·이유 코드만, §2.8).
+    fn resolve_idle(&self) -> Resolve {
+        if self.has_selection() {
+            if self.surrounding_caps != 0 && self.surrounding_stale {
+                unim_log!("ENGINE", "대상②: reason=stale");
+                return Resolve::NoMatchSelection;
+            }
+            return self.selection_target();
+        }
+        if self.surrounding_word_exhausted {
+            unim_log!("ENGINE", "대상③: reason=exhausted");
+            return Resolve::None;
+        }
+        let flag = if self.selection_unknown_once {
+            "sel_unknown"
+        } else {
+            self.selection_flag_cause.name()
+        };
+        match self.surrounding_word_resolve() {
+            Ok(cands) => {
+                let first = &cands[0];
+                unim_log!(
+                    "ENGINE",
+                    "대상③: reason=ok cands={} len={} a={} b={} flag={}",
+                    cands.len(),
+                    first.key.chars().count(),
+                    first.a,
+                    first.b,
+                    flag
+                );
+                Resolve::SurroundingWord(cands)
+            }
+            Err((reason, run)) => {
+                unim_log!("ENGINE", "대상③: reason={} run={}자 flag={}", reason, run, flag);
+                Resolve::None
+            }
+        }
+    }
+
+    /// 대상③ 후보 한 건을 팝업 명세로 만든다.
+    pub(super) fn sw_spec(c: &SwCand) -> HanjaTargetSpec {
+        HanjaTargetSpec {
+            key: c.key.clone(),
+            source: HanjaSource::SurroundingWord,
+            committed: 0,
+            recommit: String::new(),
+            prefix: String::new(),
+            suffix: String::new(),
+            delete_before: c.a,
+            delete_after: c.b,
+        }
+    }
+
+    /// 대상③ 팝업 중 한자키 재타 — 다음 후보로 옮긴다(§2.4b.3).
+    ///
+    /// 대상③ 팝업이 아니면 `None`(호출부가 다른 경로로 간다). 마지막 후보 다음이면 팝업을
+    /// 재커밋 없이 닫고, pull 경로(`pull`, GetHanjaCandidates)는 `surrounding_word_exhausted`
+    /// 를 세워 이어지는 폴백 키가 이모지를 열게 하며, push 경로는 곧바로 이모지 팝업을 연다.
+    pub(super) fn cycle_surrounding_word(&mut self, pull: bool) -> Option<InputResult> {
+        if !self.hanja_mode || self.hanja_source != HanjaSource::SurroundingWord {
+            return None;
+        }
+        let next = self.hanja_sw_idx + 1;
+        if let Some(c) = self.hanja_sw_cands.get(next).cloned() {
+            let candidates = self.hanja_dict.search(&c.key);
+            if !candidates.is_empty() {
+                self.hanja_sw_idx = next;
+                unim_log!("ENGINE", "대상③ 다음 후보: {}/{}", next + 1, self.hanja_sw_cands.len());
+                self.open_hanja_popup(Self::sw_spec(&c), candidates);
+                return Some(InputResult::hanja_candidates());
+            }
+        }
+        // 후보 소진 — 재커밋 없이 닫는다(문서는 그대로).
+        unim_log!("ENGINE", "대상③ 후보 소진 (pull={})", pull);
+        self.cancel_hanja();
+        if pull {
+            self.surrounding_word_exhausted = true;
+        } else {
+            self.start_emoji_popup();
+        }
+        Some(InputResult::consumed())
     }
 
     /// 선택 구간 `(a, b)` (문자 단위, a < b).
@@ -381,6 +494,8 @@ impl InputEngine {
             recommit: String::new(),
             prefix: sel[..lead].iter().collect(),
             suffix: sel[sel.len() - trail..].iter().collect(),
+            delete_before: 0,
+            delete_after: 0,
         })
     }
 
@@ -439,6 +554,8 @@ impl InputEngine {
                 recommit: self.hanja_recommit.clone(),
                 prefix,
                 suffix: String::new(),
+                delete_before: 0,
+                delete_after: 0,
             };
             unim_log!("ENGINE", "한자 대상 축소: {}자 -> {}자", l, l2);
             self.open_hanja_popup(spec, candidates);

@@ -220,19 +220,27 @@ pub enum PopupAction {
 /// 한자 단어 교체 페이로드 (HANJA_WORD_SPEC §2.6·§4.1).
 ///
 /// 대상①(`HanjaSource::RecentWord`) 확정에서 이미 앱에 확정된 접두를 지우고 한자를
-/// 넣어야 할 때만 엔진이 남긴다. `InputResult`(`repr(C)` ABI)를 건드리지 않는
-/// out-of-band 채널이며(`pending_atf_toggle` 선례), 호스트가
-/// `InputEngine::take_hanja_replacement()` 로 드레인해 교체 채널
-/// (`AutoTypefixApply(delete_chars, text, "")`)로 내보낸다.
+/// 넣어야 할 때, 그리고 대상③(`HanjaSource::SurroundingWord`) 확정에서만 엔진이 남긴다.
+/// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널이며(`pending_atf_toggle`
+/// 선례), 호스트가 `InputEngine::take_hanja_replacement()` 로 드레인해 `source` 에 맞는
+/// 교체 채널로 내보낸다 — 대상① 은 `AutoTypefixApply(delete_chars, text, "")`, 대상③ 은
+/// `ReplaceSurroundingText(delete_chars, delete_after_chars, text, expect_text)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HanjaReplacement {
-    /// 앱에서 지울 확정 접두 글자 수 (완성 음절 — UTF-8 3바이트 확정).
+    /// 앱에서 지울 글자 수. 대상① 은 확정 접두(완성 음절 — UTF-8 3바이트 확정),
+    /// 대상③ 은 커서 **앞** a자.
     pub delete_chars: u32,
+    /// 대상③ 만: 커서 **뒤** b자. 그 외 0.
+    pub delete_after_chars: u32,
     /// 팝업 진입 당시 preedit 글자 수. 조합 텍스트가 문서 안에 있는 호스트(TSF)가
-    /// 교체 범위를 `delete_chars + preedit_chars` 로 잡을 때 쓴다.
+    /// 교체 범위를 `delete_chars + preedit_chars` 로 잡을 때 쓴다. 대상③ 은 0.
     pub preedit_chars: u32,
     /// 넣을 텍스트 (출력 형식 적용 완료).
     pub text: String,
+    /// 확정 대상의 출처 — 교체 채널 선택 기준(`SurroundingWord` → `ReplaceSurroundingText`).
+    pub source: HanjaSource,
+    /// 대상③ 만: 지울 한글 원문(= target). 프런트가 문서와 대조한다. 그 외 "".
+    pub expect_text: String,
 }
 
 /// 한자 변환 대상의 출처 (HANJA_WORD_SPEC §1.2).
@@ -247,6 +255,32 @@ pub enum HanjaSource {
     WordBuffer,
     /// 대상② 앱 선택 영역.
     Selection,
+    /// 대상③ 커서 주변 단어 — 확정된 한글을 커서 기준 앞 a자·뒤 b자로 교체(§2.4b).
+    SurroundingWord,
+}
+
+/// 클라이언트 능력 비트 — `SetClientCapabilities`(DBus) / `set_surrounding_word_caps`.
+/// 대상③ 허용 조건은 `REPLACE && (SELECTION_RELIABLE || POINTER_HINTS)`.
+pub const SURROUNDING_CAP_REPLACE: u32 = 0x1;
+pub const SURROUNDING_CAP_SELECTION_RELIABLE: u32 = 0x2;
+pub const SURROUNDING_CAP_POINTER_HINTS: u32 = 0x4;
+
+/// `SurroundingHint` kind — 프런트가 엔진 밖에서 관측한 사건.
+pub const SURROUNDING_HINT_KEY: u32 = 1;
+pub const SURROUNDING_HINT_POINTER_PLAIN: u32 = 2;
+pub const SURROUNDING_HINT_POINTER_SELECT: u32 = 3;
+pub const SURROUNDING_HINT_PRIMARY_CHANGED: u32 = 4;
+pub const SURROUNDING_HINT_SELECTION_UNKNOWN: u32 = 5;
+
+/// 대상③ 신선도·선택 거부 상태 — 엔진 재생성(Reset·FocusOut)을 건너 이월하는 묶음.
+/// 필드는 크레이트 내부 전용이며 호출부는 `surrounding_word_carry` / `restore_*` 로만 옮긴다.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurroundingWordCarry {
+    pub(super) caps: u32,
+    pub(super) stale: bool,
+    pub(super) selection_possible: bool,
+    pub(super) flag_cause: u8,
+    pub(super) exhausted: bool,
 }
 
 /// 사전 최장 키 길이(글자) — 대상 탐색·선택 판정 상한.

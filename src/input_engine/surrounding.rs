@@ -108,15 +108,73 @@ impl InputEngine {
     /// (HANJA_WORD_SPEC Q9(b), Wayland 미수신 마커 `("",0,0)`).
     pub fn set_surrounding_text(&mut self, text: String, cursor_pos: u32, anchor_pos: u32) {
         self.surrounding_seen = true;
+        // 보고 수신 = 신선(차단 여부와 무관). 대상③ 소진·선택 불명 표시도 새 보고로 해제(I3).
+        self.surrounding_stale = false;
+        self.surrounding_word_exhausted = false;
+        self.selection_unknown_once = false;
         if self.content_purpose.should_block_hangul() {
             self.surrounding_text.clear();
             self.surrounding_cursor = 0;
             self.surrounding_anchor = 0;
+            self.learn_obs = None;
             return;
         }
+        self.observe_preedit_inclusion(&text, cursor_pos, anchor_pos);
         self.surrounding_text = text;
         self.surrounding_cursor = cursor_pos;
         self.surrounding_anchor = anchor_pos;
+    }
+
+    /// surrounding 이 preedit 을 포함하는 앱(LibreOffice VCL 등)을 **관측으로 학습**한다
+    /// (HANJA_WORD_SPEC §2.2.3). 저장값은 건드리지 않고 비교만 한다.
+    ///
+    /// 증거 = cursor==anchor 인 조합 중 보고 두 건이, 중간 확정 없이(`recent_*` 변경 시
+    /// `learn_obs` 해제), preedit 끝 글자가 서로 다르고(P1≠P2 끝 글자), 각각 `before` 가
+    /// 그 preedit 으로 끝나며, preedit 을 뺀 앞부분과 그 길이가 같은 경우. preedit 미포함
+    /// 앱은 preedit 이 바뀌어도 `before` 가 변하지 않으므로 오탐할 수 없다. 모아치기처럼
+    /// 끝 글자가 같은 변화는 증거가 아니다. 증거가 아닌 보고는 관측을 비운다(fail-safe).
+    ///
+    /// 학습 모드에서 조합 중이 아닌 보고의 `before` 가 최근 확정 버퍼로 끝나지 않으면
+    /// 버퍼를 비운다 — 늦게 도착한 보고의 드리프트로 엉뚱한 글자를 지우는 것을 막는다
+    /// (실패 방향 = 종전 1자, 안전).
+    fn observe_preedit_inclusion(&mut self, text: &str, cursor_pos: u32, anchor_pos: u32) {
+        // 모아치기 대기 중 자모는 preedit 캐시에만 있을 수 있어 둘 다 본다(idle 오판 방지).
+        let composing = self.korean_context.is_composing() || !self.preedit_str().is_empty();
+        let cursor = cursor_pos as usize;
+        let before: String = text.chars().take(cursor).collect();
+        let before_len = before.chars().count();
+        // 커서 단위 불일치(오프셋 초과)·선택 영역은 증거가 아니다.
+        if cursor_pos != anchor_pos || before_len != cursor {
+            self.learn_obs = None;
+            return;
+        }
+        if !composing {
+            self.learn_obs = None;
+            if self.learned_includes_preedit
+                && !self.recent_syllables.is_empty()
+                && !before.ends_with(self.recent_syllables.as_str())
+            {
+                self.recent_clear();
+            }
+            return;
+        }
+        let pre = self.preedit_str();
+        let Some(tail) = pre.chars().last() else {
+            self.learn_obs = None;
+            return;
+        };
+        let pre_len = pre.chars().count();
+        if !before.ends_with(pre) {
+            self.learn_obs = None; // 미포함 보고(또는 늦은 보고) — 증거 아님
+            return;
+        }
+        let head: String = before.chars().take(before_len - pre_len).collect();
+        if let Some(prev) = &self.learn_obs {
+            if prev.tail != tail && prev.head == head {
+                self.learned_includes_preedit = true;
+            }
+        }
+        self.learn_obs = Some(super::engine::PreeditLearnObs { head, tail });
     }
 
     /// Surrounding text를 반환합니다.

@@ -15,13 +15,17 @@ mod hanja_word;
 mod popup_dispatch;
 mod press_key;
 mod surrounding;
+mod surrounding_word;
 mod types;
 
 pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
 pub use types::{
     AtfHotkey, AtfToggleKind, HanjaReplacement, HanjaSource, InputResult, PageDirection,
-    PopupAction, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP,
+    PopupAction, SurroundingWordCarry, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP,
+    SURROUNDING_CAP_POINTER_HINTS, SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+    SURROUNDING_HINT_KEY, SURROUNDING_HINT_POINTER_PLAIN, SURROUNDING_HINT_POINTER_SELECT,
+    SURROUNDING_HINT_PRIMARY_CHANGED, SURROUNDING_HINT_SELECTION_UNKNOWN,
 };
 
 use crate::config::Config;
@@ -49,6 +53,8 @@ mod tests_toggle;
 mod tests_atf_hotkey;
 #[cfg(test)]
 mod tests_hanja_word;
+#[cfg(test)]
+mod tests_surrounding_word;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///

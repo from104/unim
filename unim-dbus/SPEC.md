@@ -117,9 +117,12 @@ pub enum EngineRequest {
     FocusOut { context_id, response },
     Reset { context_id },
     SetGlobalMode { is_korean },
-    GetHanjaCandidates { context_id, response },
-    SelectHanja { context_id, index, response },
+    GetHanjaCandidates { context_id, response },   // 응답 (HanjaCandidateResponse, closed_popup: bool)
+    SelectHanja { context_id, index, response },   // 응답 SelectHanjaOutcome {None, Commit, Replace, ReplaceSurrounding}
     CancelHanja { context_id },
+    SetClientCapabilities { context_id, caps },    // 응답 없음 — 대상③ 능력 비트
+    SurroundingHint { context_id, kind, keyval, state }, // 응답 없음 — 엔진 밖 사건(키·포인터·PRIMARY·선택 불명)
+    CancelEmojiPopup { context_id, committed, response }, // committed=true 면 문서 낡음 표시
 }
 ```
 
@@ -131,8 +134,19 @@ pub struct EngineResponse {
     pub preedit: Option<String>,     // 변경된 preedit (None이면 변경 없음)
     pub commit: Option<String>,      // 커밋할 텍스트 (None이면 없음)
     pub mode_changed: Option<bool>,  // 모드 변경 시 is_korean (None이면 변경 없음)
+    pub replace_surrounding: Option<ReplaceSurrounding>, // 대상③ 확정 — {delete_before, delete_after, commit_text, expect_text}
+    // (그 밖 popup_action·auto_typefix·render_state·chord_pending·atf_* 필드는 코드 참조)
 }
 ```
+
+### 4.4 InputContext 직렬 디스패치 (zbus 4.4 반전 속성 주의)
+
+`org.atit.unim.InputContext` 인터페이스(`InputContextHandler`)는 **메서드별 태스크를 만들지 않고 연결의 디스패치 루프에서 직렬로 처리**한다. 데몬의 버스 연결은 1개라 **모든 앱의 InputContext 호출이 전역으로 직렬**이며, 같은 컨텍스트에서 응답 없이 보낸 `SetSurroundingText` 가 뒤따르는 `GetHanjaCandidates`/`ProcessKeyEvent` 보다 **먼저 엔진 채널에 들어가야** 하기 때문이다(HANJA_WORD_SPEC §2.4.5 순서 불변식 — 별도 태스크면 도착 순서가 뒤집혀 낡은 선택으로 한자 대상이 잡힌다).
+
+- 속성: `#[interface(name = "org.atit.unim.InputContext", spawn = true)]`. **zbus_macros 4.4.0 `iface.rs:377` 의 `spawn` 은 반전**되어(`!spawn.unwrap_or(false)`) `spawn = true` 일 때 메서드별 태스크가 **꺼진다**(`spawn_tasks_for_methods() == false`). 지정 안 함·`spawn = false` 는 태스크 생성(켜짐). zbus 5.x 는 `unwrap_or(true)` 로 정상 방향이라, 5 로 올릴 때는 `spawn = false` 로 바꿔야 한다. 단위 시험 `unim-dbus/tests/surrounding_order.rs` 가 `spawn_tasks_for_methods()` 를 단언해 방향 변경을 드러낸다.
+- `org.atit.unim.InputMethod` 는 직렬화하지 않는다 — `set_config`·`set_global_mode`·`register/unregister` 가 RwLock write 와 파일 I/O 를 하므로 그 자리에서 실행하면 InputContext 까지 막는다.
+- 비용: InputContext 호출이 처리되는 동안 같은 연결의 다른 메시지 디스패치가 늦어진다(엔진이 단일 스레드라 실제 지연 증가는 미미).
+- 후속 과제(이번 범위 밖): IBus 호환 `org.freedesktop.IBus.InputContext`(`ibus_compat/ibus_context.rs:187`)도 메서드별 태스크라 같은 도착 순서 경쟁이 있다. IBus 경로에 응답 없는 선행 송신 → 후속 조회 패턴이 생기면 같은 방식(zbus 4.4 반전 `spawn = true`)으로 직렬화를 검토한다.
 
 ---
 
@@ -262,6 +276,8 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 
 ## 6. InputContext 인터페이스 (`org.atit.unim.InputContext`)
 
+`SetClientCapabilities`·`SurroundingHint` 도 같은 직렬 처리에 기댄다 — 응답 없이 보낸 힌트가 바로 뒤의 `GetHanjaCandidates`/`ProcessKeyEvent` 보다 먼저 엔진에 반영돼야 낡음·선택 거부 판정이 맞다(HANJA_WORD_SPEC §2.4b.6, `tests/surrounding_word.rs` (11)).
+
 경로: `/org/atit/unim/InputContext_{id}` (동적 생성)
 
 ### 6.1 메서드
@@ -273,8 +289,8 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `FocusOut` | — | `s` | 포커스 상실 → 조합 커밋 텍스트 반환 |
 | `Reset` | — | — | 입력 상태 초기화 |
 | `Destroy` | — | — | 컨텍스트 파괴 |
-| `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]). target 은 다음절 어절일 수 있다(최근 확정 음절+preedit·단어 모드 preedit·선택 영역 — [`HANJA_WORD_SPEC`](../docs/dev/specs/HANJA_WORD_SPEC.md) §2) |
-| `SelectHanja` | `index: u` | `s` | 한자 선택 → 출력 형식(`hanja_output_format`) 적용 문자열 반환(시그니처 불변). 확정 접두가 있으면(대상①) `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")` 가 popup-owner path 로 발행되고 `HidePopup` 이 이어진다 — 워커 내부 결과 `SelectHanjaOutcome{None, Commit, Replace}` |
+| `GetHanjaCandidates` | — | `(s, a(ss))` | (대상③ 후보가 소진돼 열려 있던 팝업이 이 호출로 닫히면 `HidePopup` 을 자기 path 로 발행 — 이어지는 `ProcessKeyEvent` 폴백이 이모지를 연다) 한자 후보 조회 → (target, [(한자, 뜻풀이)]). target 은 다음절 어절일 수 있다(최근 확정 음절+preedit·단어 모드 preedit·선택 영역 — [`HANJA_WORD_SPEC`](../docs/dev/specs/HANJA_WORD_SPEC.md) §2) |
+| `SelectHanja` | `index: u` | `s` | 한자 선택 → 출력 형식(`hanja_output_format`) 적용 문자열 반환(시그니처 불변). 확정 접두가 있으면(대상①) `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")` 가 popup-owner path 로 발행되고 `HidePopup` 이 이어진다. 대상③ 이면 `ReplaceSurroundingText(a, b, text, expect)` → `HidePopup` 순서로 발행 — 워커 내부 결과 `SelectHanjaOutcome{None, Commit, Replace, ReplaceSurrounding}` |
 | `CancelHanja` | — | `s` | 한자 모드 취소 — 팝업 진입 때 내려간 preedit 부분만 `CommitText` 로 되돌린다(확정 접두는 앱에 이미 있으므로 제외, 선택 영역 대상은 커밋 없음). 한자 모드였으면 커밋이 없어도 `HidePopup` 발행 |
 | `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. 비밀번호/PIN 진입 시 열린 팝업(한자·특수문자·이모지)은 **재커밋 없이** 닫고 `HidePopup` 만 호출 컨텍스트 자신의 path 로 발행한다(워커 `SetContentTypeWithReply` 응답 채널, HANJA_WORD_SPEC §2.8). ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
@@ -283,7 +299,9 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
 | `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
-| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건). 한자 선택 변환(대상②) 감지·확정 접두 정합성 검증에도 쓴다 — Wayland 는 `done` 마다, Qt 는 `update()` 마다(변경 시, 빈 텍스트 포함), TSF 는 idle 한자키 시점에 전송 |
+| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | **응답 없이 보내도 이후 호출(GetHanjaCandidates·ProcessKeyEvent) 전에 엔진에 반영된다(§4.4 직렬 디스패치).** 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건). 한자 선택 변환(대상②) 감지·확정 접두 정합성 검증에도 쓴다 — Wayland 는 `done` 마다, Qt 는 `update()` 마다(변경 시, 빈 텍스트 포함), TSF 는 idle 한자키 시점에 전송. 커서가 걸친 단어(대상③) 판정에도 쓰고, 수신(비밀번호 필드 포함)이 엔진의 "낡음"·"소진"·"선택 불명" 표시를 푼다(HANJA_WORD_SPEC §2.4b.6). GNOME 확장은 Mutter 값을 그대로 전달만 한다(PRIMARY 로 만든 가짜 anchor 송신은 퇴역) |
+| `SetClientCapabilities` | `caps: u` | — | 클라이언트 능력 선언(응답 없이 보냄, 멱등 — FocusIn 직후마다). 비트 `0x1` REPLACE_SURROUNDING · `0x2` SELECTION_RELIABLE · `0x4` POINTER_HINTS. 대상③ 허용 조건은 `(caps&1) && (caps&6)`. 엔진 재생성(Reset·FocusOut)·FocusIn 을 건너 유지되고, 보내지 않으면 0(종전 동작, IBus 호환·XIM·순수 Wayland 포함) |
+| `SurroundingHint` | `kind: u, keyval: u, state: u` | — | 프런트가 엔진 밖에서 관측한 사건(응답 없이 보냄). `kind` 1 KEY(엔진을 거치지 않고 앱에 넘긴 키 — keyval 은 X11 keysym, state 는 X11/Clutter 마스크) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN(다음 한자키 한 번). `kind≠1` 이면 keyval·state=0. 알 수 없는 kind 는 무시하고 로그. 로그에는 탐색·편집 키 이름만 남긴다(글자 평문 금지) |
 | `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
 | `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
 | `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
@@ -304,6 +322,7 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
 | `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
 | `DeleteSurroundingText` | `offset: i, n_chars: u` | 커서 기준 삭제 요청 (SmartBackspace 결과 반영용) |
+| `ReplaceSurroundingText` | `delete_before: u, delete_after: u, commit_text: s, expect_text: s` | 대상③(커서 주변 단어) 확정 — 커서 기준 앞 a자·뒤 b자(유니코드 코드포인트)를 지우고 `commit_text` 커밋. `expect_text`(지울 한글 원문, 항상 비어 있지 않음)를 GTK·Qt 는 문서 재조회 후 완전 일치할 때만 실행하고, GNOME 은 대조 없이 실행. 키보드 확정은 `ProcessKeyEvent` 안에서 `HidePopup` 뒤 자기 path 로, 마우스 확정은 popup-owner path 로 `ReplaceSurroundingText` → `HidePopup`. 로그는 a·b·길이만 |
 | `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로. 한자 단어 교체에도 사용 — 그때 `delete_chars`=확정 접두 글자 수, `preedit_text=""`(키보드 확정은 `ProcessKeyEvent` 응답 뒤, 마우스 확정은 `SelectHanja` 에서 발행). 교체 프레임에서는 ATF 검사·Global 모드 전파를 건너뛰고 키스트로크 버퍼를 폐기한다 |
 
 ### 6.3 ProcessKeyEvent 상세
@@ -552,6 +571,8 @@ sequenceDiagram
     SVC-->>FE: commit_text 반환 (RPC 반환값 단일 채널 — 552b5bd)
 ```
 
+대상③ 확정 흐름: `SetClientCapabilities(caps)`·`SetSurroundingText`·`SurroundingHint` (응답 없음) → `ProcessKeyEvent`(한자키) → 후보 팝업 → 확정 시 `EngineResponse.replace_surrounding` 또는 `SelectHanjaOutcome::ReplaceSurrounding` → `ReplaceSurroundingText(a,b,text,expect)` + `HidePopup`.
+
 ---
 
 ## 11. 빌드
@@ -576,6 +597,10 @@ cargo build --workspace
 | `ENGINE_WORKER` | `engine_worker.rs` (요청 처리, 모드 변경) |
 
 로그 매크로: `unim_log!("DBUS", "...")` / `unim_log!("ENGINE_WORKER", "...")`
+
+`SetSurroundingText` 로그는 DBus 계층(send 직후)이 아니라 **엔진 워커가 처리한 뒤** 길이만 한 줄로 찍는다 — 엔진 처리 순서를 반영하고 텍스트 평문을 남기지 않기 위함(HANJA_WORD_SPEC §2.8).
+
+`ReplaceSurroundingText` 교체 검증 로그(관측 전용, `replace_verify.rs`): 시그널을 내는 순간(키보드·마우스 확정 공통, 모든 프런트) 그 컨텍스트의 직전 surrounding(메모리에만)과 a·b·commit 길이를 보관했다가, 같은 컨텍스트의 다음 `SetSurroundingText`(발행 3초 이내, 그 사이 FocusIn/FocusOut/컨텍스트 파괴 없을 때)와 코드포인트 단위로 비교해 `[REPLACE_VERIFY] ctx=N frontend=<GNOME|GTK3|GTK4|Qt5|Qt6|…> expect(before=a, after=b, ins=k) actual(before=x, after=y, ins=z) verdict=ok|over|under|mismatch|unknown|timeout` 한 줄을 `ENGINE_WORKER` 태그로 남긴다. 텍스트 평문은 로그에 없고 보관본은 비교 직후(또는 취소·타임아웃 청산 시) 버린다. 옛 문서와 똑같은 재보고는 교체 결과가 아니므로 소비하지 않고 대기를 유지한다. `over` = 기대보다 많이 지움(예: 한글을 바이트 a×3 으로 지움), `unknown` = surrounding 창 이동 등 비교 불가, `timeout` = 3초 내 보고 없음(워커에 타이머가 없어 다음 요청 처리 시 청산). `frontend` 는 `CreateInputContext` 의 `client_name` 에서 구한다(`NoteFrontend` 요청, IBus 호환 컨텍스트는 `unknown`). 실측 절차는 HANJA_WORD_SPEC §6.5 (10).
 
 활성화: `UNIM_DEVELOP=1`
 

@@ -71,8 +71,13 @@ impl InputEngine {
         self.recent_mark = before_len;
         let was_popup = self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active();
         let cat_before = self.input_category;
+        // pull 경로의 대상③ 소진 표시는 "다음 키 처리"에서 내린다 — 이번 키의 한자 idle
+        // 분기만 값을 본다(HANJA_WORD_SPEC §2.4b.3).
+        self.sw_exhausted_key = std::mem::take(&mut self.surrounding_word_exhausted);
         let r = self.press_key_inner(keycode, modifier, config);
+        self.sw_exhausted_key = false;
         self.recent_track_after_key(keycode, modifier, &r, before_len, was_popup, cat_before);
+        self.surrounding_track_after_key(keycode, modifier, &r, before_len, was_popup);
         r
     }
 
@@ -114,6 +119,10 @@ impl InputEngine {
                 && self.hanja_keys.contains(&keycode)
                 && !(modifier.control || modifier.alt || modifier.super_key)
             {
+                // 대상③ 은 다음 후보로 순환(소진 시 이모지), 그 외는 접미 축소.
+                if let Some(r) = self.cycle_surrounding_word(false) {
+                    return r;
+                }
                 if let Some(r) = self.shrink_hanja_target() {
                     return r;
                 }
@@ -269,12 +278,16 @@ impl InputEngine {
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {
-                if self.has_selection() {
+                if self.sw_exhausted_key {
+                    // pull 경로에서 대상③ 후보가 소진된 뒤의 폴백 키 — 이모지.
+                    unim_log!("ENGINE", "대상③: reason=exhausted → 이모지");
+                } else {
+                    // 대상②(선택)·대상③(커서 주변 단어) 판정은 resolve_idle 이 한다.
+                    // 대상이 없거나 불일치면 종전 idle 동작(이모지)으로 폴백(Q8(a)).
                     let r = self.start_hanja_conversion();
                     if self.hanja_mode {
-                        return r; // 대상②
+                        return r;
                     }
-                    // 불일치 선택 → 종전 idle 동작으로 폴백(Q8(a)). 선택은 건드리지 않는다.
                 }
                 self.start_emoji_popup();
                 return InputResult::consumed();

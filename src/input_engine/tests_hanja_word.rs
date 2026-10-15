@@ -1109,6 +1109,55 @@ fn selection_cancel_does_not_recommit_anything() {
     assert!(!e.is_hanja_mode());
 }
 
+/// 대상②-순서: 같은 컨텍스트에 선택 스냅샷이 연달아 오면 마지막 것이 이긴다.
+/// 데몬이 SetSurroundingText → GetHanjaCandidates 순서를 지키는 한 낡은 선택
+/// ("사" 1자)이 아니라 최신 선택("서사" 전체)이 대상이 된다.
+#[test]
+fn selection_latest_snapshot_wins() {
+    let config = Config::default();
+    let mut e = create_test_engine();
+    e.set_surrounding_text("서사".to_string(), 1, 2);
+    e.set_surrounding_text("서사".to_string(), 0, 2);
+
+    let r = e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(r, InputResult::hanja_candidates());
+    assert_eq!(e.get_hanja_target(), "서사");
+    assert_eq!(e.hanja_source(), HanjaSource::Selection);
+}
+
+/// 대상②-낡은 부분 선택: 최신 스냅샷이 (1,2) 이면 대상은 "사" 1자다. 원래 결함은
+/// 전체 선택이 앱에 남아 있는데 엔진이 낡은 (1,2) 로 한자 변환을 하던 경로였다 —
+/// 엔진 자체는 받은 스냅샷대로 동작함을 문서화한다(순서 보장은 데몬 책임).
+#[test]
+fn stale_partial_selection_targets_single_char() {
+    let config = Config::default();
+    let mut e = create_test_engine();
+    e.set_surrounding_text("서사".to_string(), 1, 2);
+
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "사");
+    assert_eq!(e.hanja_source(), HanjaSource::Selection);
+}
+
+/// 대상②-취소 후 잔여 없음: Esc 뒤 재커밋이 없고 한자 모드가 풀리며, 다음 선택은
+/// 이전 대상을 끌고 오지 않는다.
+#[test]
+fn selection_escape_leaves_no_residue() {
+    let config = Config::default();
+    let mut e = create_test_engine();
+    e.set_surrounding_text("서사".to_string(), 0, 2);
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "서사");
+
+    e.press_key(KeyCode::Escape, ModifierState::default(), &config);
+    assert!(e.commit_str().is_empty(), "취소는 재커밋 없음");
+    assert!(!e.is_hanja_mode());
+
+    e.set_surrounding_text("서사".to_string(), 1, 2);
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "사", "이전 대상(서사)이 남아 있으면 안 된다");
+}
+
 // =============================================================================
 // 출력 형식
 // =============================================================================
@@ -1325,4 +1374,174 @@ fn word_popup_has_no_expand_and_shrink_to_one_char_restores_it() {
     assert!(st.view_model("").expand_visible);
     assert_eq!(st.handle_key(PopupKey::Period), PopupKeyResult::Updated);
     assert!(st.is_hanja_expanded());
+}
+
+// =============================================================================
+// surrounding preedit 포함 관측 학습 (LibreOffice VCL — §2.2.3)
+// =============================================================================
+
+const T_J: [KeyCode; 2] = [KeyCode::T, KeyCode::J]; // 서
+const T_K: [KeyCode; 2] = [KeyCode::T, KeyCode::K]; // 사
+
+/// Writer 실측 시퀀스까지 진행해 학습이 끝난 엔진을 만든다:
+/// ㅅ(1/1) → 서(1/1) → 섯(1/1) → "서" 확정 + 사(2/2).
+fn writer_sequence_until_sa(config: &Config) -> InputEngine {
+    let mut e = create_test_engine();
+    e.set_input_category(InputCategory::Korean);
+    e.set_hanja_word_replace_capable(true);
+    type_keys(&mut e, config, &[KeyCode::T]);
+    assert_eq!(e.preedit_str(), "ㅅ");
+    e.set_surrounding_text("ㅅ".to_string(), 1, 1);
+    assert!(!e.learned_includes_preedit(), "보고 한 건으로는 학습하지 않는다");
+    type_keys(&mut e, config, &[KeyCode::J]);
+    assert_eq!(e.preedit_str(), "서");
+    e.set_surrounding_text("서".to_string(), 1, 1);
+    assert!(e.learned_includes_preedit(), "ㅅ→서: 끝 글자가 다르고 앞부분 동일 → 학습");
+    type_keys(&mut e, config, &[KeyCode::T]);
+    assert_eq!(e.preedit_str(), "섯", "ㅅ 은 받침으로 붙는다");
+    e.set_surrounding_text("섯".to_string(), 1, 1);
+    type_keys(&mut e, config, &[KeyCode::K]);
+    assert_eq!(e.commit_str(), "서", "ㅅ 이 다음 음절로 넘어가며 '서' 확정");
+    assert_eq!(e.preedit_str(), "사");
+    e.set_surrounding_text("서사".to_string(), 2, 2);
+    e
+}
+
+/// Writer 시퀀스: 학습 후 한자키 → 대상 "서사" 2자(확정 접두 1). 학습 없이는 "사" 1자 강등.
+#[test]
+fn learned_includes_preedit_writer_sequence_targets_two_syllables() {
+    let config = Config::default();
+    let mut e = writer_sequence_until_sa(&config);
+    let r = e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(r, InputResult::hanja_candidates());
+    assert_eq!(e.get_hanja_target(), "서사");
+    assert_eq!(e.hanja_source(), HanjaSource::RecentWord);
+    assert_eq!(e.hanja_committed_chars(), 1);
+
+    // 대조: 같은 최종 상태라도 학습 기회(ㅅ→서 보고)가 없었으면 1자 강등.
+    let mut e = create_test_engine();
+    e.set_input_category(InputCategory::Korean);
+    e.set_hanja_word_replace_capable(true);
+    type_keys(&mut e, &config, &T_J);
+    type_keys(&mut e, &config, &T_K);
+    e.set_surrounding_text("서사".to_string(), 2, 2);
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "사", "학습 전 → full 절 불통과 → 1자");
+}
+
+/// preedit 미포함 앱: preedit 이 바뀌어도 before 가 안 변하므로 학습되지 않는다.
+#[test]
+fn preedit_excluding_app_is_never_learned() {
+    let config = Config::default();
+    let mut e = create_test_engine();
+    e.set_input_category(InputCategory::Korean);
+    e.set_hanja_word_replace_capable(true);
+    type_keys(&mut e, &config, &[KeyCode::T]);
+    e.set_surrounding_text(String::new(), 0, 0); // 빈 문서 + preedit ㅅ
+    type_keys(&mut e, &config, &[KeyCode::J]);
+    e.set_surrounding_text(String::new(), 0, 0);
+    assert!(!e.learned_includes_preedit());
+
+    // "서" 확정 뒤 preedit ㅅ→사: before 는 "서" 로 고정.
+    type_keys(&mut e, &config, &[KeyCode::T]);
+    e.set_surrounding_text("서".to_string(), 1, 1);
+    type_keys(&mut e, &config, &[KeyCode::K]);
+    e.set_surrounding_text("서".to_string(), 1, 1);
+    assert!(!e.learned_includes_preedit());
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "서사", "접두 서 ← before 끝 일치(종전 경로, 학습 불필요)");
+}
+
+/// 끝 글자가 같은 두 보고(모아치기 등 preedit 이 같은 끝 글자로 유지)는 증거가 아니다.
+#[test]
+fn same_tail_reports_are_not_learning_evidence() {
+    let config = Config::default();
+    let mut e = create_test_engine();
+    e.set_input_category(InputCategory::Korean);
+    type_keys(&mut e, &config, &T_K);
+    assert_eq!(e.preedit_str(), "사");
+    e.set_surrounding_text("사".to_string(), 1, 1);
+    e.set_surrounding_text("사".to_string(), 1, 1);
+    assert!(!e.learned_includes_preedit());
+}
+
+/// 들쭉날쭉: 학습 뒤 preedit 미포함(늦은) 보고가 와도 :317 OR 로 통과한다.
+#[test]
+fn learned_mode_still_accepts_preedit_less_report() {
+    let config = Config::default();
+    let mut e = writer_sequence_until_sa(&config);
+    e.set_surrounding_text("서".to_string(), 1, 1); // preedit 빠진 보고(before = 확정 접두)
+    assert!(e.learned_includes_preedit(), "관측이 끊겨도 학습 상태는 유지");
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "서사");
+    assert_eq!(e.hanja_committed_chars(), 1);
+}
+
+/// 포커스 이동(FocusIn 이 부르는 해제)·엔진 리셋 뒤 관측 단절.
+#[test]
+fn learned_state_is_released_on_focus_change() {
+    let config = Config::default();
+    let mut e = writer_sequence_until_sa(&config);
+    e.clear_learned_includes_preedit();
+    assert!(!e.learned_includes_preedit());
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "사", "해제 후 full 절 불통과 → 1자");
+
+    // reset() 은 학습 상태를 보존하되 관측은 끊는다(단일 보고만으로 재학습 불가).
+    let mut e = writer_sequence_until_sa(&config);
+    e.reset();
+    assert!(e.learned_includes_preedit());
+    type_keys(&mut e, &config, &[KeyCode::T]);
+    e.set_surrounding_text("ㅅ".to_string(), 1, 1);
+    e.clear_learned_includes_preedit();
+    type_keys(&mut e, &config, &[KeyCode::J]);
+    e.set_surrounding_text("서".to_string(), 1, 1);
+    assert!(!e.learned_includes_preedit(), "해제가 관측도 비운다");
+}
+
+/// 드리프트 보강: 학습 모드에서 조합 중이 아닌 보고의 before 가 최근 버퍼로 끝나지 않으면
+/// 버퍼를 비운다(엉뚱한 글자 삭제 방지). 미학습 컨텍스트는 건드리지 않는다.
+#[test]
+fn learned_mode_clears_recent_on_drifted_idle_report() {
+    let config = Config::default();
+    let mut e = writer_sequence_until_sa(&config);
+    // 조합 종료 후 버퍼에 "서사" 가 쌓이고, 늦은 보고가 다른 위치를 가리킨다.
+    e.press_key(KeyCode::Enter, ModifierState::default(), &config);
+    e.recent_clear();
+    e.recent_push_char('서');
+    e.recent_push_char('사');
+    assert_eq!(e.recent_syllables(), "서사");
+    assert!(!e.is_composing());
+    e.set_surrounding_text("서사".to_string(), 2, 2);
+    assert_eq!(e.recent_syllables(), "서사", "끝이 일치하면 유지");
+    e.set_surrounding_text("가나다".to_string(), 3, 3);
+    assert_eq!(e.recent_syllables(), "", "드리프트 → 비움(1자 안전 방향)");
+
+    // 미학습 컨텍스트는 종전대로(비우지 않음).
+    let mut e2 = create_test_engine();
+    e2.set_input_category(InputCategory::Korean);
+    e2.recent_push_char('서');
+    e2.recent_push_char('사');
+    e2.set_surrounding_text("가나다".to_string(), 3, 3);
+    assert_eq!(e2.recent_syllables(), "서사");
+}
+
+/// 잘림 절 공허 통과 금지: 학습 모드에서 앱이 preedit 만 보고(before == pre, 문단·필드
+/// 처음)하면 recent 는 문서에 없다 — 어떤 prefix 든 `full.ends_with(before)` 가 통과하므로
+/// 1자로 강등돼야 한다(확정 0자). TSF 선언 모드도 동일.
+#[test]
+fn learned_mode_preedit_only_report_does_not_pass_truncation_clause() {
+    let config = Config::default();
+    for tsf in [false, true] {
+        let mut e = setup_recent_word_pending(&config); // recent "대한민" + 조합 "국"
+        if tsf {
+            e.set_surrounding_includes_preedit(true);
+        } else {
+            e.learned_includes_preedit = true;
+        }
+        e.set_surrounding_text("국".to_string(), 1, 1);
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert_eq!(e.get_hanja_target(), "국", "before == pre → 1자 강등 (tsf={tsf})");
+        assert_eq!(e.hanja_committed_chars(), 0);
+    }
 }

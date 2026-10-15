@@ -23,6 +23,10 @@ impl InputEngine {
         // 종전대로 무시해 호출부가 같은 팝업을 재발행한다. push 경로는 press_key 가 팝업
         // 분기에서 먼저 가로채므로 한 번의 키가 두 번 축소되는 일은 없다.
         if self.hanja_mode {
+            // 대상③ 은 다음 후보로 순환(소진되면 pull 표시), 그 외는 접미 축소.
+            if let Some(r) = self.cycle_surrounding_word(true) {
+                return r;
+            }
             if let Some(r) = self.shrink_hanja_target() {
                 return r;
             }
@@ -35,6 +39,19 @@ impl InputEngine {
                 // 로그에 선택 텍스트를 남기지 않는다(§2.8).
                 unim_log!("ENGINE", "선택 단어 한자 불일치");
                 return InputResult::consumed();
+            }
+            Resolve::SurroundingWord(cands) => {
+                // 대상③ — 첫 후보로 팝업을 연다. 이어지는 한자키 재타가 순환한다.
+                let first = Self::sw_spec(&cands[0]);
+                let candidates = self.hanja_dict.search(&first.key);
+                if candidates.is_empty() {
+                    unim_log!("ENGINE", "한자/특수문자 후보 없음");
+                    return InputResult::consumed();
+                }
+                self.hanja_sw_cands = cands;
+                self.hanja_sw_idx = 0;
+                self.open_hanja_popup(first, candidates);
+                return InputResult::hanja_candidates();
             }
             Resolve::None => {
                 unim_log!("ENGINE", "한자/특수문자 후보 없음");
@@ -120,6 +137,8 @@ impl InputEngine {
         self.hanja_recommit = spec.recommit;
         self.hanja_commit_prefix = spec.prefix;
         self.hanja_commit_suffix = spec.suffix;
+        self.hanja_sw_before = spec.delete_before;
+        self.hanja_sw_after = spec.delete_after;
         self.hanja_candidates = candidates;
         self.hanja_mode = true;
         // expanded(9x9) 컬럼 라벨에 키맵별 top_row를 그대로 흘려보낸다 (special과 동일 source).
@@ -193,8 +212,21 @@ impl InputEngine {
         if self.hanja_source == HanjaSource::RecentWord && self.hanja_committed_chars > 0 {
             self.pending_hanja_replacement = Some(HanjaReplacement {
                 delete_chars: self.hanja_committed_chars,
+                delete_after_chars: 0,
                 preedit_chars: self.hanja_recommit.chars().count() as u32,
                 text: text.clone(),
+                source: HanjaSource::RecentWord,
+                expect_text: String::new(),
+            });
+        } else if self.hanja_source == HanjaSource::SurroundingWord {
+            // 대상③ — 커서 앞 a자·뒤 b자를 한자 문자열로 교체(프런트가 expect 와 대조).
+            self.pending_hanja_replacement = Some(HanjaReplacement {
+                delete_chars: self.hanja_sw_before,
+                delete_after_chars: self.hanja_sw_after,
+                preedit_chars: 0,
+                text: text.clone(),
+                source: HanjaSource::SurroundingWord,
+                expect_text: self.hanja_target.clone(),
             });
         }
 
@@ -202,6 +234,7 @@ impl InputEngine {
         // 않음(추가 시 다음 키 입력에 묻어나와 이중 커밋 발생).
         self.remove_preedit();
         self.cancel_hanja();
+        self.note_surrounding_commit(); // 확정은 문서를 바꾼다 — 낡음 + 선택 표시 해제
         Some(text)
     }
 
@@ -365,6 +398,7 @@ impl InputEngine {
         // (추가 시 다음 키 입력에 묻어나와 이중 커밋 발생)
 
         self.cancel_special_char();
+        self.note_surrounding_commit();
         Some(selected)
     }
 
