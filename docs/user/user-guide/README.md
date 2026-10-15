@@ -378,9 +378,209 @@ Apps handle input differently, so a problem can show up in just one of them. Nar
 2. Press **Hanja** (or F9).
 3. A 9-cell grid popup appears: `韓國`, `漢國`, …
 4. Pick with digits 1–9, navigate with arrow keys, Enter to commit, ESC to cancel.
-5. With more than nine candidates, press **`.` (period)** to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode.
+5. With more than nine single-character candidates, press **`.` (period)** to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode. (Candidates for words of two or more characters are fixed at a nine-item list, so `.` does nothing there.)
+
+This is the basic flow for "the characters you just typed". The full usage — **words you already wrote** (just put the cursor on them) and **selected ranges** — follows right below in "Hanja conversion at a glance" and "Step-by-step tutorial".
 
 > **Choosing the Hanja key**: `hanja_keys` defaults to `Hanja`, `F9`. Like the toggle key (§4.1) it takes single key names only — no modifier combinations. The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure.
+
+<!-- DRAFT: based on docs/dev/specs/HANJA_WORD_SPEC.md v1.6 (design confirmed 2026-10-12). Not implemented or measured yet (spec §6.5); finalize the per-app table after measurement. -->
+
+#### Hanja conversion at a glance
+
+One key (`Hanja` or `F9`) handles **three situations**. Which one you get depends on **the state at the moment you press it**. You never pick a mode.
+
+| Situation | State before you press the key | What the key does | Key sequence |
+|---|---|---|---|
+| **Word being typed** | You are typing Hangul. The last syllable is still composing | Hanja candidates for the word you just typed | type → `Hanja` → digit |
+| **Word at the cursor** | You finished typing and nothing is selected. The cursor is at the end of, inside, or at the start of a Hangul word | Hanja candidates for the word the cursor touches | place cursor → `Hanja` → digit |
+| **Selected range** | A Hangul word is selected | Hanja candidates for the selected word | select → `Hanja` → digit |
+
+**Diagram description**: in all three situations "대한민국" becomes "大韓民國". `|` marks the cursor and `[ ]` marks the selection.
+
+```text
+Situation 1  Word being typed   대한민국|    -> Hanja -> digit 1 -> 大韓民國|
+Situation 2  Word at the cursor 대한|민국    -> Hanja -> digit 1 -> 大韓民國|
+Situation 3  Selected range     [대한민국]   -> Hanja -> digit 1 -> 大韓民國|
+```
+
+The key checks the situation in this order and does the first one that matches.
+
+1. You are composing a syllable → **word being typed**. (If only one consonant is composing you get the special-character popup — see [4.3](#43-special-characters).)
+2. You are not composing and a Hangul word is selected → **selected range**.
+3. You are not composing, nothing is selected, and the cursor touches a Hangul word → **word at the cursor**.
+4. None of the above → **emoji popup**. (See [When the emoji popup appears](#when-the-emoji-popup-appears). A selection that does not match a dictionary word also goes straight to emoji; it does not fall through to 3.)
+
+> **Saving keystrokes**: to convert a word you already wrote, the "selection" approach needs several `Shift`+`←` presses per word. The "word at the cursor" approach only needs the cursor on the word, so it saves those presses: once the cursor is in place, one `Hanja` and one digit per word.
+
+#### Step-by-step tutorial
+
+##### 1. Convert the word you just typed
+
+This is the fastest way. Press the key **right after finishing the word, before a space or a particle**.
+
+1. Type the whole word, e.g. `대한민국` — the last syllable "국" must still be composing.
+2. Press `Hanja`. If the word is in the dictionary, the whole word appears as a candidate.
+3. Press a digit `1`–`9`. It commits immediately. (You can also move with the arrow keys and press `Enter`.)
+
+**Diagram description**: type the word, then press the Hanja key and digit 1 straight away; the Hangul becomes hanja.
+
+```text
+Type      대한민국|                  last syllable "국" is composing
+Hanja     대한민국|   popup: 「대한민국」 → 한자   1 大韓民國  2 …
+Digit 1   大韓民國|
+```
+
+- The popup header `「대한민국」` is the text about to be replaced. Check it is what you intended.
+- Press `Hanja` again while the popup is open and the target **shrinks from the front** to the next shorter dictionary word, e.g. `대한민국` → `민국` → `국`.
+- If you already typed the space, this method no longer applies. Go to the next step.
+
+##### 2. Go back to a word you already wrote (start, middle or end)
+
+You do not need to select anything. **Put the cursor on the word** and press `Hanja`. The cursor can be at the end, in the middle or at the start of the word.
+
+1. Place the cursor on the word with the mouse or arrow keys. (`Ctrl`+`←`/`→` moves by word and takes fewer presses.)
+2. Press `Hanja`. The **longest word** that the cursor touches appears as a candidate.
+3. Press a digit `1`–`9`. The whole word becomes hanja and the cursor lands after it.
+
+| Cursor position | Document (`\|` is the cursor) | After pressing `Hanja` |
+|---|---|---|
+| End of word | `만세 대한민국\|` | candidates for 「대한민국」 |
+| Middle of word | `만세 대한\|민국` | candidates for 「대한민국」 (2 syllables before and 2 after the cursor are replaced together) |
+| Start of word | `만세 \|대한민국` | candidates for 「대한민국」 |
+
+**Diagram description**: all three documents become "만세 大韓民國" after the Hanja key and digit 1.
+
+```text
+End of word     만세 대한민국|   -> Hanja -> digit 1 -> 만세 大韓民國|
+Middle of word  만세 대한|민국   -> Hanja -> digit 1 -> 만세 大韓民國|
+Start of word   만세 |대한민국   -> Hanja -> digit 1 -> 만세 大韓民國|
+```
+
+Good to know:
+
+- **If neither side of the cursor is Hangul, this method is not used.** Example: `대한민국 |` (a space before the cursor). The emoji popup opens instead. Press `←` once to put the cursor at the end of the word, then press the key again.
+- **At the very start of an input field or paragraph (before the first character) this method does not work.** It is a safety rule that prevents losing text to a selection the app did not report. Move the cursor to the end of the word instead.
+- Words break at spaces, punctuation, digits, Latin letters, hanja, lone jamo (ㄱ, ㅏ, …), emoji and line breaks. Only the **run of Hangul** around the cursor is searched.
+- On confirm, UNIM deletes the matching characters around the cursor and inserts the hanja. It does not use the app's selection.
+
+##### 3. Pick the length you want in a compound word
+
+The dictionary holds long words and the shorter words inside them. For example `국어교육` also splits into `국어` and `교육`. The first popup shows the **longest word**. If that is not the length you want, press `Hanja` **again for the next candidate**.
+
+**Order rules**
+
+1. Longer words come first.
+2. At equal length: the word that **ends** right at the cursor, then the word that **starts** right at the cursor, then a word that **straddles** the cursor (the one starting further left first).
+3. Pressing `Hanja` once more after the last candidate closes the hanja popup and opens the **emoji popup**. It does not loop back to the first one.
+4. While the popup is open the candidate list does not change.
+
+**Diagram description**: the table lists what each press of `Hanja` targets, in order, using UNIM's built-in dictionary. The dictionary also contains less familiar words such as `어교` (魚膠) and `한민` (韓民), so words like these that straddle the cursor show up in the middle of the order.
+
+| Document (`\|` is the cursor) | Target on press 1, 2, 3 … | Characters replaced |
+|---|---|---|
+| `국어교육\|` | 국어교육 → 교육 → 육 → (emoji) | 4, then 2, then 1 characters before the cursor |
+| `국어\|교육` | 국어교육 → 국어 → 교육 → 어교 → 어 → 교 → (emoji) | 2 before + 2 after → 2 before → 2 after → 1 before + 1 after → 1 before → 1 after |
+| `대한\|민국` | 대한민국 → 대한 → 민국 → 한민 → 한 → 민 → (emoji) | 2 before + 2 after → 2 before → 2 after → 1 before + 1 after → 1 before → 1 after |
+
+Example: to convert only "국어" in `국어|교육`, press `Hanja` twice, then a digit. The popup header shows the current target as `「국어」`.
+
+> **Re-pressing while typing behaves differently.** In a popup opened while you were still typing, pressing `Hanja` again does not cycle as above; the target **shrinks from the front** (`대한민국` → `민국` → `국`). The word at the cursor follows the cycle rule above. A selected range is converted as a whole, so pressing again keeps the same popup.
+
+##### 4. Convert just one character
+
+There are three ways.
+
+- **While typing**: with the popup open, press `Hanja` repeatedly until the target shrinks to one character: `대한민국` → `민국` → `국`.
+- **Word at the cursor**: press `Hanja` repeatedly until a one-character candidate comes up. One-character candidates are near the end of the order (5th and 6th for `대한|민국` in the table above).
+- **By selection**: select only the one character with `Shift`+`←`, then press `Hanja`. This works only in apps that support selection conversion (see [Differences by app](#differences-by-app)).
+
+In a one-character candidate popup you can press `.` (period) to open the 9×9=81-cell expanded grid when there are many candidates. Popups for words of two or more characters are fixed at a nine-item list, and `.` does nothing there.
+
+##### 5. Choose the range by selecting (supported apps)
+
+Use this when you want to fix the range exactly by eye. Selecting costs one extra `Shift`+arrow press per character, so if the word you want is within the first two or three candidates of the cursor method, pressing `Hanja` again takes fewer key presses.
+
+1. Select exactly the Hangul word with the mouse or `Shift`+arrow keys.
+2. Press `Hanja`.
+3. Confirm with a digit `1`–`9` (or arrows + `Enter`). The selected range becomes hanja as it is.
+
+**Diagram description**: the selected "대한민국" becomes "大韓民國" with the Hanja key and digit 1.
+
+```text
+Select    만세 [대한민국] 만만세
+Hanja     popup: 「대한민국」 → 한자
+Digit 1   만세 大韓民國| 만만세
+```
+
+- The selection must **exactly match a Hangul dictionary word** to get the hanja popup. Otherwise (Latin letters or digits mixed in, only spaces, 19 or more characters, not in the dictionary) the emoji popup opens. Confirming an emoji replaces the selection with it; press `Esc` to keep the selection.
+- Spaces at the edges of the selection are left alone.
+- **Some apps do not support selection conversion.** In those apps use the **cursor-on-word method (step 2)** instead. The table in [Differences by app](#differences-by-app) shows which apps support what.
+
+##### 6. Cancel
+
+- `Esc` closes the popup and **changes nothing**. If you were typing, your letters stay as they were. The selection and cursor position are untouched too.
+- Clicking outside the popup also closes it, and the click is passed through to the window underneath.
+- If you press a key the popup does not handle (an ordinary letter key, say), the popup closes and the key is typed as usual.
+
+#### Differences by app
+
+The same `Hanja` key does different things depending on whether the app tells the input method **the surrounding text and the cursor position**. Apps fall into three groups.
+
+<!-- @platform:linux -->
+**🐧 Linux**
+
+| Group | Typical environment / app | Word being typed | Word at the cursor | Selected range |
+|---|---|---|---|---|
+| **Everything works** | Apps connected through the UNIM input-method modules (X11 sessions etc. — see [3. Per-environment setup](#3-per-environment-setup)): GTK4 apps, Qt5/Qt6 apps (including the KDE build of LibreOffice), ordinary text fields and text areas of GTK3 apps | yes | yes | yes |
+| **Apps going through the GNOME (Wayland) extension** | GTK4, Qt6, Chromium-based | yes | yes (right after moving the cursor, the emoji popup may appear until the app reports the new position) | only right after selecting |
+| | GTK3 apps, LibreOffice, Firefox | yes | yes (emoji while a selection may still exist) | no — use the cursor method |
+| **Only the word just typed** | Terminals (GNOME Terminal etc.), XIM apps, Chromium/Electron apps running on X11 | yes | no (the key opens the emoji popup) | no |
+| | Pure Wayland (KDE Plasma, Sway, etc.) | yes | not yet | depends on the app |
+
+- In **special widgets of GTK3 apps** (anything other than ordinary text fields and text areas) both selection and cursor methods rest and the emoji popup opens. The LibreOffice document window in an X11 session and web input fields in Firefox and Thunderbird belong here. In those places press `Hanja` right after typing the word (word being typed).
+- In any app, hanja conversion is **turned off in password fields**.
+- "no" in the table means "the key opens the emoji popup". No text is deleted or changed.
+<!-- @endplatform -->
+<!-- @platform:windows -->
+**🪟 Windows**
+
+| Group | Typical environment / app | Word being typed | Word at the cursor | Selected range |
+|---|---|---|---|---|
+| **Everything works** | Notepad, WordPad, Word and other apps connected through TSF | yes | yes | yes |
+
+- Whether the cursor and selection methods work in Chrome, Hancom, KakaoTalk and similar apps is still being checked. Where they do not, the emoji popup opens and no text changes.
+
+- Console apps and apps using the old input method (WezTerm, Telegram, etc.) connect the same way. But if an app does not tell the input method the surrounding text, the cursor and selection methods rest in that app and the emoji popup opens.
+- Hanja conversion is turned off in password fields.
+<!-- @endplatform -->
+
+#### When the emoji popup appears
+
+If you press `Hanja` and get the emoji popup instead of hanja, it is one of the cases below. **This is not an error.** UNIM skipped the hanja conversion on purpose to protect your text.
+
+| Situation | Reason | What to do |
+|---|---|---|
+| Neither side of the cursor is Hangul (after a space, after punctuation, end of line, next to Latin letters or digits) | There is no word to convert | Press `←` to the end of the word and press the key again |
+| The cursor is at the very start of the field or paragraph | Safety rule (prevents losing text) | Move the cursor to the end of the word |
+| The word is not in the dictionary (proper nouns, new words) | No candidates | Convert one character at a time ([step 4](#4-convert-just-one-character)) |
+| A selection that mixes non-Hangul, only spaces, or is not in the dictionary | A selection must exactly match a Hangul dictionary word | Shrink or clear the selection and use the cursor method |
+| Right after `Shift`+arrows, `Ctrl`+`A`, `Shift`+click, dragging or double-click (apps going through the GNOME extension) | The app may hold a selection it did not report. Converting then could erase that selection too | Press an arrow key without `Shift`, or click, to clear the selection |
+| Right after switching windows or clicking (apps going through the GNOME extension) | The app has not reported the new cursor position yet | Press an arrow key once, then press the key again |
+| You kept pressing `Hanja` in the popup and passed the last candidate | By design, so the key alone can reach the emoji popup | If you still need hanja, close with `Esc` and start over |
+| You are not composing in a terminal, XIM app, or anywhere the surrounding text is not reported | The input method cannot see text you already wrote | Press the key right after typing the word (while composing) |
+
+> **Confirming an emoji can erase a selection.** If text is selected when the emoji popup opens, confirming an emoji replaces that selection with the emoji. Press `Esc` to close the popup and keep the selection.
+
+#### If something goes wrong
+
+Common problems are collected in the [FAQ](../faq/README.md#q32-only-one-character-changes-instead-of-the-whole-word).
+
+- Only **one character** changes instead of the word
+- The **emoji** popup appears instead of hanja
+- Dragging a selection in **LibreOffice** does nothing
+- A word with a **particle** attached
+- The word of the length I want is not the first candidate
 
 #### Page navigation (mouse / keyboard)
 
@@ -443,43 +643,6 @@ When you toggle, the candidate list reorders and the cursor follows the affected
 - **☆ off**: the hanja is *demoted* back to its lexicographic home and the cursor jumps to that home position (often on a different page). The destination cell **flashes Catppuccin yellow `#f9e2af` for 140 ms** so you immediately notice "I unstarred this and it landed here".
 
 > **Why is there flash on un-bookmark but not on bookmark?** Bookmarking always lands on page 1 row 1, which is a predictable, eye-catching location — no extra hint needed. Un-bookmarking can jump to *any* page, so the flash is what tells you where the candidate went.
-
-#### Word hanja conversion
-
-Multi-syllable words like "대한민국" can be converted to hanja in one step, just like a single syllable.
-
-1. Type the whole word (e.g. `대한민국` — the last syllable, "국", must still be composing).
-2. Press the **hanja key**. If the word is in the dictionary, the whole word appears as a candidate (`大韓民國`, etc.).
-3. Confirm with a number, or arrow keys + Enter.
-
-> **Press it before adding a particle.** If you already typed "대한민국은" with a particle attached, the hanja key only affects the trailing part still composing at that moment — a multi-character tail if it is in the dictionary (e.g. "국은"), otherwise just the last syllable. Press the hanja key after finishing the word, but **before** adding a particle.
->
-> **Press the hanja key again while the popup is open to shrink the target from the front to the next shorter word that is in the dictionary.** For example: `대한민국` → `민국` → `국`.
->
-> If you move the mouse cursor elsewhere and keep typing right away, a different word you typed earlier may show up in the header by mistake. Press **Esc** to close just the popup — the characters you already typed are left untouched.
-
-#### Selected word hanja conversion
-
-A Hangul word you already typed can also be converted after selecting it (mouse or Shift+arrows).
-
-1. Select a Hangul word in the app (mouse or Shift+arrows).
-2. Press the **hanja key**.
-3. Confirm with a number, or arrow keys + Enter — the selection is replaced with the hanja.
-
-<!-- @platform:linux -->
-Supported environments:
-
-| Frontend | Selection conversion |
-|---|---|
-| GTK4 | ✔ |
-| Qt5 / Qt6 | ✔ |
-| GNOME Shell extension | ✔ |
-| Pure Wayland | ✔ |
-| GTK3 | ✘ (word conversion still works; selection falls back to the emoji popup) |
-| XIM | ✘ (word conversion still works; selection falls back to the emoji popup) |
-<!-- @endplatform -->
-
-If the selected text is not in the dictionary or is not Hangul, the **emoji popup** opens as usual — confirming an emoji replaces the selection with it (press **Esc** to leave the selection untouched).
 
 #### Hanja output format
 
@@ -741,7 +904,7 @@ Five pages (left-hand navigation):
 <!-- @platform:windows -->
 > **Suppress Composition Key Auto-repeat (accessibility)**: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the input method ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor), and it works **the same way as on Linux**. Suppression applies to the **Korean/English toggle key and character keys in Korean mode**; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off.
 >
-> **Emoji input** has no separate switch — it shares the hanja-popup path and is always on. Press the **Hanja key (or F9)** while *not* composing and the emoji popup appears (unless a Hangul word that is in the dictionary is selected, in which case selected-word hanja conversion takes priority — see [4.2](#42-hanja-conversion)). The same key thus serves three purposes depending on context: **hanja, special characters, and emoji**.
+> **Emoji input** has no separate switch — it shares the hanja-popup path and is always on. Press the **Hanja key (or F9)** while you are not composing, nothing is selected, and the cursor does not touch a Hangul word, and the emoji popup appears (in the other cases hanja conversion takes priority — see [4.2](#42-hanja-conversion)). The same key thus serves three purposes depending on context: **hanja, special characters, and emoji**.
 <!-- @endplatform -->
 
 ### 5.2 Page 2 — Type Correction
@@ -882,7 +1045,11 @@ when you switch layouts.
 | Situation | Key | Result |
 |------|----|------|
 | Anywhere | Hangul (or Shift+Space) | Toggle mode |
-| Korean mode, after typed jamos | Hanja (F9) | Hanja popup |
+| Korean mode, after typed jamos | Hanja (F9) | Hanja popup (word being typed) |
+| Not composing, a Hangul word selected | Hanja (F9) | Hanja popup for the selected word (§4.2) |
+| Not composing, nothing selected, cursor touches a Hangul word | Hanja (F9) | Hanja popup for the word at the cursor (§4.2) |
+| Hanja popup (word at the cursor) | Hanja (F9) | Next candidate — emoji popup after the last one (§4.2) |
+| Hanja popup (word being typed) | Hanja (F9) | Shrink from the front to a shorter word (§4.2) |
 | Hanja popup | 1–9 | Direct select |
 | Hanja popup | Arrows | Move focus |
 | Hanja popup | `←`/`→` or PageUp/PageDown | Page navigation (wrap-around) |
@@ -890,9 +1057,10 @@ when you switch layouts.
 | Hanja popup | Mouse right-click | **Frontend-specific**: GNOME = toggle ★ bookmark / GTK·Qt IM·XIM = next page / others = no action (see §4.2) |
 | Hanja popup | Enter | Commit focused |
 | Hanja popup | ESC | Cancel |
-| Hanja popup | `.` | 9 ↔ 81 grid toggle |
+| Hanja popup | `.` | 9 ↔ 81 grid toggle (single-character candidates only) |
 | Hanja popup | Space | Bookmark ☆/★ (un-bookmark flashes destination cell 140 ms) |
 | Korean mode, lone consonant | Hanja (F9) | Special-char popup |
+| Otherwise not composing (cursor does not touch a Hangul word) | Hanja (F9) | Emoji popup (§4.2) |
 | Composing | BackSpace | Delete last jamo |
 | After unwanted forward correction | BS + Hangul | Trigger Tentative learning |
 | With Auto-English on | `Esc` or `/` | Force English + pass key |
@@ -903,9 +1071,13 @@ when you switch layouts.
 | Situation | Key | Result |
 |------|----|------|
 | Anywhere | Hangul (or right Alt) | Toggle mode |
-| Korean mode, after typed jamos | Hanja (F9) | Hanja popup |
+| Korean mode, after typed jamos | Hanja (F9) | Hanja popup (word being typed) |
+| Not composing, a Hangul word selected | Hanja (F9) | Hanja popup for the selected word (§4.2) |
+| Not composing, nothing selected, cursor touches a Hangul word | Hanja (F9) | Hanja popup for the word at the cursor (§4.2) |
+| Hanja popup (word at the cursor) | Hanja (F9) | Next candidate — emoji popup after the last one (§4.2) |
+| Hanja popup (word being typed) | Hanja (F9) | Shrink from the front to a shorter word (§4.2) |
 | Korean mode, lone consonant | Hanja (F9) | Special-char popup |
-| Not composing | Hanja (F9) | Emoji popup |
+| Otherwise not composing (cursor does not touch a Hangul word) | Hanja (F9) | Emoji popup (§4.2) |
 | Hanja popup | 1–9 | Direct select |
 | Hanja popup | Arrows | Move focus |
 | Hanja popup | `←`/`→` or PageUp/PageDown | Page navigation (wrap-around) |
@@ -915,7 +1087,7 @@ when you switch layouts.
 | Hanja popup | **Mouse right-click** | **No action** (deliberate — it neither dismisses the popup nor commits a candidate) |
 | Hanja popup | Enter | Commit focused |
 | Hanja popup | ESC | Cancel |
-| Hanja popup | `.` | 9 ↔ 81 grid toggle |
+| Hanja popup | `.` | 9 ↔ 81 grid toggle (single-character candidates only) |
 | Hanja popup | Space | Bookmark ☆/★ (un-bookmark flashes destination cell 140 ms) |
 | Composing | BackSpace | Delete last jamo |
 | After unwanted forward correction | BS + Hangul | Trigger Tentative learning |

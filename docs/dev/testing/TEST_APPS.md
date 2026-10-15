@@ -82,6 +82,8 @@ preedit 을 볼 수 없으니 P1 을 만족할 수 없다.
 
 코어 필드 6종은 ID 가 고정이다. 하네스 시나리오가 이 ID 로 필드를 지목한다.
 
+> **커서 단어 한자(HANJA_WORD_SPEC §2.4b 대상③) 는 GTK3·GTK4 앱의 ② 코어 필드에서 막힌다.** 코어 필드는 직접 그린 위젯이라 GTK 모듈이 선택 상태를 믿을 수 없고(GTK3 는 GtkEditable·GtkTextView, GTK4 는 GtkText·GtkTextView 만 인정) 한자키마다 `SELECTION_UNKNOWN` 을 보내 이모지로 간다 — 하네스 `hanja-word-cursor-unknown-widget(-gtk4)` 가 이 동작을 단언한다. 손 시험은 ③ 네이티브 위젯에서 한다. Qt 앱은 툴킷이 선택을 보고하므로 ② 에서도 된다. 두 GTK 앱의 구역 제목에 이 구분을 적어 두었다.
+
 | ID | 라벨 | 힌트 | 검증 목적 |
 |---|---|---|---|
 | `core.plain` | 일반 | 없음 | 기본 조합·확정 |
@@ -117,7 +119,8 @@ preedit 을 볼 수 없으니 P1 을 만족할 수 없다.
 | 주변문맥 | `surrounding.retrieve` `surrounding.delete` | `text` `cursor` `offset` `n_chars` |
 | 리셋 | `reset` | `field` `reason` |
 | 클릭 | `click` | `x` `y` `field` `caret_before` `caret_after` |
-| **화면** | **`field.render`** | **`field` `committed` `preedit` `caret` `rendered`** |
+| **화면** | **`field.render`** | **`field` `committed` `preedit` `caret` `rendered` `anchor` `sel_start` `sel_end`** |
+| 선택 | `field.select` | `field` `anchor` `caret` `sel_start` `sel_end` `text` `exported` `reason` |
 | 진단 | `note` `warn` `error` | `msg` |
 
 `field.render` 가 **P1 의 관측점**이다. 필드가 다시 그려질 때마다 화면에 실제로
@@ -373,6 +376,73 @@ const char *unim_field_rendered(const UnimTestField *f, char *out, size_t n);
 
 렌더는 툴킷이 하되 **문자열과 캐럿은 이 엔진이 정한다.** 툴킷 코드는 폰트로
 그리기만 한다.
+
+### 7.1 텍스트 선택 (2026-10)
+
+코어 필드는 실제 편집기처럼 텍스트를 **선택**할 수 있다. 목적은 한자 선택 변환(앱이 보고한
+선택·PRIMARY 보강)의 실기 시험이다. (v1.6 개정안, HANJA_WORD_SPEC §2.4b·§2.10.1: PRIMARY 보강은 퇴역하고
+idle 한자키는 커서가 걸친 단어(대상③)를 바꾼다. 이 선택 기능은 그대로 두고 "앱이 IM 에 알리지 않은 선택" 과
+PRIMARY 소유자 변경 신호를 재현해 거부 플래그를 시험하는 데 쓴다 — 대상③ 확정은 아래 delete-surrounding(커서 뒤 삭제 포함)으로 검증한다.) 모델은 공통 엔진에 있고(`anchor` 추가), 앱은 입력을 옮기고
+선택을 그리고 PRIMARY·surrounding 을 보고할 뿐이다.
+
+**모델.** 선택 = `[min(anchor,caret), max(anchor,caret))` (committed 기준 UTF-8 바이트). `anchor==caret`
+이면 선택 없음. 앱이 `f->caret = …` 으로 직접 대입해도(구 코드) anchor 는 무효 처리되어 유령 선택이
+생기지 않는다 — 새 코드는 `unim_field_set_caret()` 을 쓴다.
+
+**조작법 (배선 대상).**
+
+| 입력 | 동작 | API |
+|---|---|---|
+| Shift+←/→/Home/End | 확장 | `unim_field_move_caret_ex` · `caret_home_ex` · `caret_end_ex` (extend=1) |
+| 그냥 ←/→ | 선택 해제 — 선택 중이면 앞/뒤 끝으로 접는다 | `unim_field_move_caret(_ex extend=0)` |
+| Ctrl+A / 트리플클릭 | 전체 | `unim_field_select_all` |
+| 더블클릭 | 단어(공백·구두점 경계) | `unim_field_select_word_at` |
+| 누름→드래그→뗌 | 범위 선택 | `unim_field_set_anchor` → `unim_field_extend_to` |
+| Shift+클릭 | 확장 | `unim_field_extend_to` |
+
+**편집.** 선택 위의 `commit`·`insert` 는 선택을 먼저 지우고 넣는다. `backspace`·`delete` 는 선택만
+지운다. `clear` 는 선택도 푼다. **조합 시작·갱신은 선택을 건드리지 않는다** — GNOME 한자 변환은
+선택 텍스트를 delete-surrounding 으로 직접 지우기 때문이다. preedit 은 caret 위치에 그려진다.
+키보드 계열(확장 이동·Ctrl+A)은 조합 중이면 기존 이동처럼 무시한다.
+
+**delete-surrounding.** 캐럿 기준이며 선택과 무관하다. `unim_field_delete_surrounding(f, offset, n_chars)`
+(GTK·Qt, 글자 단위) / `unim_field_delete_surrounding_bytes(f, before, after)` (text-input-v3, 바이트)를
+쓸 것 — `move_caret` 반복 + `delete` 반복으로 구현하면 선택이 있을 때 선택이 접히거나 선택이 지워진다.
+처리 뒤 anchor 는 caret 으로 접힌다.
+
+**그리기.** `unim_field_selection_display_range()` 가 `unim_field_display()` 문자열 안의 선택 바이트
+범위를 준다(preedit 끼움·비밀번호 • 환산 반영). 앱은 그 접두 폭으로 x 범위를 구해 하이라이트한다.
+
+**PRIMARY.** 선택이 생기거나 바뀌면 앱이 `unim_field_primary_text()` 로 얻은 텍스트로 PRIMARY 를
+소유한다. **비밀번호 필드는 NULL — 선택은 되지만 내보내지 않는다.** 선택이 풀리면 소유를 포기해도 되고
+(GTK 관례) 그대로 둬도 된다.
+
+**surrounding 보고 범위.** committed 텍스트와 cursor=`caret`, anchor=`unim_field_anchor()` (preedit 은
+제외). GTK4·GNOME·Wayland·Qt 는 anchor 를 실제로 전달하고, GTK3 는 API 한계(`set_surrounding` 에 selection 없음)로
+cursor 만, XIM 은 surrounding 자체가 없다.
+
+**로그.** `field.render` 에 `anchor` `sel_start` `sel_end` 가 추가된다(기존 키 불변). 선택 범위가
+바뀔 때마다 `field.select` 1줄(`reason`: shift-move·move·home·end·select-all·word·press·drag·edit·
+clear·surrounding, `exported`: PRIMARY 로 내보내는가). 선택이 없던 상태에서 없는 상태로 가는 변화
+(일반 commit·이동·클릭)는 찍지 않는다 — 선택이 생기거나 바뀌거나 풀릴 때만. 클릭 한 번의
+`field.render` 도 한 줄이다(선택·캐럿 연산이 내고 앱은 또 내지 않는다).
+
+**한계.** 더블클릭 후 드래그의 단어 단위 확장은 없다. 선택 후 Shift+클릭의 anchor 는 마지막
+anchor 를 따른다. 멀티라인 필드도 줄 단위 선택 없이 전체/단어/범위만 지원한다. 선택 하이라이트는
+툴킷 그리기 몫이라 앱별로 색이 다를 수 있다.
+
+앱별 한계.
+- **비밀번호 필드 클릭·드래그.** `unim_field_caret_from_x` 가 •로 마스킹한 접두 폭으로 재므로 6개
+  앱 모두 포인터 위치와 선택 범위가 맞는다(그려진 폭 기준).
+- **Wayland.** compositor 가 `zwp_primary_selection` 을 줄 때만 PRIMARY 를 내보낸다. 드래그 중에는
+  갱신하지 않고 버튼을 뗄 때 한 번 갱신한다.
+- **XIM.** PRIMARY 는 마지막 키·버튼·모션 이벤트 시각으로 소유하고(ICCCM) `XGetSelectionOwner` 로
+  확인한다. `TARGETS`·`TIMESTAMP`·`UTF8_STRING`·`STRING` 에 답하며 `MULTIPLE` 은 답하지 않는다(거절).
+  SelectionClear 는 소유만 포기하고 선택은 유지한다 — 선택이 실제로 바뀔 때만 다시 소유한다.
+- **Qt.** 트리플클릭은 더블클릭 직후 타이머로 에뮬레이트한다. 멀티라인 필드의 하이라이트는 행별 계산 없이 한 줄 높이 띠로 그린다(줄바꿈 구간은 부정확).
+  `ImCursorPosition`·`ImAnchorPosition` 은 code point 수라 이모지 같은 비BMP 글자에서는 UTF-16
+  인덱스와 다르다.
+- **GNOME·Qt 멀티라인.** 클릭·드래그는 x 좌표만 써서 첫 줄 기준으로 오프셋을 정한다.
 
 ## 8. Makefile
 

@@ -260,6 +260,8 @@ Reporting helps every UNIM user hitting this, not just you — a verified submis
 
 ## 5. "Hanja popup never appears"
 
+> **If the emoji popup appears instead of hanja, or only one character changes instead of the word,** it is usually a behavior rule, not a fault. See [FAQ Q33](../faq/README.md#q33-i-pressed-hanja-and-got-the-emoji-popup-instead-of-hanja) and [Q32](../faq/README.md#q32-only-one-character-changes-instead-of-the-whole-word) first. Continue below only if the popup **never** appears.
+
 <!-- @platform:linux -->
 **🐧 Linux**
 

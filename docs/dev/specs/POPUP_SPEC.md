@@ -114,6 +114,7 @@ sequenceDiagram
 | `ShowHanjaPopup` | `(s target, a(ss) candidates, u top_row, i cursor_x, i cursor_y, u cursor_w, u cursor_h)` | 한자 팝업 표시 (활성화 트리거 + 커서 좌표) |
 | `ShowSpecialPopup` | `(s target, as chars, s top_row, ...)` | 특수문자 팝업 표시 |
 | `HidePopup` | — | 팝업 닫기 |
+| `ReplaceSurroundingText` (v3.7) | `(u delete_before, u delete_after, s commit_text, s expect_text)` | §3.7 규칙 2(d) 커서가 걸친 단어 확정 — 커서 앞·뒤 삭제 후 커밋. `expect_text`(지울 한글 원문, 비어 있지 않음)를 pull 프런트(GTK3/4·Qt)가 삭제 직전 문서 재조회로 완전 일치 대조하고 GNOME 은 대조하지 않는다. 컨텍스트가 `SetClientCapabilities` 로 처리 능력을 선언했을 때만 발행(HANJA_WORD_SPEC §4.6) |
 | `PopupNavigate` | `(u page, u total_pages, u selected, u rows, u cols, u sel_row, u sel_col)` | (legacy, v3.2 부터 PopupRender 와 dual-emit) 페이지/커서 변경. |
 | `HanjaCandidatesReordered` | `(s target, as hanjas, as meanings, ab bookmarks, u new_cursor, u page, u sel_row, u sel_col, b bookmarked, b was_bookmarked)` | 한자 즐겨찾기 토글 후 재정렬·커서 점프. **`was_bookmarked`는 v3.1에서 추가**된 토글 직전 상태 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때 cursor 셀에 flash(140ms #f9e2af)를 띄운다. |
 | `PopupRender` (v3.2) | `(u kind, (s target, s header_text, s footer_text, s expand_text), (u rows, u cols, u sel_row, u sel_col, u current_page, u total_pages), (b show_footer, b expand_visible), a(ssu) cells, a(sb) col_headers, a(sb) row_headers, as tab_labels, u active_tab_index)` | **통합 view_model 페이로드** — daemon SoT (Phase B). 헤더/푸터/탭 라벨/확장 아이콘 모두 미리 포맷된 문자열. frontend 가 본 시그널만으로 즉시 렌더 가능. popup 활성 시 매 상태 변화마다 발행. |
@@ -234,15 +235,16 @@ sequenceDiagram
 ### 3.7 동작 규칙
 
 1. **트리거**: 한국어 모드에서 한자키(F9/Hanja) 입력 시
-2. **대상** (v3.4): 다음 순서로 결정한다.
+2. **대상** (v3.4, v3.7 개정): 다음 순서로 결정한다 — **조합 중 → (a)(b) / idle + 신뢰 가능한 선택 → (c) / idle + 선택 없음 → (d) / 그래도 없으면 이모지 팝업(§9.2)**.
    - (a) 조합 중이고 preedit 의 마지막 글자가 완성 음절이면: 음절 확정 모드에서는 「엔진이 기억하는 최근 확정 한글 음절(최대 17자) + preedit」, 단어 확정 모드에서는 「preedit 전체」의 접미 가운데 한자 사전에 있는 **가장 긴** 문자열(2자 이상, 최대 18자). 예: "대한민"+"국" → "대한민국". 없으면 preedit 의 마지막 음절(종전 규칙, 예: "국").
    - (b) 조합 중이고 마지막 글자가 미완성 자모이면: 종전 규칙(마지막 글자, 초성이면 규칙 7 특수문자 전환).
-   - (c) 조합 중이 아니고 앱 선택 영역(`SetSurroundingText` 의 `cursor_pos != anchor_pos`)이 있으면: 선택 텍스트(앞뒤 공백 제외)가 전부 완성 음절이고 18자 이하이며 사전에 정확히 있을 때 그 문자열. 조건을 만족하지 않으면 선택이 없는 것과 같이 종전 idle 동작(이모지 팝업, §9.2)으로 폴백하고 선택 텍스트는 건드리지 않는다.
+   - (c) 조합 중이 아니고 앱 선택 영역(`SetSurroundingText` 의 `cursor_pos != anchor_pos`)이 있으면: 선택 텍스트(앞뒤 공백 제외)가 전부 완성 음절이고 18자 이하이며 사전에 정확히 있을 때 그 문자열. 조건을 만족하지 않으면 이모지 팝업(§9.2)으로 폴백하고 선택 텍스트는 건드리지 않는다 — (d) 로 넘어가지 않는다(선택이 있는 채 (d) 를 확정하면 앱이 선택까지 치환한다). (v3.7) 선택은 **신뢰 가능한 출처**가 보고한 것만 쓴다: 한자키 시점에 앱·위젯에 물어 받은 선택(GTK4·Qt5/6 im-module, GTK3 위젯 직접 조회, Windows TSF)과, 컴포지터 경유로 앱이 보낸 선택(GNOME Shell 확장·Wayland) 가운데 마지막 보고 뒤에 커서를 바꿀 사건이 없었던(신선한) 것. 낡은 선택이면 이모지 팝업. PRIMARY 내용으로 선택을 추정하지 않는다(HANJA_WORD_SPEC §2.4.6·§2.10.1).
+   - (d) (v3.7) **커서가 걸친 단어**: 조합 중이 아니고 선택이 없으면, surrounding 에서 커서 앞뒤로 이어진 한글 완성 음절 구간 안에서 커서를 포함하거나 커서에 닿는 사전 단어(1~18자) 가운데 **가장 긴 것**. 같은 길이면 커서에서 끝나는 것 → 커서에서 시작하는 것 → 커서를 가로지르는 것(왼쪽 먼저) 순. 예: `대한민국│`·`대한│민국`·`│대한민국`(커서가 입력란 맨 앞인 경우 제외) → "대한민국". 커서 양옆이 한글 음절이 아니거나(공백·문장부호 뒤 등) 사전 일치가 없으면 이모지 팝업. 앱이 IM 에 알리지 않은 선택이 있을 수 있는 사건(Shift+탐색키·Ctrl+A·Shift+클릭·드래그·PRIMARY 소유자 변경 등) 뒤이거나 surrounding 이 낡았으면 (d) 를 쓰지 않고 이모지 팝업이다. 지원 범위는 규칙 10, 상세는 HANJA_WORD_SPEC §2.4b.
    - 최근 확정 음절 버퍼는 비한글 확정(공백·구두점·영문·숫자·특수문자·이모지·한자 포함)·Enter·커서 이동·Backspace 통과(끝 1자 제거)·한/영 전환·포커스 이탈·Reset·비밀번호 필드·팝업 확정/취소 시 비워진다.
    - (a)에서 접미가 이미 확정된 글자를 포함하면(음절 확정 모드) 그 글자 수를 "확정 접두 길이" 로 기억한다. 단어 확정 모드에서 접미 앞의 나머지 preedit 은 확정 시 그대로 함께 커밋한다.
 3. **후보 순서**: 사전 저장 순서 (빈도순). 즐겨찾기(★)는 stable sort로 상단 promote.
-4. **선택 시** (v3.4): `SelectHanja(globalIndex)` → 엔진이 **출력 형식 설정(`hanja_output_format`: 漢字 / 한자(漢字) / 漢字(한자))을 적용한 문자열** 반환(단음절 변환에도 동일 적용) → 프론트엔드가 커밋. 대상에 확정 접두가 포함되면(규칙 2(a) 음절 확정 모드) 데몬은 `CommitText` 대신 `AutoTypefixApply(delete_chars=접두 글자 수, commit_text=서식 문자열, preedit_text="")` 를 popup-owner path 로 발행하고 프론트엔드는 AutoTypeFix 와 동일한 삭제→커밋을 수행한다. 규칙 2(c) 는 `delete_chars=0` 커밋이며 위젯이 선택 영역을 치환한다(판정에서 제외한 앞뒤 공백은 커밋 문자열에 되붙인다).
-5. **취소 시** (v3.4): `CancelHanja()` → 엔진이 팝업 진입 때 preedit 에서 내려간 텍스트(음절 확정 모드: 마지막 음절, 단어 확정 모드: 누적 preedit 전체, 선택 영역: 없음)를 반환 → 프론트엔드가 그대로 커밋(없으면 커밋 없음) → 팝업 닫기. 이미 확정돼 앱에 있는 접두와 선택 영역은 건드리지 않는다.
+4. **선택 시** (v3.4, v3.7 개정): `SelectHanja(globalIndex)` → 엔진이 **출력 형식 설정(`hanja_output_format`: 漢字 / 한자(漢字) / 漢字(한자))을 적용한 문자열** 반환(단음절 변환에도 동일 적용) → 프론트엔드가 커밋. 대상에 확정 접두가 포함되면(규칙 2(a) 음절 확정 모드) 데몬은 `CommitText` 대신 `AutoTypefixApply(delete_chars=접두 글자 수, commit_text=서식 문자열, preedit_text="")` 를 popup-owner path 로 발행하고 프론트엔드는 AutoTypeFix 와 동일한 삭제→커밋을 수행한다. 규칙 2(c) 는 `delete_chars=0` 커밋이며 위젯이 선택 영역을 치환한다(판정에서 제외한 앞뒤 공백은 커밋 문자열에 되붙인다). (v3.7) 규칙 2(d) 는 데몬이 `ReplaceSurroundingText(delete_before=a, delete_after=b, commit_text=서식 문자열, expect_text=지울 한글 원문)` 를 popup-owner path 로 발행하고 프론트엔드는 커서 앞 a자·뒤 b자를 지운 뒤 커밋한다 — 앱의 선택 치환에 기대지 않는다. 삭제 실패를 알 수 있거나 `expect_text` 대조가 어긋나는 프론트엔드는 커밋하지 않는다(문서 무변경). 마우스 확정(`SelectHanja`)도 키보드 확정과 같이 확정 직후 `recent_syllables` 를 비운다.
+5. **취소 시** (v3.4, v3.7 개정): `CancelHanja()` → 엔진이 팝업 진입 때 preedit 에서 내려간 텍스트(음절 확정 모드: 마지막 음절, 단어 확정 모드: 누적 preedit 전체, 선택 영역·커서가 걸친 단어(규칙 2(d)): 없음)를 반환 → 프론트엔드가 그대로 커밋(없으면 커밋 없음) → 팝업 닫기. 이미 확정돼 앱에 있는 접두와 선택 영역은 건드리지 않는다.
 6. **포커스 상실**: 자동 취소 (CancelHanja 호출)
 7. **한자 후보 없음 + 초성**: 자동으로 특수문자 검색으로 전환
 8. **즐겨찾기 토글 후 자동 점프** (v3.1):
@@ -253,9 +255,9 @@ sequenceDiagram
    - `was_bookmarked == true && bookmarked == false`인 reorder 이벤트에서, cursor가 점프해 도착한 셀에 **140ms 동안 Catppuccin yellow `#f9e2af` flash**.
    - 등록(★ ON) 시에는 flash 없음 — cursor가 자연스럽게 promote된 page 0 row 0을 따라가므로 시각 단서가 충분.
    - flash는 사용자가 "내가 별을 끄니 이 한자가 여기로 갔구나"를 인지하게 만드는 핵심 단서.
-10. **선택 영역 변환 지원 범위** (v3.4): 규칙 2(c) 는 선택 영역을 `SetSurroundingText` 로 전달하는 프론트엔드(GTK4 im-module·Qt5/6·Wayland·Windows TSF)에서만 동작한다. GNOME Shell 확장 경로(text-input-v3)는 앱이 선택을 보내지 않아(실측 0/321, HANJA_WORD_SPEC §2.10) 사실상 미동작이다(v3.5 정정). GTK3·XIM 은 선택 정보를 전달하지 못하므로 종전 idle 동작(이모지 팝업)을 유지한다. 선택이 있으나 사전에 정확히 없으면 역시 종전 idle 동작(이모지 팝업)이다.
-11. **팝업 중 한자키 재타 (접미 축소)** (v3.4): 규칙 2(a) 대상으로 연 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 갱신한다(예: "대한민국" → "민국" → "국"). 규칙 2(c) 선택 영역 대상·target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 종전 동작(푸시 경로: 팝업 닫고 키 재처리 / 풀 경로: 같은 팝업 재발행).
-12. **한자 단어 popup 은 1×9 목록 고정** (v3.5): 대상(target)이 2음절 이상인 한자 popup(규칙 2(a)·(c) 의 단어 대상)은 9×9 확장 없이 1×9 목록만 쓴다. `.`(Period)·`TogglePopupExpand`·`⊞` 클릭은 no-op(키는 소비), 렌더러는 `expand_visible=false` 로 ⊞ 를 그리지 않는다. 숫자 1~9·↑↓·페이지 이동·Home/End 는 compact 경로 그대로다. 규칙 11 의 접미 축소로 target 이 1자가 되면 새 단음절 팝업이므로 확장이 다시 가능하다. 단음절 한자·특수문자·이모지 그리드는 변경 없음. 엔진 SoT: `PopupState::hanja_word`(`new_hanja_with_top_row` 에서 `target.chars().count() >= 2`).
+10. **선택 영역·커서 단어 변환 지원 범위** (v3.4, v3.6·v3.7 개정): 규칙 2(c)(선택 영역)는 선택을 신뢰할 수 있게 전달하는 프론트엔드 — GTK4 im-module·Qt5/6·Windows TSF(한자키 시점 질의), GTK3 im-module(한자키 직전 GtkEditable·GtkTextView 위젯 직접 조회, v3.6) — 와, GNOME Shell 확장·Wayland 에서는 앱이 선택(anchor)을 보내는 경우(GTK4·Qt6·Chromium text-input-v3)에 신선할 때만 동작한다. GNOME Shell 확장 경로의 GTK3·LibreOffice·Firefox 앱은 선택이 있어도 anchor=cursor 로 보고되므로 선택 변환이 없다. **(v3.7) v3.6 의 "같은 프로세스 PRIMARY 로 선택 복원"(GTK3)과 GNOME 확장의 "idle 한자키 PRIMARY 읽기 보강"(HANJA_WORD_SPEC v1.2~v1.5)은 퇴역** — PRIMARY 는 내용을 읽지 않고 규칙 2(d) 의 거부 신호(소유자 변경)로만 쓴다. 규칙 2(d)(커서가 걸친 단어)는 surrounding 을 주고 확정 시그널 `ReplaceSurroundingText` 를 처리한다고 선언한 프론트엔드 — GTK3 im-module(위젯 직접 조회가 되는 GtkEditable·GtkTextView 한정)·GTK4 im-module·Qt5/6·GNOME Shell 확장·Windows TSF — 에서 동작한다. Wayland(input-method-v2)는 포인터·PRIMARY 신호 수단이 없어 보류, XIM·IMM32·surrounding 을 주지 않는 앱(터미널, X11 Chromium/Electron GTK IM)은 surrounding 이 없어 규칙 2(d) 가 없다 — 조합 중 규칙 2(a)(방금 입력한 단어)만 있고 idle 한자키는 이모지 팝업이다. 선택이 있으나 사전에 정확히 없으면 이모지 팝업이다(HANJA_WORD_SPEC §2.10).
+11. **팝업 중 한자키 재타 (접미 축소 / 다음 후보)** (v3.4, v3.7 개정): 규칙 2(a) 대상으로 연 팝업에서 한자키를 다시 누르면 target 을 더 짧은 접미 가운데 사전에 있는 가장 긴 것(1자면 마지막 음절)으로 옮겨 팝업을 갱신한다(예: "대한민국" → "민국" → "국"). (v3.7) 규칙 2(d) 대상으로 연 팝업에서는 규칙 2(d) 순서의 **다음 후보**로 갱신하고(예: `국어│교육` → "국어교육" → "국어" → "교육" → "어교" → "어" → "교" — 기본 사전 기준), 마지막 후보에서 한 번 더 누르면 한자 팝업을 닫고(커밋 없음) **이모지 팝업**을 연다. 규칙 2(c) 선택 영역 대상·규칙 2(a) 의 target 1자·Ctrl/Alt/Super 조합이면 축소하지 않고 종전 동작(푸시 경로: 팝업 닫고 키 재처리 / 풀 경로: 같은 팝업 재발행).
+12. **한자 단어 popup 은 1×9 목록 고정** (v3.5): 대상(target)이 2음절 이상인 한자 popup(규칙 2(a)·(c)·(d) 의 단어 대상)은 9×9 확장 없이 1×9 목록만 쓴다. `.`(Period)·`TogglePopupExpand`·`⊞` 클릭은 no-op(키는 소비), 렌더러는 `expand_visible=false` 로 ⊞ 를 그리지 않는다. 숫자 1~9·↑↓·페이지 이동·Home/End 는 compact 경로 그대로다. 규칙 11 의 접미 축소·다음 후보로 target 이 1자가 되면 새 단음절 팝업이므로 확장이 다시 가능하다. 단음절 한자·특수문자·이모지 그리드는 변경 없음. 엔진 SoT: `PopupState::hanja_word`(`new_hanja_with_top_row` 에서 `target.chars().count() >= 2`).
 
 ---
 
@@ -611,11 +613,13 @@ pub enum PopupAction {
 6. 마우스 ◀/▶ 클릭 → DBus `popup_change_page(±1)` → 엔진이 `PopupKey::PageUp/PageDown` 분기에 위임 → `PopupNavigate` 발행 (cursor sel_row/sel_col 보존)
 7. 기타 → 팝업 취소 후 키 재처리
 
-> **idle Hanja 키 dispatch 정책 (v3.4)**: Hanja 키는 `input_category` 와 무관하게
+> **idle Hanja 키 dispatch 정책 (v3.4, v3.7 개정 — 기현님 승인 2026-10-12)**: Hanja 키는 `input_category` 와 무관하게
 > `press_key()` 의 언어 분기 직전에 처리. 조합 중이면 한자 변환(§3.7 규칙 2(a)(b)).
-> preedit/조합 idle 이면 (i) 앱 선택 영역이 사전에 정확히 있는 한글이면 §3.7 규칙 2(c) 선택 단어 변환,
-> (ii) 그 외(선택 없음·불일치 선택)는 emoji popup 트리거(종전 v3.2 동작 — 불일치 선택은 건드리지 않는다). 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가
-> not_consumed 로 떨어져 무시되던 회귀가 있었다.
+> preedit/조합 idle 이면 (i) 신뢰 가능한 앱 선택 영역이 사전에 정확히 있는 한글이면 §3.7 규칙 2(c) 선택 단어 변환,
+> (ii) 선택이 없고 **커서가 걸친 한글 단어**가 사전에 있으면(§3.7 규칙 2(d) 조건 충족) 그 단어의 한자 팝업,
+> (iii) 그 외(불일치 선택·낡은 선택·커서 양옆이 한글 아님·사전 일치 없음·선택 가능성 거부·surrounding 없음)는 emoji popup 트리거(종전 v3.2 동작 — 선택 텍스트는 건드리지 않는다).
+> 요약: **커서가 걸친 단어(또는 선택한 단어)가 있으면 한자 팝업, 없으면 이모지.** 공백·문장부호 뒤에서 누르면 종전처럼 이모지다.
+> 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가 not_consumed 로 떨어져 무시되던 회귀가 있었다.
 
 ---
 
@@ -745,6 +749,9 @@ impl PopupState {
 | 2026-05-17 | **v3.3** | **GNOME Wayland 분기 — extension PopupView (St 위젯) 도입. popup-service 와 동일 클래스명·CSS 토큰·위젯 트리 (`.unim-{hanja,special,emoji}-popup`, `.grid-cell`, `.hanja-num`, `.popup-page-btn` 등) 1:1 동기. 활성 조건 `Meta.is_wayland_compositor()` — X11 에선 미생성(이중 popup 방지). 이모지 카테고리 탭을 통합 GridLayout col 0 에 attach → 우측 row 헤더와 vertical 자연 정렬. 한자 cell 별(★/☆) 우측 고정 (뜻 없어도 hexpand spacer). 푸터 페이저 가로 폭 꽉 채움 (◀ 좌 / 페이지 중앙 / ▶ 우 / ⊞ 우끝). 페이저 항상 표시 + 페이지 1개면 ◀▶ 비활성화·dim — popup 크기 점프 방지. col_headers 항상 9개 — page item 수와 무관하게 popup 폭 일정. popup 위치 화면 정중앙 고정 (모든 frontend 공통). dismiss 정책 — focus_out/reset 단일 경로 + cursor-jump 감지(IBus 자동 reset 미동작 보완). popup-service D-Bus auto-activation 도입 (`org.atit.unim.PopupService.service`) + autostart .desktop 폐기. main.rs 시작 순서 재배치 — PopupServer 등록 먼저, register_frontend fire-and-forget. SetEmojiCategory 가 ShowEmojiPopupV2 + PopupRender 동반 emit (카테고리 탭 갱신 정상 동작). `call_popup_service` RPC signature mismatch 수정(`call_method` 사용).** |
 | 2026-09-26 | **v3.4** | **한자 단어 변환 — §3.7 규칙 2 대상 확장(최근 확정 음절+조합 최장 접미·단어 모드 preedit 접미·앱 선택 영역), 규칙 4/5 확정·취소 페이로드 개정, 규칙 10 선택 변환 지원 범위, 규칙 11 팝업 중 한자키 재타 접미 축소, §9.2 idle 정책에 선택 영역 예외(불일치 선택은 이모지 폴백). 확정 시 `AutoTypefixApply` 를 접두 교체 채널로 재사용, `SelectHanja` 반환 문자열에 출력 형식 설정(`hanja_output_format`) 적용. 헤더 ellipsize·Windows compact 한자 열 동적 폭. 별도 규격: `HANJA_WORD_SPEC.md`** |
 | 2026-10-04 | v3.5 | 한자 단어 팝업 9×9 확장 제거·⊞ 숨김·./TogglePopupExpand no-op(기현님 지시). GNOME 이모지 ZWSP preedit 제거(GTK4 선택 삭제) |
+| 2026-10-05 | v3.6 | **GTK3 선택 영역 변환 지원**(규칙 10 개정 — 기현님 승인): 한자키 직전 위젯 조회·로컬 PRIMARY 로 선택 복원, 선택은 한자키 처리 전에 엔진에 반영(데몬 InputContext 직렬 처리, HANJA_WORD_SPEC §2.4.5). GTK3·GTK4 im-module 이 한자·특수문자 팝업을 띄울 때 `popup_active` 를 세워(HidePopup 에서 해제) 팝업 중 Esc·방향키·Enter·Backspace 가 idle 우회로 앱에 새던 결함 수정 |
+| 2026-10-12 | v3.7 | **커서가 걸친 단어 한자 변환(기현님 승인 2026-10-12 — 문서 개정안, 미커밋·검토 대기)**: §3.7 규칙 2 에 대상 우선순위와 (d) 신설(선택 없이 커서를 포함하거나 커서에 닿는 가장 긴 사전 단어, 같은 길이 순서 고정, 커서 맨 앞 제외), (c) 를 신뢰 가능한 출처·신선한 선택으로 한정. 규칙 4 에 (d) 확정 `ReplaceSurroundingText(a,b,text)`(커서 앞 a·뒤 b 삭제 후 커밋, 앱 선택 치환 비의존), 규칙 5 (d) 취소 시 커밋 없음, 규칙 10 지원 범위 개정(GTK3 PRIMARY 복원·GNOME PRIMARY 읽기 보강 **퇴역**, PRIMARY 는 소유자 변경 신호로만), 규칙 11 에 (d) 다음 후보 순환·소진 시 이모지 전환, 규칙 12 에 (d) 포함. §9.2 idle 정책: "선택 또는 커서가 걸친 단어가 있으면 한자 팝업, 없으면 이모지". 상세: HANJA_WORD_SPEC v1.6 §2.4b |
+| 2026-10-12 | v3.7 | **구현 반영**: `ReplaceSurroundingText` 시그니처를 구현 계약 `(uuss)`(delete_before·delete_after·commit_text·expect_text)로 정정하고 "미구현" 표기 제거, 규칙 4 에 `expect_text` 대조·마우스 확정 `recent_syllables` 비움 명시. 상세: HANJA_WORD_SPEC v1.6 §4.6 |
 
 ---
 

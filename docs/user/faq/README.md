@@ -659,8 +659,9 @@ Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input me
 1. **Check the key first** — the `Hanja` key (or `F9`) branches depending on state:
    - while composing (the syllable or word just typed) → **Hanja** candidates
    - with a Hangul word already typed and selected with the mouse or Shift+arrows, if it is in the dictionary → **Hanja** candidates for that word
+   - not composing and nothing selected, but the cursor is at the end of, inside, or at the start of a Hangul word → **Hanja** candidates for that word (longest first; press again for the next one)
    - after composing a single consonant (e.g. `ㅁ`) → **special characters**
-   - while not composing anything and nothing selected → **emoji**
+   - otherwise, not composing, nothing selected and the cursor not touching a Hangul word → **emoji** (see Q33 for the cases)
 2. **Check the program is running** — look for `unim-popup-win.exe` in Task Manager. If it is missing, run `unim-popup-win.exe` from the install folder (`C:\Program Files\UNIM\`) directly. Launching it twice by accident is harmless — the second copy exits on its own.
 3. **Sign out and back in once** — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.
 
@@ -707,6 +708,75 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 - To carry settings over from Linux, copy the files in `~/.config/unim/` to `%APPDATA%\unim\`. The file formats are identical on both platforms (Q6 · Q7).
 
 <!-- @endplatform -->
+
+---
+
+## Q32. Only one character changes instead of the whole word.
+
+It is usually one of these four. The popup header `「…」` shows the text about to be replaced, so check that first.
+
+1. **The word is not in the dictionary.** Words missing from the dictionary (proper nouns, new words) convert one character at a time. Convert them one character at a time.
+2. **You already typed a particle or a space.** Pressing `Hanja` while typing targets only the tail that is still composing. Press it right after the word, **before adding a particle**. If you already did, put the cursor at the end of the word (before the particle) and press it.
+3. **You kept pressing `Hanja` in the popup.** A popup opened while typing shrinks from the front on each press until one character is left (`대한민국` → `민국` → `국`). If you went past it, close with `Esc` and start over.
+4. **You stepped past the word in the word-at-the-cursor cycle.** The first popup is the longest word and each further press moves to a shorter candidate (Q36).
+
+Steps are in the "Step-by-step tutorial" of [user manual §4.2](../user-guide/README.md#42-hanja-conversion).
+
+---
+
+## Q33. I pressed `Hanja` and got the emoji popup instead of hanja.
+
+**This is not an error.** There was nothing to convert, or converting risked losing text, so UNIM skipped hanja on purpose. Find your case below.
+
+| Situation | What to do |
+|---|---|
+| Neither side of the cursor is Hangul (after a space, after punctuation, end of line) | Press `←` to the end of the word and press the key again |
+| The cursor is at the very start of the field or paragraph | Move the cursor to the end of the word |
+| The word is not in the dictionary | Convert one character at a time |
+| You just selected with `Shift`+arrows, `Ctrl`+`A`, dragging or double-click (apps going through the GNOME extension) | Press an arrow key without `Shift`, or click, to clear the selection |
+| You just switched windows or clicked (apps going through the GNOME extension) | Press an arrow key once, then press the key again |
+| Terminal, XIM app, Chromium on X11, etc. | These environments cannot see text you already wrote. It works only right after typing the word (while composing) |
+| You pressed `Hanja` past the last candidate in the hanja popup | By design. After the last candidate it moves on to the emoji popup |
+
+If text was selected when the emoji popup opened, confirming an emoji replaces the selection with it. Press `Esc` to close the popup and keep the selection. The full table is in [user manual §4.2](../user-guide/README.md#when-the-emoji-popup-appears).
+
+---
+
+<!-- @platform:linux -->
+## Q34. In LibreOffice, converting does nothing after I drag-select.
+
+**LibreOffice drawn with GTK (the default build on most Linux distributions) does not tell the input method about the selection, so selection conversion does not work.** Converting while a selection may still exist could erase that selection too, so UNIM opens the emoji popup instead of hanja.
+
+1. Clear the selection: press an arrow key without `Shift`, or click once.
+2. Put the cursor anywhere on the word — **end, middle or start**.
+3. Press `Hanja`. The longest word comes up first; press again for the next candidate.
+
+- At the **very start** of the document or field this method does not work. Move the cursor to the end of the word.
+- The cursor method above is for **GNOME (Wayland)**, where input goes through the extension. In an **X11 session** the document window of GTK-drawn LibreOffice does not support the cursor method either, and the emoji popup opens. There, press `Hanja` right after typing the word (while composing).
+- LibreOffice drawn with Qt (the KDE build, for example) reports the selection accurately, so selection conversion works there.
+- If the emoji popup opens and you confirm, the selected text becomes the emoji. Press `Esc` to keep the selection.
+<!-- @endplatform -->
+
+---
+
+## Q35. How do I convert a word with a particle attached? (대한민국은)
+
+For now, **put the cursor before the particle** and press `Hanja`. For example, pressing it at `대한민국|은` usually offers 「대한민국」 first. While typing, the fastest way is to press the key before adding the particle.
+
+Automatic stripping of particles is **planned as a separate feature**. Until it arrives, use the method above.
+
+---
+
+## Q36. The word of the length I want is not the first candidate.
+
+The first popup is the **longest word** the cursor touches. For a shorter word, press `Hanja` again to move to the next candidate.
+
+- Order: longer words first → (at equal length) the word ending right at the cursor → the word starting right at the cursor → a word straddling the cursor.
+- Example: `국어|교육` goes 국어교육 → 국어 → 교육 → 어교 → 어 → 교 (built-in dictionary; less familiar words such as `어교` (魚膠) can appear in between). To convert only "국어": `Hanja` twice, then a digit.
+- After the last candidate the emoji popup opens. It does not loop back to the first one.
+- The candidate list does not change while the popup is open.
+
+The diagram and table are under "Pick the length you want in a compound word" in [user manual §4.2](../user-guide/README.md#42-hanja-conversion).
 
 ---
 

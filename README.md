@@ -33,7 +33,8 @@ Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
 - **Hanja, symbols, and emoji from a single key** — one key (the Hanja key or `F9`)
   switches mode automatically and picks a candidate in as few as two extra keystrokes,
   with no separate character-map app or search box. Hanja conversion works on a whole
-  word too, not just a single syllable.
+  word too, not just a single syllable, and on a word you already wrote: just put the
+  cursor on it — no selection needed.
 - Designed around minimizing keystrokes and letting the software fix mistakes
   instead of the user.
 
@@ -210,11 +211,19 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 | 그때의 상태 | 한자키를 누르면 | 예 |
 |------|------|------|
 | 한글을 조합해 글자가 있을 때(방금 친 한 글자 또는 단어) | **한자 팝업** | `대한민국` → 大韓民國 … |
-| 사전에 있는 한글 단어를 선택한 채(GTK4·Qt·GNOME·Wayland·Windows) | 그 단어 **한자 팝업** | `대한민국` 선택 → 大韓民國 … |
+| 조합 중이 아니고 한글 단어를 선택했을 때(선택 변환을 지원하는 앱) | 그 단어 **한자 팝업** | `[대한민국]` → 大韓民國 … |
+| 조합 중이 아니고 선택도 없는데 커서가 한글 단어의 끝·안·앞에 있을 때 | 커서가 걸친 단어 **한자 팝업** | `대한\|민국` → 大韓民國 … |
 | 자음만 입력한 상태일 때 | **특수문자 팝업** | `ㅁ` → ＄, ％, ￦, ℃ … |
-| 아무것도 조합하고 있지 않을 때(idle, 선택 없음) | **이모지 팝업** | 😀 🎉 🚀 … |
+| 그 밖에 아무것도 조합하고 있지 않을 때 | **이모지 팝업** | 😀 🎉 🚀 … |
 
 모드를 따로 고르거나 다른 프로그램을 여실 필요가 없습니다.
+
+**이미 쓴 단어도 선택할 필요가 없습니다.** 커서를 단어 위에 두고 한자키를 누르시면 됩니다.
+단어의 처음이든 가운데든 끝이든 상관없습니다(입력란·문단의 맨 앞만 예외). 가장 긴 단어부터 뜨고, 한자키를 다시
+누르시면 더 짧은 단어가 차례로 뜹니다. 선택 방식은 단어마다 `Shift`+`←` 를 여러 번
+눌러야 하지만, 이 방식은 **한자키 한 번 + 숫자 한 번**입니다. 단계별 설명은
+[사용자 매뉴얼 §4.2](docs/user/user-guide/README-ko.md#42-한자-변환-hanja)에 있습니다.
+터미널처럼 앱이 주변 글자를 알려 주지 않는 곳에서는 방금 친 단어만 바꿀 수 있습니다.
 
 ### 한자는 두 번만 더 누르면 끝납니다
 
@@ -224,7 +233,7 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 
 - **즐겨찾기(`Space`)를 쓰시면 더 줄어듭니다.** ★를 단 한자는 첫 페이지 위쪽으로 올라오므로,
   자주 쓰시는 글자는 늘 `1`~`3` 근처에 놓입니다. 페이지를 넘길 일이 없어집니다
-- `.`(마침표)로 **9칸 ↔ 81칸 격자**를 오갈 수 있습니다. 후보를 한눈에 훑고 싶으실 때 쓰시면 됩니다
+- `.`(마침표)로 **9칸 ↔ 81칸 격자**를 오갈 수 있습니다(한 글자 후보에서만. 두 글자 이상 단어 후보는 9개짜리 목록으로 고정입니다). 후보를 한눈에 훑고 싶으실 때 쓰시면 됩니다
 - `←`/`→`, `PageUp`/`PageDown`으로 페이지를 넘기시며, 처음과 끝이 이어져 있어 한 방향으로만
   눌러도 전체를 도실 수 있습니다
 - 마우스도 쓰실 수 있습니다. 후보를 좌클릭하면 선택되고, ◀/▶로 페이지를 넘기며,

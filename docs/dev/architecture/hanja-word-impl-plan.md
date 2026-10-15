@@ -5,6 +5,9 @@
 - 모든 `file:line` 은 이 세션에서 실측했거나 세 설계안·심사가 교차 확인한 값. 구현자는 편집 전 `rg` 로 재확인한다(라인은 앞선 편집으로 밀릴 수 있다).
 - 커밋 없음(D12). develop 작업 트리에서 그대로.
 
+> [!WARNING]
+> **v1.6 개정(2026-10-12, 문서 개정안)으로 이 계획의 idle 한자키 관련 서술은 대체됐다.** 이 문서는 v1 구현 당시의 기록이다. 다음 항목은 스펙이 우선한다: idle + 선택 없음 = 이모지(→ 대상③ "커서가 걸친 단어", HANJA_WORD_SPEC §2.4b), 대상② 불일치 = D6 무동작(→ Q8(a) 이모지, 이미 v1 에서 대체), GTK3 대상② ✘(→ v1.4 위젯 직접 조회), GNOME/GTK3 PRIMARY 경유 선택(→ v1.6 퇴역, §2.10.1), "신규 시그널 없음"(→ 대상③ 은 `SetClientCapabilities`·`SurroundingHint`·`ReplaceSurroundingText` 추가, §4.6). 대상③ 구현 계획은 별도로 세운다.
+
 ---
 
 ## 1. 결정 요약 — 설계안 간 차이 해소
@@ -80,6 +83,7 @@ impl HanjaOutputFormat {
 | `pending_ui_feedback` (선택) | `Option<UiFeedback>` | `take_ui_feedback()` — 대상② 불일치 비프 |
 | `hanja_word_replace_capable` | `bool` | 호스트 능력 플래그, **기본 false**. setter `set_hanja_word_replace_capable(bool)`. true 인 호스트(Linux 데몬·TSF)만 `RecentWord`(버퍼 포함 접미) 채택. IMM32·capi 는 기본값으로 종전 단음절(§1 #28). `reset()`·`rebuild_korean_context` 에서 **보존**(호스트 속성) |
 | `surrounding_includes_preedit` | `bool` | 기본 false. TSF 만 true(U12 (a)). `recent_prefix_verified` 의 `prefix+pre` 절 게이트(스펙 §2.2.3). `reset()` 에서 보존 |
+| `learned_includes_preedit`·`learn_obs` (v1.5) | `bool`·`Option<PreeditLearnObs>` | 관측 학습(`set_surrounding_text` → `observe_preedit_inclusion`). `recent_prefix_verified` 의 `prefix+pre` 절은 `surrounding_includes_preedit \|\| learned_includes_preedit`. `reset()` 은 상태 보존·관측만 비움, FocusIn(`clear_learned_includes_preedit`)·`new` 에서 해제 |
 | `recent_mark` | `usize` | 래퍼가 키 진입 시 저장한 `commit_buffer.len()`. `recent_absorb_commit_delta()` 가 `commit_buffer[mark..]` 를 push 하고 mark 를 전진 — 한자키 분기의 chord finalize 델타를 `start_hanja_conversion` 전에 흡수(§2.3·§2.5) |
 
 ```rust
@@ -509,7 +513,7 @@ Windows 항목은 VM 검증 전 게재 여부를 PM 이 판단(cross-compile 만
 |---|---|---|
 | 버퍼 드리프트(마우스 편집·메뉴 Undo·앱 자동교정, Wayland/XIM 은 클릭 시 Reset 없음) → 잘못된 글자 삭제(XIM N+1 BS·Wayland delete_surrounding 은 비가역) | 문서 손상 | 정합성 검증(GTK3/4·Qt 재질의·GNOME·Wayland 배선·TSF idle, `before` 빈 문자열은 실패) 실패 시 단음절 퇴화. XIM 은 통과 키 전량 리셋 + **스팟 점프 Reset(U5)** + 헤더 확인 후 Esc(접두 무손상). surrounding 미지원 Wayland 앱은 스펙 Q9(b) PM 판단. 잔여 수용, 매뉴얼 명시 |
 | 선택 오프셋이 텍스트 길이를 넘음(GNOME 단위 미변환·Qt UTF-16) | 슬라이스 패닉 → 워커 스레드 사망(전 컨텍스트 정지); **클램프하면** 바이트 (0,6)→(0,4) 로 "대한" 선택이 "대한민국" 팝업이 돼 확정 시 "大韓民國민국"(그럴듯한 오답) | `selection_span()` **범위 초과 거부**(None + 로그) + a≥b 조기 반환, `recent_prefix_verified` cursor 초과 실패, `typefix_convert` 동일. L1 케이스 2. GNOME 바이트 확인 시 확장에서 문자 변환 |
-| 정합성 검증 `prefix+pre` 절이 비-TSF 에서 클릭 드리프트를 통과시킴(버퍼 "대한민" 잔류 → 기존 "…대한민국" 뒤 클릭 → "국") | Wayland/GNOME `delete_surrounding` 으로 '한민국' 비가역 삭제 | `surrounding_includes_preedit` 플래그(TSF 만 true) 로 절 게이트. L1 대비 케이스 |
+| 정합성 검증 `prefix+pre` 절이 비-TSF 에서 클릭 드리프트를 통과시킴(버퍼 "대한민" 잔류 → 기존 "…대한민국" 뒤 클릭 → "국") | Wayland/GNOME `delete_surrounding` 으로 '한민국' 비가역 삭제 | `surrounding_includes_preedit` 플래그(TSF 만 true) 로 절 게이트. L1 대비 케이스 **(v1.5 보강)** LibreOffice 처럼 preedit 을 포함해 보고하는 Linux 앱은 `learned_includes_preedit`(두 보고 관측 학습: 끝 글자 상이·앞부분 동일, FocusIn·재생성 해제, 학습 모드 드리프트 시 `recent_clear`)로만 같은 절을 연다 |
 | GTK4 `is_focused` 우회가 역방향 ATF 가드까지 풀어 포커스 이탈 뒤 XTest BS 폴백이 무관 창에 입력 | 다른 창 텍스트 삭제 | 우회 없음(현행 가드 유지). 포커스 탈취는 popup-service 쪽 수정, 실측 §6.5 |
 | IMM32·capi 호스트가 교체 페이로드를 드레인하지 않음 | 확정 시 조합 음절 소실·pending 영구 잔류 | 호스트 플래그 기본 false(§1 #28). L1 바이트 동일 케이스 |
 | chord 모드에서 한자키 자체가 직전 음절을 커밋해 target 풀에서 빠짐 | 접두 길이 오산 → XIM(검증 생략) 비가역 오삭제 | 한자키 분기 `recent_absorb_commit_delta()`(§2.5). L1 chord 케이스 |
