@@ -271,6 +271,14 @@ pub const SURROUNDING_HINT_POINTER_PLAIN: u32 = 2;
 pub const SURROUNDING_HINT_POINTER_SELECT: u32 = 3;
 pub const SURROUNDING_HINT_PRIMARY_CHANGED: u32 = 4;
 pub const SURROUNDING_HINT_SELECTION_UNKNOWN: u32 = 5;
+/// 입력란(필드) 포커스 — 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 필드가 바뀔 때 보낸다.
+/// push 컨텍스트에서만 효력이 있다(FocusIn 과 같은 표시, 단 모드 복원·ATF 리셋은 없음).
+pub const SURROUNDING_HINT_FIELD_FOCUS: u32 = 6;
+
+/// R6 — 키 없는 커서 이동 뒤 이 시간(ms)이 지나야 FocusIn·FieldFocus 원인 플래그를 푼다.
+pub const SURROUNDING_SETTLE_MS: u64 = 300;
+/// R7 — 낡음 거절을 이 시간(ms)만큼 미뤄 다음 보고를 기다린다.
+pub const SURROUNDING_DEFER_WAIT_MS: u64 = 150;
 
 /// 대상③ 신선도·선택 거부 상태 — 엔진 재생성(Reset·FocusOut)을 건너 이월하는 묶음.
 /// 필드는 크레이트 내부 전용이며 호출부는 `surrounding_word_carry` / `restore_*` 로만 옮긴다.
@@ -283,6 +291,12 @@ pub struct SurroundingWordCarry {
     pub(super) selection_possible: bool,
     pub(super) flag_cause: u8,
     pub(super) exhausted: bool,
+    /// push 전용 — 마지막 "키 없는 커서 이동" 후보 시각(ms). 포커스 때 비워진다.
+    pub(super) move_at: Option<u64>,
+    /// push 전용 — 마지막 select 신호(PRIMARY_CHANGED·POINTER_SELECT) 시각(ms).
+    pub(super) last_select_ms: Option<u64>,
+    /// 호스트가 마지막으로 넘긴 단조 ms.
+    pub(super) now_ms: u64,
 }
 
 /// 사전 최장 키 길이(글자) — 대상 탐색·선택 판정 상한.

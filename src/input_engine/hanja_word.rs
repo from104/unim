@@ -8,7 +8,7 @@
 //! - 팝업 중 한자키 재타 = target 접미 축소(`shrink_hanja_target`, Q7(a)).
 
 use super::engine::InputEngine;
-use super::surrounding_word::SwCand;
+use super::surrounding_word::{SwCand, SwJudge};
 use super::types::{HanjaSource, InputResult, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP};
 use crate::config::InputCategory;
 use crate::hangul::char::HangulCharExt;
@@ -24,6 +24,9 @@ pub(super) enum Resolve {
     NoMatchSelection,
     /// 대상③ 커서 주변 단어 후보 목록(정렬 완료, 비어 있지 않음).
     SurroundingWord(Vec<SwCand>),
+    /// 판정을 미뤘다(R7·R8, push 전용) — 키는 소비하되 팝업은 열지 않는다. 기한은
+    /// `InputEngine::deferred_hanja_deadline()` 로 읽는다.
+    Defer { deadline_ms: u64 },
     /// 대상 없음(비밀번호 차단·idle 선택 없음·조합 중 preedit 비어 있음).
     None,
 }
@@ -222,7 +225,7 @@ impl InputEngine {
     // =========================================
 
     /// 한자 변환 대상을 결정한다(§2.2.2·§2.3·§2.4).
-    pub(super) fn resolve_hanja_target(&self) -> Resolve {
+    pub(super) fn resolve_hanja_target(&mut self) -> Resolve {
         // pull 경로(GetHanjaCandidates)는 press_key 의 영문 강제를 거치지 않는다 — 여기서 차단.
         if self.content_purpose.should_block_hangul() {
             return Resolve::None;
@@ -356,15 +359,18 @@ impl InputEngine {
     /// 능력을 선언한 컨텍스트(`caps != 0`)에서는 선택 스냅샷이 낡았으면(마지막 보고 뒤
     /// 문서를 바꿀 사건) 대상②도 쓰지 않고 이모지로 폴백한다(I1). `caps == 0` 은 v1.5 와
     /// 바이트 동일. 한자키마다 판정 로그 1줄(수치·이유 코드만, §2.8).
-    fn resolve_idle(&self) -> Resolve {
+    fn resolve_idle(&mut self) -> Resolve {
+        let allow_defer = self.sw_push() && !self.sw_no_defer;
         if self.has_selection() {
             if self.surrounding_caps != 0 && self.surrounding_stale {
+                self.sw_last_reason = "stale";
                 unim_log!("ENGINE", "대상②: reason=stale");
                 return Resolve::NoMatchSelection;
             }
             return self.selection_target();
         }
         if self.surrounding_word_exhausted {
+            self.sw_last_reason = "exhausted";
             unim_log!(
                 "ENGINE",
                 "대상③: reason=exhausted client={}",
@@ -377,8 +383,11 @@ impl InputEngine {
         } else {
             self.selection_flag_cause.name()
         };
-        match self.surrounding_word_resolve() {
-            Ok(cands) => {
+        match self.surrounding_word_judge(allow_defer) {
+            SwJudge::Defer { deadline_ms, reason } => self.sw_start_defer(deadline_ms, reason),
+            SwJudge::Ok { cands, settled } => {
+                self.sw_apply_settled(settled);
+                self.sw_last_reason = "ok";
                 let first = &cands[0];
                 unim_log!(
                     "ENGINE",
@@ -392,7 +401,9 @@ impl InputEngine {
                 );
                 Resolve::SurroundingWord(cands)
             }
-            Err((reason, run)) => {
+            SwJudge::Reject { reason, run, settled } => {
+                self.sw_apply_settled(settled);
+                self.sw_last_reason = reason;
                 unim_log!(
                     "ENGINE",
                     "대상③: reason={} client={} run={}자 flag={}",
@@ -403,6 +414,33 @@ impl InputEngine {
                 );
                 Resolve::None
             }
+        }
+    }
+
+    /// 판정을 미룬다 — 기한을 기록하고 로그를 남긴다(R7·R8).
+    fn sw_start_defer(&mut self, deadline_ms: u64, reason: &'static str) -> Resolve {
+        self.sw_pending_defer = Some(deadline_ms);
+        self.sw_last_reason = "defer";
+        unim_log!(
+            "ENGINE",
+            "대상③: reason=defer client={} cause={} wait_ms={}",
+            self.client_tag,
+            reason,
+            deadline_ms.saturating_sub(self.sw_now_ms)
+        );
+        Resolve::Defer { deadline_ms }
+    }
+
+    /// R6 이 플래그를 풀어 준 판정이면 실제로 내린다(로그 `flag_settled`).
+    fn sw_apply_settled(&mut self, settled: bool) {
+        if settled {
+            unim_log!(
+                "ENGINE",
+                "대상③: reason=flag_settled client={} cause={}",
+                self.client_tag,
+                self.selection_flag_cause.name()
+            );
+            self.clear_sel_flag();
         }
     }
 

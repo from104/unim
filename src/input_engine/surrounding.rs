@@ -47,6 +47,9 @@ impl InputEngine {
             self.surrounding_text.clear();
             self.surrounding_cursor = 0;
             self.surrounding_anchor = 0;
+            // push: 보류 중인 한자키 취소(R10) + 기준점·이동 후보 폐기.
+            self.sw_cancel_defer("purpose");
+            self.sw_drop_push_state();
             let popup_open = if self.hanja_mode {
                 self.cancel_hanja();
                 true
@@ -117,8 +120,10 @@ impl InputEngine {
             self.surrounding_cursor = 0;
             self.surrounding_anchor = 0;
             self.learn_obs = None;
+            self.sw_drop_push_state();
             return;
         }
+        self.sw_note_report(cursor_pos);
         self.observe_preedit_inclusion(&text, cursor_pos, anchor_pos);
         self.surrounding_text = text;
         self.surrounding_cursor = cursor_pos;

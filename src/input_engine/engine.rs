@@ -196,6 +196,20 @@ pub struct InputEngine {
     pub(super) selection_unknown_once: bool,
     /// pull 경로에서 대상③ 후보가 소진돼 이어지는 폴백 키가 이모지를 열어야 함.
     pub(super) surrounding_word_exhausted: bool,
+    /// 호스트가 넘긴 단조 ms(`set_now_ms`) — push 컨텍스트의 R5~R8 전용. 코어는 시계를 읽지 않는다.
+    pub(super) sw_now_ms: u64,
+    /// 마지막 surrounding 보고(R5) — 포커스·Reset 때 비워 포커스 뒤 첫 보고를 기준점으로만 쓴다.
+    pub(super) sw_last_report: Option<super::surrounding_word::SwReport>,
+    /// "키 없는 커서 이동" 후보 시각(R5).
+    pub(super) sw_move_at: Option<u64>,
+    /// 마지막 select 신호 시각(R6 창 판정).
+    pub(super) sw_last_select_ms: Option<u64>,
+    /// 판정을 미룬 한자키의 기한(R7·R8). 이월하지 않는다(R10).
+    pub(super) sw_pending_defer: Option<u64>,
+    /// `resume_deferred_hanja` 안에서만 true — 두 번째 Defer 금지(R9).
+    pub(super) sw_no_defer: bool,
+    /// 마지막 대상③ 판정 이유 코드(진단·적합성 시험용).
+    pub(super) sw_last_reason: &'static str,
     /// 이번 `press_key` 진입 시 내려진 `surrounding_word_exhausted` 값(한자 idle 분기용).
     pub(super) sw_exhausted_key: bool,
     /// 대상③ 후보 목록(순서대로 한자키 재타로 순환)과 현재 위치·앞/뒤 삭제 글자 수.
@@ -377,6 +391,13 @@ impl InputEngine {
             selection_unknown_once: false,
             surrounding_word_exhausted: false,
             sw_exhausted_key: false,
+            sw_now_ms: 0,
+            sw_last_report: None,
+            sw_move_at: None,
+            sw_last_select_ms: None,
+            sw_pending_defer: None,
+            sw_no_defer: false,
+            sw_last_reason: "",
             hanja_sw_cands: Vec::new(),
             hanja_sw_idx: 0,
             hanja_sw_before: 0,
@@ -972,6 +993,9 @@ impl InputEngine {
         self.popup_state = None;
         self.popup_pending_action = None;
         self.reset_hanja_word_fields();
+        // push: 판정을 미룬 한자키는 조용히 취소, 기준점은 비운다(R10·R5).
+        self.sw_cancel_defer("reset");
+        self.sw_last_report = None;
         self.recent_clear();
         self.recent_mark = 0;
         self.learn_obs = None;

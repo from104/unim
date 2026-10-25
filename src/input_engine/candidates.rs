@@ -53,6 +53,11 @@ impl InputEngine {
                 self.open_hanja_popup(first, candidates);
                 return InputResult::hanja_candidates();
             }
+            Resolve::Defer { deadline_ms } => {
+                debug_assert_eq!(self.sw_pending_defer, Some(deadline_ms));
+                // R7·R8 — 키는 소비, 팝업 없음. 호스트가 `deferred_hanja_deadline()` 에 다시 판정한다.
+                return InputResult::consumed();
+            }
             Resolve::None => {
                 unim_log!("ENGINE", "한자/특수문자 후보 없음");
                 return InputResult::consumed();

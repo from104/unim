@@ -66,6 +66,10 @@ impl InputEngine {
         config: &Config,
     ) -> InputResult {
         self.last_toggle_blocked = false;
+        // R10 — 판정을 미룬 한자키가 있는데 다른 키가 왔다: 조용히 취소하고 이 키는 정상 처리.
+        if self.sw_pending_defer.is_some() && !keycode.is_modifier() {
+            self.sw_cancel_defer("key");
+        }
         let before_len = self.commit_buffer.len();
         // 한자키 분기가 같은 키 안의 chord 확정 델타를 중간 흡수하는 기준점.
         self.recent_mark = before_len;
@@ -291,6 +295,10 @@ impl InputEngine {
                     let r = self.start_hanja_conversion();
                     if self.hanja_mode {
                         return r;
+                    }
+                    if self.sw_pending_defer.is_some() {
+                        // 판정 보류(R7·R8) — 이모지도 열지 않는다. 재판정이 열거나 취소한다.
+                        return InputResult::consumed();
                     }
                 }
                 self.start_emoji_popup();

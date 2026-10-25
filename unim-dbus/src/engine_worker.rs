@@ -651,6 +651,7 @@ fn handle_focus_in(
     // (FocusOut·Reset 은 엔진 재생성이 이미 초기화한다.)
     if let Some(engine) = contexts.get_mut(&context_id) {
         engine.clear_learned_includes_preedit();
+        engine.set_now_ms(mono_ms());
         // 대상③: 이전 앱의 신선도·선택 가능 표시를 믿지 않는다(능력 비트는 유지).
         engine.surrounding_word_focus_in();
     }
@@ -925,12 +926,23 @@ fn cancel_hanja_if_active(engine: &mut InputEngine) -> Option<String> {
     Some(t)
 }
 
+/// 코어에 넘기는 단조 ms — 프로세스 시작 기준(`Instant`). 코어는 시계를 읽지 않는다.
+fn mono_ms() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 /// pull 경로(`GetHanjaCandidates`)의 한자 변환 시작. 열려 있던 한자 팝업이 이 호출로
 /// 닫혔으면(대상③ 후보 소진, I4) true — 서비스가 `HidePopup` 을 내 이어지는 `ProcessKey`
 /// 폴백이 이모지 팝업을 열 수 있게 한다.
 fn start_hanja_pull(engine: &mut InputEngine) -> bool {
     let was_hanja_mode = engine.is_hanja_mode();
+    engine.set_now_ms(mono_ms());
     engine.start_hanja_conversion();
+    // P2 전 임시 배선: 판정 보류(push 전용)를 즉시 재판정해 종전과 같은 동작을 유지한다.
+    if engine.deferred_hanja_deadline().is_some() {
+        engine.resume_deferred_hanja(mono_ms());
+    }
     was_hanja_mode && !engine.is_hanja_mode()
 }
 
@@ -1633,7 +1645,14 @@ fn run_engine_worker(
                     let prev_mode = engine.input_category();
 
                     // 키 처리
-                    let result = engine.press_key(key, modifier, &config);
+                    engine.set_now_ms(mono_ms());
+                    let mut result = engine.press_key(key, modifier, &config);
+                    // P2 전 임시 배선: 한자키 판정 보류(push 전용, R7·R8)를 즉시 재판정한다 —
+                    // 보류 없이 거절하던 종전 동작과 같다(두 번째 보류는 없다). P2 가 이 자리를
+                    // 컨텍스트별 pending + 타이머로 바꾼다.
+                    if engine.deferred_hanja_deadline().is_some() {
+                        result = engine.resume_deferred_hanja(mono_ms());
+                    }
 
                     // 비밀번호/PIN 칸이라 한/영 전환을 거부했는가 — 직후에 읽어야 한다
                     // (아래 ATF replay 의 press_key 가 플래그를 다시 리셋한다).
@@ -2893,6 +2912,7 @@ fn run_engine_worker(
             } => {
                 // 로그는 엔진이 남긴다(키 이름만, 글자 평문 금지).
                 if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_now_ms(mono_ms());
                     engine.surrounding_hint(kind, keyval, state);
                 }
             }
@@ -2909,6 +2929,7 @@ fn run_engine_worker(
                     unim_log!("ENGINE_WORKER", "{}", line);
                 }
                 let stored = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_now_ms(mono_ms());
                     engine.set_surrounding_text(text, cursor_pos, anchor_pos);
                     // 비밀번호 필드면 저장 후 0 이 된다. 평문은 남기지 않고 길이만 기록.
                     Some(engine.surrounding_text().0.chars().count())

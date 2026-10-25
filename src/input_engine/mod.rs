@@ -24,6 +24,7 @@ pub use types::{
     AtfHotkey, AtfToggleKind, HanjaReplacement, HanjaSource, InputResult, PageDirection,
     PopupAction, SurroundingWordCarry, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP,
     SURROUNDING_CAP_POINTER_HINTS, SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+    SURROUNDING_DEFER_WAIT_MS, SURROUNDING_HINT_FIELD_FOCUS, SURROUNDING_SETTLE_MS,
     SURROUNDING_HINT_KEY, SURROUNDING_HINT_POINTER_PLAIN, SURROUNDING_HINT_POINTER_SELECT,
     SURROUNDING_HINT_PRIMARY_CHANGED, SURROUNDING_HINT_SELECTION_UNKNOWN,
 };
@@ -53,6 +54,8 @@ mod tests_toggle;
 mod tests_atf_hotkey;
 #[cfg(test)]
 mod tests_hanja_word;
+#[cfg(test)]
+mod tests_surrounding_contract;
 #[cfg(test)]
 mod tests_surrounding_word;
 
