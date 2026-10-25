@@ -460,3 +460,34 @@ async fn defer_cancelled_by_reset_destroy_and_pointer() -> zbus::Result<()> {
     }
     Ok(())
 }
+
+/// W2: 기한 재판정(타이머)의 팝업 발행과 Esc 의 HidePopup 발행이 한 순서로 묶인다.
+/// Esc 를 기한(150ms) 전후로 훑으며 보내, 끝났을 때 마지막 팝업 수명 시그널이 `Show*` 면(= 닫힌 엔진 위에
+/// 팝업 창만 남은 상태) 실패한다. 경쟁 창이 좁아 이 시험만으론 미발행을 단언하지 못하지만, 순서 보장
+/// 자체는 `service.rs` 의 `defer_gate_tests` 가 결정적으로 확인한다.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn deadline_popup_and_esc_hide_stay_ordered() -> zbus::Result<()> {
+    let mut opened = 0;
+    for delay in (130..=170).step_by(4) {
+        let mut h = setup().await?;
+        h.caps(0x5).await?;
+        h.surrounding("국어교육", 4).await?;
+        h.hint(2, 0, 0).await?; // 낡음 → 한자키 보류(기한 150ms)
+        assert!(h.process_key(KEY_HANJA).await?.0, "delay={delay}");
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+        let _ = h.process_key(KEY_ESC).await?;
+        let sigs = h.collect_for(300).await;
+        let life: Vec<String> = sigs
+            .iter()
+            .map(member)
+            .filter(|n| n == "HidePopup" || n == "ShowHanjaPopup" || n.starts_with("ShowEmoji") || n == "ShowSpecialPopup")
+            .collect();
+        if let Some(last) = life.last() {
+            assert!(last == "HidePopup", "delay={delay}: 마지막이 Show — 팝업만 남음: {life:?}");
+        }
+        opened += life.iter().filter(|n| *n != "HidePopup").count();
+    }
+    // 기한 뒤에 Esc 가 온 반복에서는 팝업이 실제로 떴다 닫혀야 한다(시험이 공회전하지 않는다는 확인).
+    assert!(opened > 0, "기한 재판정 팝업이 한 번도 안 뜸");
+    Ok(())
+}

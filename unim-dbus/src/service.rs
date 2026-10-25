@@ -2019,6 +2019,66 @@ impl InputMethodService {
     }
 }
 
+/// 판정 보류(R7~R10) 타이머와 InputContext 메서드 디스패치의 **팝업 시그널 발행 순서**를 묶는 장치.
+///
+/// 문제: 기한 재판정(`arm_defer` 태스크)은 디스패치 밖에서 `DeferDue → 워커 응답 → ShowXxx 발행` 을
+/// 한다. 워커가 한자 모드를 연 뒤 시그널을 내기 전에 Esc `ProcessKeyEvent` 가 워커에서 먼저 팝업을
+/// 닫고 디스패치가 `HidePopup` 을 먼저 내면, 닫힌 엔진 위에 팝업 창만 남는다.
+///
+/// 해법: 컨텍스트별 async 잠금 하나로 "워커 요청~시그널 발행" 구간을 직렬화한다. 타이머는 매 시도를
+/// 잠금 안에서 하고(대기 중에는 풀어 둔다), 팝업을 닫거나 여는 메서드는 보류 타이머가 살아 있을 때만
+/// 같은 잠금을 잡는다. `armed` 는 타이머를 만드는 쪽(`ProcessKeyEvent`)이 같은 직렬 디스패치 안에서만
+/// 올리므로, `armed == 0` 인 컨텍스트에는 경쟁 상대 자체가 없다 — 핫패스(GTK/Qt S 컨텍스트,
+/// 보류 없는 push)는 원자 읽기 한 번만 더 든다.
+///
+/// 잠금 대신 엔진 팝업 세대값으로 발행 직전 유효성만 확인하는 방식은 "확인 ~ 발행" 사이에 Esc 의
+/// `HidePopup` 이 끼어들 수 있어(검사-후-실행) 그 자체로는 순서를 보장하지 못한다.
+struct DeferGate {
+    /// 살아 있는 보류 타이머 태스크 수 — 0 이 아니면 `SetSurroundingText` 를 응답을 받는 변형으로
+    /// 보내 재판정하고, 발행 순서 잠금도 잡는다.
+    armed: std::sync::atomic::AtomicU32,
+    order: tokio::sync::Mutex<()>,
+}
+
+impl DeferGate {
+    fn new() -> Self {
+        Self {
+            armed: std::sync::atomic::AtomicU32::new(0),
+            order: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// 보류 타이머가 하나라도 살아 있는가.
+    fn is_armed(&self) -> bool {
+        self.armed.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
+    /// 타이머 태스크 하나를 등록한다(`ProcessKeyEvent` 디스패치 안에서만 호출).
+    fn arm(&self) {
+        self.armed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 타이머 태스크 하나가 끝났다.
+    fn disarm(&self) {
+        self.armed.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 팝업을 열거나 닫는 메서드용 — 타이머가 없으면 잠금 없이 즉시 `None`, 있으면 발행 순서 잠금.
+    /// 반환 가드를 시그널 발행이 끝날 때까지 쥐고 있어야 한다.
+    async fn ordered(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        if self.is_armed() {
+            Some(self.order.lock().await)
+        } else {
+            None
+        }
+    }
+
+    /// 타이머 쪽 — 무조건 잠금(재판정 한 번의 요청~발행 구간).
+    async fn exclusive(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.order.lock().await
+    }
+}
+
 /// InputContext 인터페이스 구현을 위한 핸들러
 ///
 /// 이 핸들러는 엔진을 직접 소유하지 않고, 채널을 통해 엔진 스레드와 통신합니다.
@@ -2035,7 +2095,7 @@ pub struct InputContextHandler {
     cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
     /// 판정 보류(R7~R10) 타이머 태스크 수 — 0 이 아니면 `SetSurroundingText` 를 응답을 받는 변형으로
     /// 보내 재판정한다(그 밖의 컨텍스트는 종전대로 응답 없이 보낸다). 태스크가 끝날 때 줄인다.
-    defer_armed: Arc<std::sync::atomic::AtomicU32>,
+    defer: Arc<DeferGate>,
     /// 본 컨텍스트의 DBus 객체 path (예: `/org/atit/unim/InputContext_15`).
     /// `focus_in`/`destroy` 시 글로벌 `last_active_input_context_path` 캐시를
     /// 갱신/무효화할 때 사용한다.
@@ -2151,7 +2211,7 @@ impl InputContextHandler {
             engine_tx,
             connection,
             cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
-            defer_armed: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            defer: Arc::new(DeferGate::new()),
             path: ContextKind::Unim.object_path(id),
             last_cursor_rect,
             last_active_input_context_path,
@@ -2580,13 +2640,12 @@ impl InputContextHandler {
     /// 청산은 "다음 요청이 올 때"만 돌아 키를 누르지 않고 기다리는 이 상황에서는 기한을 몇 초씩 놓친다.
     /// 타이머는 ms 정확하고 상태(컨텍스트별 보류)는 워커 한 곳에만 남는다.
     fn arm_defer(&self, deadline_ms: u64) {
-        use std::sync::atomic::Ordering;
-        self.defer_armed.fetch_add(1, Ordering::SeqCst);
+        self.defer.arm();
         let engine_tx = self.engine_tx.clone();
         let connection = self.connection.clone();
         let path = self.path.clone();
         let cursor_rect = Arc::clone(&self.cursor_rect);
-        let armed = Arc::clone(&self.defer_armed);
+        let gate = Arc::clone(&self.defer);
         let context_id = self.id;
         tokio::spawn(async move {
             let mut deadline = deadline_ms;
@@ -2595,6 +2654,8 @@ impl InputContextHandler {
                 if deadline > now {
                     tokio::time::sleep(tokio::time::Duration::from_millis(deadline - now)).await;
                 }
+                // 재판정 한 번(요청~시그널 발행)을 발행 순서 잠금 안에서 한다 — `DeferGate` 주석 참조.
+                let order = gate.exclusive().await;
                 let (tx, rx) = oneshot::channel();
                 if engine_tx
                     .send(EngineRequest::DeferDue {
@@ -2606,8 +2667,12 @@ impl InputContextHandler {
                 {
                     break;
                 }
-                match rx.await {
-                    Ok(DeferOutcome::Wait { deadline_ms }) => deadline = deadline_ms,
+                let outcome = rx.await;
+                match outcome {
+                    Ok(DeferOutcome::Wait { deadline_ms }) => {
+                        drop(order);
+                        deadline = deadline_ms;
+                    }
                     Ok(DeferOutcome::Resolved(popup)) => {
                         if let Ok(ctx) = zbus::SignalContext::new(&connection, path.as_str()) {
                             Self::emit_deferred_popup(
@@ -2620,12 +2685,13 @@ impl InputContextHandler {
                             )
                             .await;
                         }
+                        drop(order);
                         break;
                     }
                     Ok(DeferOutcome::Idle) | Err(_) => break,
                 }
             }
-            armed.fetch_sub(1, Ordering::SeqCst);
+            gate.disarm();
         });
     }
 
@@ -2716,6 +2782,8 @@ impl InputContextHandler {
         keycode: u32,
         state: u32,
     ) -> zbus::fdo::Result<(bool, String, String)> {
+        // 보류 타이머가 살아 있으면 기한 재판정의 팝업 발행과 순서를 맞춘다(`DeferGate`). 없으면 무비용.
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -2975,6 +3043,7 @@ impl InputContextHandler {
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<String> {
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -3008,6 +3077,7 @@ impl InputContextHandler {
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<()> {
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -3339,6 +3409,7 @@ impl InputContextHandler {
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
         purpose: u32,
     ) -> zbus::fdo::Result<()> {
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
         let sent = self
             .engine_tx
@@ -3376,7 +3447,9 @@ impl InputContextHandler {
         cursor_pos: u32,
         anchor_pos: u32,
     ) -> zbus::fdo::Result<()> {
-        if self.defer_armed.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+        if self.defer.is_armed() {
+            // 보고로 열린 팝업의 발행도 타이머·Esc 와 순서를 맞춘다(`DeferGate`).
+            let _order = self.defer.exclusive().await;
             let (tx, rx) = oneshot::channel();
             let sent = self
                 .engine_tx
@@ -4225,5 +4298,61 @@ mod tests {
         assert!(!is_connection_closed("org.atit.unim.InputMethod", None));
         // unique name 에 새 소유자가 있으면(발생하지 않지만) 연결 종료가 아님
         assert!(!is_connection_closed(":1.42", Some(":1.43")));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeferGate 단위 테스트 — 기한 재판정의 팝업 발행과 Esc 의 HidePopup 발행 순서
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod defer_gate_tests {
+    use super::DeferGate;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// 타이머가 "워커가 팝업을 연 뒤 ~ ShowXxx 발행 전" 구간에 있을 때 Esc 가 도착한 상황을 재현한다.
+    /// 잠금이 없으면 Esc 의 Hide 가 먼저 나가 화면에 팝업만 남는다 — 있으면 Show → Hide 로 닫힌다.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn esc_hide_never_precedes_deadline_show() {
+        let gate = Arc::new(DeferGate::new());
+        let log: Arc<Mutex<Vec<&'static str>>> = Arc::default();
+        gate.arm();
+
+        let timer = {
+            let (gate, log) = (Arc::clone(&gate), Arc::clone(&log));
+            tokio::spawn(async move {
+                let _order = gate.exclusive().await;
+                log.lock().unwrap().push("worker_opened");
+                // 워커 응답이 오고 시그널을 내기까지의 틈 — 여기서 Esc 가 들어온다.
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                log.lock().unwrap().push("show");
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let esc = {
+            let (gate, log) = (Arc::clone(&gate), Arc::clone(&log));
+            tokio::spawn(async move {
+                let _order = gate.ordered().await;
+                log.lock().unwrap().push("esc_hide");
+            })
+        };
+        timer.await.unwrap();
+        esc.await.unwrap();
+        assert_eq!(*log.lock().unwrap(), vec!["worker_opened", "show", "esc_hide"]);
+    }
+
+    /// 타이머가 없는 컨텍스트(S 컨텍스트·보류 없는 push)는 잠금을 잡지 않는다 — 핫패스 지연 0.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unarmed_context_never_takes_the_lock() {
+        let gate = DeferGate::new();
+        let _held = gate.exclusive().await; // 누군가 잠금을 쥐고 있어도
+        let got = tokio::time::timeout(Duration::from_millis(200), gate.ordered())
+            .await
+            .expect("armed==0 이면 대기 없이 반환");
+        assert!(got.is_none());
+        gate.arm();
+        assert!(gate.is_armed());
+        gate.disarm();
+        assert!(!gate.is_armed());
     }
 }

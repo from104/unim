@@ -515,6 +515,7 @@ impl InputEngine {
             exhausted: self.surrounding_word_exhausted,
             move_at: self.sw_move_at,
             last_select_ms: self.sw_last_select_ms,
+            focus_at: self.sw_focus_at,
             now_ms: self.sw_now_ms,
         }
     }
@@ -532,6 +533,9 @@ impl InputEngine {
         // 기준점(`sw_last_report`)·보류(`sw_pending_defer`)는 이월하지 않는다 — Reset 은 둘 다 비운다.
         self.sw_move_at = c.move_at;
         self.sw_last_select_ms = c.last_select_ms;
+        // 포커스 시각도 이월한다 — 안 그러면 FIELD_FOCUS 뒤 SETTLE 안에 엔진이 재생성될 때
+        // 기준 보고 뒤 앱 자체 이동이 클릭 후보가 되고, 300ms 뒤 R6 가 포커스 플래그를 푼다.
+        self.sw_focus_at = c.focus_at;
         self.sw_now_ms = c.now_ms;
     }
 

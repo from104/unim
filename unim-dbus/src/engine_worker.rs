@@ -938,7 +938,8 @@ pub(crate) fn mono_ms() -> u64 {
 
 /// pull 경로(`GetHanjaCandidates`)의 한자 변환 시작. 열려 있던 한자 팝업이 이 호출로
 /// 닫혔으면(대상③ 후보 소진, I4) true — 서비스가 `HidePopup` 을 내 이어지는 `ProcessKey`
-/// 폴백이 이모지 팝업을 열 수 있게 한다.
+/// 폴백이 팝업(후보 소진이면 이모지)을 열 수 있게 한다. 폴백 `ProcessKey` 가 반드시 이모지를 여는 것은
+/// 아니다 — push 컨텍스트면 폴백 쪽도 판정을 보류(`deferred_hanja`)할 수 있다.
 fn start_hanja_pull(engine: &mut InputEngine) -> bool {
     let was_hanja_mode = engine.is_hanja_mode();
     engine.set_now_ms(mono_ms());

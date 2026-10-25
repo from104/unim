@@ -297,6 +297,9 @@ pub struct SurroundingWordCarry {
     pub(super) move_at: Option<u64>,
     /// push 전용 — 마지막 select 신호(PRIMARY_CHANGED·POINTER_SELECT) 시각(ms).
     pub(super) last_select_ms: Option<u64>,
+    /// push 전용 — 마지막 포커스 표시(FocusIn·FIELD_FOCUS) 시각(ms). 포커스 직후 SETTLE 안에 앱이 스스로 옮긴
+    /// 커서를 클릭 후보로 세지 않는 기준(R5) — 엔진이 재생성돼도 보호가 끊기지 않게 이월한다.
+    pub(super) focus_at: Option<u64>,
     /// 호스트가 마지막으로 넘긴 단조 ms.
     pub(super) now_ms: u64,
 }

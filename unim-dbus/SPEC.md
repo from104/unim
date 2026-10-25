@@ -400,6 +400,21 @@ ProcessKeyEvent(한자키) → consumed=true, preedit="", commit=""  (팝업 시
 ```
 
 - **취소(R10)**: 보류 중 같은 컨텍스트에 다른 키(수정자 단독 제외)·FocusIn·FIELD_FOCUS·FocusOut·Reset·POINTER_PLAIN/SELECT·KEY 힌트·비밀번호 목적 진입·AutoTypeFix 되돌리기가 오면 보류를 조용히 취소한다(팝업 없음, 그 사건은 정상 처리, 로그 `reason=defer_cancel`). 컨텍스트 파괴(회수 포함)는 엔진을 버리므로 보류도 사라지고, 깨어난 타이머는 `DeferOutcome::Idle` 을 받아 끝난다. 엔진 재생성(FocusOut·Reset) 전에 `cancel_deferred_hanja()` 를 부른다.
+- **취소 로그 `why=` 값**(엔진 `sw_cancel_defer` 호출처 전수 — `reason=defer_cancel client=<태그> why=<값>`):
+
+  | `why` | 원인 | 코드 |
+  |-------|------|------|
+  | `key` | 보류 중 다른 키(수정자 단독 제외) | `press_key.rs` |
+  | `hint_key` | KEY 힌트(수정자 단독 제외) | `surrounding_word.rs` `SurroundingHint` |
+  | `pointer` | POINTER_PLAIN·POINTER_SELECT 힌트 | 같은 곳 |
+  | `field_focus` | FIELD_FOCUS 힌트 | `sw_focus_mark` |
+  | `focus_in` | FocusIn(창) | `sw_focus_mark` |
+  | `purpose` | 비밀번호/PIN 목적 진입 | `surrounding.rs` |
+  | `reset` | 엔진 `reset()` (Reset RPC·모드 재설정) | `engine.rs` |
+  | `host` | 호스트의 `cancel_deferred_hanja()` — 엔진 재생성(FocusOut·Reset 후 재생성) 전, pull 시작 | `engine_worker.rs` |
+
+  취소는 보류 상태(`sw_pending_defer`)가 있을 때만 로그를 남긴다. 컨텍스트 파괴·회수는 엔진째 사라져 로그가 없다(타이머가 `Idle`).
+- **팝업 발행 순서**: 기한 재판정은 디스패치 밖(타이머 태스크)에서 `DeferDue → 워커 응답 → ShowXxx` 를 낸다. 이 사이에 Esc `ProcessKeyEvent` 의 `HidePopup` 이 먼저 나가면 닫힌 엔진 위에 팝업만 남으므로, 컨텍스트별 async 잠금(`DeferGate`)으로 "워커 요청~시그널 발행" 구간을 직렬화한다: 타이머는 재판정 한 번마다 잠그고, `ProcessKeyEvent`·`FocusOut`·`Reset`·`SetContentType`·보류 중 `SetSurroundingText` 는 **보류 타이머가 살아 있을 때만** 같은 잠금을 잡는다(타이머는 `ProcessKeyEvent` 디스패치 안에서만 생기므로 `armed==0` 이면 경쟁 상대가 없다 — S 컨텍스트·보류 없는 push 핫패스는 원자 읽기 한 번뿐). 잠금을 쥔 채 기다리는 대상은 워커 응답과 시그널 송신뿐이라 순환 대기가 없다.
 - **타이머 근거**: 워커는 `blocking_recv` 루프라 자체 타이머가 없고, `replace_verify.sweep` 식 청산은 다음 요청이 올 때만 돌아 키를 누르지 않고 기다리는 이 상황에서 기한을 놓친다. 서비스 tokio 타이머는 ms 정확하고(`ChordIdleFlush` 와 같은 방식) 보류 상태는 워커의 엔진에만 둔다.
 - **GNOME 확장**: 무변경. 팝업 표시는 시그널 구동이고 키는 항상 `ProcessKeyEvent` 로 가므로, 늦게 온 팝업 시그널로도 숫자·방향·Esc 가 정상 라우팅된다.
 - **pull 경로**(`GetHanjaCandidates`)에서 보류가 나오면(pull 프런트는 S 를 선언하므로 정상 조합에서는 없음) 보류를 취소하고 빈 후보로 답한다.

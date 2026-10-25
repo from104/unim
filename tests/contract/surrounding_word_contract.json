@@ -474,6 +474,157 @@
    ]
   },
   {
+   "name": "push_field_focus_recreate_app_move_not_counted",
+   "note": "W1: FIELD_FOCUS -> 엔진 재생성(carry) -> 기준 보고 -> SETTLE 안 앱 자체 이동은 클릭이 아니다(포커스 시각 이월) -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_focus_in_recreate_app_move_not_counted",
+   "note": "W1: FocusIn 변형 — 재생성 뒤에도 포커스 보호 유지 -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_reset_app_move_not_counted",
+   "note": "W1: reset 변형 — reset() 은 포커스 시각을 지우지 않는다(포커스 보호는 Reset 과 무관) -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "reset",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_recreate_move_after_settle_counted",
+   "note": "W1 대조: 재생성 뒤라도 포커스 300ms 이후 이동은 클릭으로 센다 -> 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "hanja"
+     }
+    }
+   ]
+  },
+  {
    "name": "push_move_after_baseline_counts",
    "note": "포커스 직후(7ms) 앱이 스스로 옮긴 커서(select-on-focus·선택 복원)는 클릭으로 세지 않는다 -> 플래그가 남아 이모지(fail-closed, R5)",
    "events": [
