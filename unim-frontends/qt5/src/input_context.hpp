@@ -12,9 +12,11 @@
 #include <QObject>
 #include <QString>
 #include <QRect>
+#include <memory>
 
 /* 전방 선언 */
 class UnimDbusClient;
+class UnimSurroundingWordQt;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -44,10 +46,6 @@ public:
 private:
     void updatePreedit();
     void commitString(const QString &str);
-    /* surrounding 질의·전송. force=true 면 dedupe 캐시를 무시하고 항상 보낸다(키 시점 송신).
-     * 반환: ImAnchorPosition 질의가 유효 값을 돌려줬는지(false 면 선택 여부 불명). */
-    bool pushSurrounding(bool force);
-
     UnimDbusClient *m_dbus;
     QObject *m_focusObject;
     QString m_windowId;
@@ -57,11 +55,8 @@ private:
     /* 현재 입력 필드 목적 (focus 시 갱신). 1=Password, 2=Pin 이면 dev 로그의
      * 내용 필드(key·commit·preedit)를 "***"로 마스킹해 평문 잔류 방지. */
     quint32 m_contentPurpose = 0;
-    /* update(Qt::ImSurroundingText|...) 재질의 dedupe 캐시(한자 단어 대상②,
-     * HANJA_WORD_SPEC.md §4.5) — 값이 실제로 바뀐 경우에만 DBus 로 보낸다. */
-    QString m_surroundingTextCache;
-    quint32 m_surroundingCursorCache = 0;
-    quint32 m_surroundingAnchorCache = 0;
+    /* surrounding 보고·교체·능력 선언 (qt-common, dedupe 캐시 포함) */
+    std::unique_ptr<UnimSurroundingWordQt> m_surrounding;
 };
 
 #endif // UNIM_INPUT_CONTEXT_HPP

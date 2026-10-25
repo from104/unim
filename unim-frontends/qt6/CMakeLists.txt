@@ -38,6 +38,8 @@ target_sources(unim PRIVATE
     src/input_context.cpp
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
     ${QT_COMMON_DIR}/include/unim_dbus_client.hpp
+    ${QT_COMMON_DIR}/src/unim_surrounding_word_qt.cpp
+    ${QT_COMMON_DIR}/include/unim_surrounding_word_qt.hpp
 )
 
 target_include_directories(unim PRIVATE
