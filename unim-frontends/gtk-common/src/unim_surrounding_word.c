@@ -39,3 +39,31 @@ unim_replace_expect_matches(const gchar *text,
     gsize span = (gsize)(end - start);
     return span == strlen(expect) && memcmp(start, expect, span) == 0;
 }
+
+const gchar *
+unim_sw_replace_exec(const UnimSwReplaceOps *ops,
+                     gpointer ctx,
+                     guint before,
+                     guint after,
+                     const gchar *commit_text,
+                     const gchar *expect_text)
+{
+    if (!ops->is_focused(ctx)) return "nofocus";
+    if (ops->is_sensitive(ctx)) return "sensitive";
+    if (!commit_text || !commit_text[0]) return "empty_commit";
+
+    const gchar *text = NULL;
+    gint cursor = 0, anchor = 0;
+    gboolean has_selection = FALSE;
+    if (!ops->fetch_surrounding(ctx, &text, &cursor, &anchor, &has_selection))
+        return "verify_mismatch";
+    if (has_selection) return "selection";
+    if (!unim_replace_expect_matches(text, cursor, anchor, before, after, expect_text))
+        return "verify_mismatch";
+
+    if (!ops->delete_surrounding(ctx, -(gint)before, (gint)(before + after)))
+        return "delete_failed";
+
+    ops->commit(ctx, commit_text);
+    return UNIM_SW_REASON_OK;
+}

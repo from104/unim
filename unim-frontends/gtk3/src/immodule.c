@@ -438,59 +438,72 @@ unim_widget_has_selection(UnimIMContext *unim)
  * 커서 앞 a자·뒤 b자를 지우고 commit_text 를 커밋한다. 데몬 캐시가 낡았을 수 있으므로
  * surrounding 을 다시 묻고, 선택이 없으며 구간이 expect_text 와 완전 일치할 때만 실행한다.
  * delete_surrounding 이 실패하면 커밋하지 않는다(XTest 폴백 금지 — 오삭제 방지).
+ * 확정 실행 본체는 gtk-common 의 unim_sw_replace_exec 이고, 여기는 GTK API 어댑터만 둔다.
  * 로그에는 a·b·길이·이유만 남긴다(평문 금지). */
+static gboolean
+sw_is_focused(gpointer ctx)
+{
+    return ((UnimIMContext *)ctx)->is_focused;
+}
+
+static gboolean
+sw_is_sensitive(gpointer ctx)
+{
+    return unim_is_sensitive((UnimIMContext *)ctx);
+}
+
+static gboolean
+sw_fetch_surrounding(gpointer ctx, const gchar **text, gint *cursor_byte,
+                     gint *anchor_byte, gboolean *has_selection)
+{
+    UnimIMContext *unim = (UnimIMContext *)ctx;
+    gboolean handled = FALSE;
+
+    /* surrounding 재조회 — 검증 조회는 데몬에 보내지 않는다 */
+    g_clear_pointer(&unim->surrounding_text, g_free);
+    unim->suppress_surrounding_send = TRUE;
+    g_signal_emit_by_name(GTK_IM_CONTEXT(unim), "retrieve-surrounding", &handled);
+    unim->suppress_surrounding_send = FALSE;
+
+    if (!handled || !unim->surrounding_text) return FALSE;
+    *text = unim->surrounding_text;
+    *cursor_byte = unim->cursor_index;
+    *anchor_byte = unim->cursor_index;                  /* GTK3: 선택은 위젯에서 직접 판정 */
+    *has_selection = unim_widget_has_selection(unim);
+    return TRUE;
+}
+
+static gboolean
+sw_delete_surrounding(gpointer ctx, gint offset, gint n_chars)
+{
+    return gtk_im_context_delete_surrounding(GTK_IM_CONTEXT(ctx), offset, n_chars);
+}
+
+static void
+sw_commit(gpointer ctx, const gchar *text)
+{
+    g_signal_emit_by_name(GTK_IM_CONTEXT(ctx), "commit", text);
+}
+
+static const UnimSwReplaceOps sw_replace_ops = {
+    .is_focused = sw_is_focused,
+    .is_sensitive = sw_is_sensitive,
+    .fetch_surrounding = sw_fetch_surrounding,
+    .delete_surrounding = sw_delete_surrounding,
+    .commit = sw_commit,
+};
+
 static void
 on_replace_surrounding(guint delete_before, guint delete_after,
                        const gchar *commit_text, const gchar *expect_text,
                        gpointer user_data)
 {
-    UnimIMContext *unim = (UnimIMContext *)user_data;
-    GtkIMContext *context = GTK_IM_CONTEXT(unim);
-    const char *reason = NULL;
-
-    if (!unim->is_focused) {
-        reason = "no_focus";
-    } else if (unim_is_sensitive(unim)) {
-        reason = "sensitive";
-    } else if (!commit_text || !commit_text[0]) {
-        reason = "empty_commit";
-    } else {
-        /* surrounding 재조회 — 검증 조회는 데몬에 보내지 않는다 */
-        gboolean handled = FALSE;
-        g_clear_pointer(&unim->surrounding_text, g_free);
-        unim->suppress_surrounding_send = TRUE;
-        g_signal_emit_by_name(context, "retrieve-surrounding", &handled);
-        unim->suppress_surrounding_send = FALSE;
-
-        if (!handled || !unim->surrounding_text) {
-            reason = "verify_mismatch";
-        } else if (unim_widget_has_selection(unim)) {
-            reason = "selection";
-        } else if (!unim_replace_expect_matches(unim->surrounding_text,
-                                                 unim->cursor_index, unim->cursor_index,
-                                                 delete_before, delete_after, expect_text)) {
-            reason = "verify_mismatch";
-        }
-    }
-
-    if (reason) {
-        UNIM_DEBUG("대상③ 교체 버림: a=%u, b=%u, commit=%ld자, reason=%s",
-                   delete_before, delete_after,
-                   commit_text ? (long)g_utf8_strlen(commit_text, -1) : 0L, reason);
-        return;
-    }
-
-    if (!gtk_im_context_delete_surrounding(context,
-                                           -(gint)delete_before,
-                                           (gint)(delete_before + delete_after))) {
-        UNIM_DEBUG("대상③ 교체 버림: a=%u, b=%u, commit=%ld자, reason=delete_failed",
-                   delete_before, delete_after, (long)g_utf8_strlen(commit_text, -1));
-        return;
-    }
-
-    g_signal_emit_by_name(context, "commit", commit_text);
-    UNIM_DEBUG("대상③ 교체 적용: a=%u, b=%u, commit=%ld자",
-               delete_before, delete_after, (long)g_utf8_strlen(commit_text, -1));
+    const gchar *reason = unim_sw_replace_exec(&sw_replace_ops, user_data,
+                                               delete_before, delete_after,
+                                               commit_text, expect_text);
+    UNIM_DEBUG("대상③ 교체: a=%u, b=%u, commit=%ld자, reason=%s",
+               delete_before, delete_after,
+               commit_text ? (long)g_utf8_strlen(commit_text, -1) : 0L, reason);
 }
 
 /* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
