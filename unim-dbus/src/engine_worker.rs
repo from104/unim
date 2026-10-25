@@ -13,11 +13,12 @@ use tokio::sync::mpsc;
 use crate::notify_task::{build_notify_outs, detect_auto_lang, NotifyOut};
 use crate::replace_verify::ReplaceVerifier;
 use crate::service::{
-    popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
+    popup_render_flags, DeferOutcome, DeferredPopup, EmojiShowPayload, EngineRequest, EngineResponse,
+    PopupRenderPayload,
 };
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, KoreanLayout};
-use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
+use unim::input_engine::{AtfToggleKind, DeferTrigger, InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState, UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 use unim::notify::{Lang, NotifyEvent, NotifyGate};
 use unim::popup::PopupKind;
@@ -613,6 +614,8 @@ fn try_autotypefix_undo(
         delete_chars,
         obs.corrected_is_live
     );
+    // R10 — 이 키는 `press_key` 를 거치지 않고 문서를 바꾸므로 판정 보류를 여기서 취소한다.
+    engine.cancel_deferred_hanja();
     Some(EngineResponse {
         consumed: true,
         preedit: None,
@@ -625,6 +628,7 @@ fn try_autotypefix_undo(
         atf_toggled: None,
         atf_config_json: None,
         replace_surrounding: None,
+        deferred_hanja: None,
     })
 }
 
@@ -927,7 +931,7 @@ fn cancel_hanja_if_active(engine: &mut InputEngine) -> Option<String> {
 }
 
 /// 코어에 넘기는 단조 ms — 프로세스 시작 기준(`Instant`). 코어는 시계를 읽지 않는다.
-fn mono_ms() -> u64 {
+pub(crate) fn mono_ms() -> u64 {
     static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
@@ -939,11 +943,76 @@ fn start_hanja_pull(engine: &mut InputEngine) -> bool {
     let was_hanja_mode = engine.is_hanja_mode();
     engine.set_now_ms(mono_ms());
     engine.start_hanja_conversion();
-    // P2 전 임시 배선: 판정 보류(push 전용)를 즉시 재판정해 종전과 같은 동작을 유지한다.
-    if engine.deferred_hanja_deadline().is_some() {
-        engine.resume_deferred_hanja(mono_ms());
-    }
+    // pull 경로(`GetHanjaCandidates`)는 응답이 곧 결과라 보류를 서비스에 넘길 수단이 없다. pull 프런트는
+    // S 비트를 선언해 Defer 가 나오지 않으므로(push 전용 규칙) 방어로만 두며, 나오면 보류를 취소해
+    // 팝업 없음(후보 비어 있음)으로 답한다 — 이어지는 ProcessKey 폴백이 이모지를 연다. (여기서
+    // `resume_deferred_hanja` 를 부르면 거절 때 이모지를 직접 열어 폴백과 두 번 열릴 수 있다.)
+    // 진짜 보류는 ProcessKey 경로(`deferred_hanja`)만 쓴다.
+    engine.cancel_deferred_hanja();
     was_hanja_mode && !engine.is_hanja_mode()
+}
+
+/// 판정 보류(R7~R9)를 다시 판정한다 — F2 도착(`Report`)·기한(`Deadline`) 공통.
+///
+/// 판정이 끝나면 평소 `ProcessKey` 응답이 싣는 것과 같은 팝업 페이로드(`take_popup_action` +
+/// `build_render_state`)를 돌려준다. 서비스는 이를 기존 팝업 발행 경로로 내보낸다.
+fn defer_poll(engine: &mut InputEngine, trigger: DeferTrigger) -> DeferOutcome {
+    if engine.deferred_hanja_deadline().is_none() {
+        return DeferOutcome::Idle;
+    }
+    match engine.poll_deferred_hanja(mono_ms(), trigger) {
+        None => match engine.deferred_hanja_deadline() {
+            Some(deadline_ms) => DeferOutcome::Wait { deadline_ms },
+            None => DeferOutcome::Idle,
+        },
+        Some(_) => DeferOutcome::Resolved(Box::new(DeferredPopup {
+            popup_action: engine.take_popup_action(),
+            render_state: build_render_state(engine),
+        })),
+    }
+}
+
+/// 서비스 타이머가 깨웠다(`DeferDue`). 기한 전이면(타이머가 일찍 깼거나 보고로 기한이 늦춰짐) 새 기한으로
+/// 대기를 이어가라고 답한다. 보류가 없으면(키·포커스·Reset 으로 취소됨) `Idle`.
+fn defer_due(engine: &mut InputEngine) -> DeferOutcome {
+    match engine.deferred_hanja_deadline() {
+        None => DeferOutcome::Idle,
+        Some(deadline_ms) if deadline_ms > mono_ms() => DeferOutcome::Wait { deadline_ms },
+        Some(_) => defer_poll(engine, DeferTrigger::Deadline),
+    }
+}
+
+/// `SetSurroundingText` 공통 처리 — 교체 검증 관측 + 엔진 반영. 반환: 저장된 글자 수(컨텍스트 없으면 `None`).
+fn apply_surrounding_text(
+    contexts: &mut HashMap<u32, InputEngine>,
+    replace_verify: &mut ReplaceVerifier,
+    context_id: u32,
+    text: String,
+    cursor_pos: u32,
+    anchor_pos: u32,
+) -> Option<usize> {
+    // 교체 검증: 발행 뒤 첫 보고를 원래 surrounding 과 비교(관측 전용 — 엔진 저장과 무관).
+    if let Some(line) = replace_verify.on_surrounding(context_id, &text, Instant::now()) {
+        unim_log!("ENGINE_WORKER", "{}", line);
+    }
+    let stored = if let Some(engine) = contexts.get_mut(&context_id) {
+        engine.set_now_ms(mono_ms());
+        engine.set_surrounding_text(text, cursor_pos, anchor_pos);
+        // 비밀번호 필드면 저장 후 0 이 된다. 평문은 남기지 않고 길이만 기록.
+        Some(engine.surrounding_text().0.chars().count())
+    } else {
+        None
+    };
+    unim_log!(
+        "ENGINE_WORKER",
+        "[Engine Worker] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}자, stored={}",
+        context_id,
+        cursor_pos,
+        anchor_pos,
+        stored.unwrap_or(0),
+        stored.is_some()
+    );
+    stored
 }
 
 /// `SelectHanja` 확정의 채널 결정. 반환 `(결과, 교체 채널 여부)`.
@@ -1052,6 +1121,9 @@ fn reset_engine_and_capture_commit(
     window_id: &str,
 ) -> Option<String> {
     let mut commit_text = String::new();
+
+    // R10 — 판정을 미룬 한자키가 있으면 조용히 취소한다(재생성되는 엔진은 보류를 이월하지 않는다).
+    engine.cancel_deferred_hanja();
 
     // chord buffer 선처리: FocusOut/Reset 시 대기 중인 chord 자모를 flush 후 커밋.
     // idle flush 타이머보다 먼저 도착하므로 여기서 처리해야 커밋이 누락되지 않는다.
@@ -1520,6 +1592,7 @@ fn run_engine_worker(
                         atf_toggled: None,
                         atf_config_json: None,
                         replace_surrounding: None,
+                        deferred_hanja: None,
                     });
                     continue;
                 }
@@ -1584,6 +1657,7 @@ fn run_engine_worker(
                                 atf_toggled: None,
                                 atf_config_json: None,
                                 replace_surrounding: None,
+                                deferred_hanja: None,
                             });
                             continue;
                         }
@@ -1646,13 +1720,10 @@ fn run_engine_worker(
 
                     // 키 처리
                     engine.set_now_ms(mono_ms());
-                    let mut result = engine.press_key(key, modifier, &config);
-                    // P2 전 임시 배선: 한자키 판정 보류(push 전용, R7·R8)를 즉시 재판정한다 —
-                    // 보류 없이 거절하던 종전 동작과 같다(두 번째 보류는 없다). P2 가 이 자리를
-                    // 컨텍스트별 pending + 타이머로 바꾼다.
-                    if engine.deferred_hanja_deadline().is_some() {
-                        result = engine.resume_deferred_hanja(mono_ms());
-                    }
+                    let result = engine.press_key(key, modifier, &config);
+                    // 한자키 판정 보류(push 전용, R7·R8): 키는 소비·팝업 없음으로 즉시 응답하고,
+                    // 응답의 `deferred_hanja`(기한)로 서비스가 타이머를 건다. 재판정은
+                    // SetSurroundingText(F2, `SetSurroundingTextDeferred`) 또는 기한(`DeferDue`)에 한다.
 
                     // 비밀번호/PIN 칸이라 한/영 전환을 거부했는가 — 직후에 읽어야 한다
                     // (아래 ATF replay 의 press_key 가 플래그를 다시 리셋한다).
@@ -2255,6 +2326,8 @@ fn run_engine_worker(
                         atf_toggled: None,
                         atf_config_json: None,
                         replace_surrounding: sw_repl,
+                        // 응답을 만드는 이 시점의 보류(ATF 재생이 press_key 를 다시 불렀으면 이미 취소됨).
+                        deferred_hanja: engine.deferred_hanja_deadline(),
                     }
                 } else {
                     EngineResponse {
@@ -2269,6 +2342,7 @@ fn run_engine_worker(
                         atf_toggled: None,
                         atf_config_json: None,
                         replace_surrounding: None,
+                        deferred_hanja: None,
                     }
                 };
 
@@ -2923,28 +2997,46 @@ fn run_engine_worker(
                 cursor_pos,
                 anchor_pos,
             } => {
-                // 교체 검증: 발행 뒤 첫 보고를 원래 surrounding 과 비교(관측 전용 — 엔진 저장과 무관).
-                if let Some(line) = replace_verify.on_surrounding(context_id, &text, Instant::now())
-                {
-                    unim_log!("ENGINE_WORKER", "{}", line);
-                }
-                let stored = if let Some(engine) = contexts.get_mut(&context_id) {
-                    engine.set_now_ms(mono_ms());
-                    engine.set_surrounding_text(text, cursor_pos, anchor_pos);
-                    // 비밀번호 필드면 저장 후 0 이 된다. 평문은 남기지 않고 길이만 기록.
-                    Some(engine.surrounding_text().0.chars().count())
-                } else {
-                    None
-                };
-                unim_log!(
-                    "ENGINE_WORKER",
-                    "[Engine Worker] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}자, stored={}",
+                apply_surrounding_text(
+                    &mut contexts,
+                    &mut replace_verify,
                     context_id,
+                    text,
                     cursor_pos,
                     anchor_pos,
-                    stored.unwrap_or(0),
-                    stored.is_some()
                 );
+            }
+
+            // 판정 보류 중인 컨텍스트의 F2 — 반영 직후 재판정한다(R9). 서비스는 보류가 있다고 아는
+            // 컨텍스트에서만 이 변형을 쓴다(그 밖에는 응답 없는 `SetSurroundingText`).
+            EngineRequest::SetSurroundingTextDeferred {
+                context_id,
+                text,
+                cursor_pos,
+                anchor_pos,
+                response,
+            } => {
+                apply_surrounding_text(
+                    &mut contexts,
+                    &mut replace_verify,
+                    context_id,
+                    text,
+                    cursor_pos,
+                    anchor_pos,
+                );
+                let outcome = contexts
+                    .get_mut(&context_id)
+                    .map_or(DeferOutcome::Idle, |e| defer_poll(e, DeferTrigger::Report));
+                let _ = response.send(outcome);
+            }
+
+            // 서비스 타이머가 보류 기한에 깨웠다(R9).
+            EngineRequest::DeferDue {
+                context_id,
+                response,
+            } => {
+                let outcome = contexts.get_mut(&context_id).map_or(DeferOutcome::Idle, defer_due);
+                let _ = response.send(outcome);
             }
 
             EngineRequest::GlobalTypeFix {
@@ -3927,8 +4019,6 @@ mod tests {
         assert!(popup_open(&e));
     }
 
-    /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과
-    /// 마우스 확정(`select_hanja`) 교체 페이로드(delete=3)가 나온다.
     #[test]
     fn client_tag_mapping_and_reset_carry() {
         assert_eq!(client_tag_from_frontend("GTK3"), "gtk3");
@@ -3952,6 +4042,29 @@ mod tests {
         assert_eq!(ibus.client_tag(), "ibus");
     }
 
+    /// R10 — FocusOut/Reset 재생성 전에 판정 보류가 취소된다. 보류가 사라지면 타이머가 깨워도 `Idle`.
+    #[test]
+    fn reset_cancels_deferred_hanja_and_due_is_idle() {
+        use unim::input_engine::{
+            SURROUNDING_CAP_POINTER_HINTS, SURROUNDING_CAP_REPLACE, SURROUNDING_HINT_POINTER_PLAIN,
+        };
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "w");
+        e.set_surrounding_word_caps(SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_POINTER_HINTS);
+        e.set_now_ms(mono_ms());
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        e.surrounding_hint(SURROUNDING_HINT_POINTER_PLAIN, 0, 0); // 낡음
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(e.deferred_hanja_deadline().is_some(), "낡음 → 보류");
+        // 기한 전이면 타이머는 같은 기한으로 계속 대기를 요청한다.
+        assert!(matches!(defer_due(&mut e), DeferOutcome::Wait { .. }));
+        let _ = reset_engine_and_capture_commit(&mut e, &config, true, false, "w");
+        assert!(e.deferred_hanja_deadline().is_none());
+        assert!(matches!(defer_due(&mut e), DeferOutcome::Idle));
+    }
+
+    /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과
+    /// 마우스 확정(`select_hanja`) 교체 페이로드(delete=3)가 나온다.
     #[test]
     fn new_daemon_engine_enables_hanja_word_replacement() {
         let config = Config::default();

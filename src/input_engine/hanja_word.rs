@@ -363,6 +363,15 @@ impl InputEngine {
         let allow_defer = self.sw_push() && !self.sw_no_defer;
         if self.has_selection() {
             if self.surrounding_caps != 0 && self.surrounding_stale {
+                // R7 — push 컨텍스트(REPLACE+POINTER, S 없음)는 낡음 거절을 대상②에도 미룬다:
+                // "드래그 선택 → 보고 → POINTER_SELECT" 순서면 stale 이 남는데 재판정은 새 스냅샷이라
+                // 위험이 늘지 않는다. REPLACE 가 없으면(기본 GNOME 0x4) 종전대로 즉시 거절한다.
+                if allow_defer && self.surrounding_caps & super::types::SURROUNDING_CAP_REPLACE != 0 {
+                    return self.sw_start_defer(
+                        self.sw_now_ms.saturating_add(super::types::SURROUNDING_DEFER_WAIT_MS),
+                        "stale_sel",
+                    );
+                }
                 self.sw_last_reason = "stale";
                 unim_log!("ENGINE", "대상②: reason=stale");
                 return Resolve::NoMatchSelection;
@@ -420,6 +429,7 @@ impl InputEngine {
     /// 판정을 미룬다 — 기한을 기록하고 로그를 남긴다(R7·R8).
     fn sw_start_defer(&mut self, deadline_ms: u64, reason: &'static str) -> Resolve {
         self.sw_pending_defer = Some(deadline_ms);
+        self.sw_defer_start = self.sw_now_ms;
         self.sw_last_reason = "defer";
         unim_log!(
             "ENGINE",

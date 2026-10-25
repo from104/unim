@@ -206,6 +206,11 @@ pub struct InputEngine {
     pub(super) sw_last_select_ms: Option<u64>,
     /// 판정을 미룬 한자키의 기한(R7·R8). 이월하지 않는다(R10).
     pub(super) sw_pending_defer: Option<u64>,
+    /// 보류가 시작된 시각(= 그 한자키의 `now_ms`) — 총 대기 상한 계산용(`poll_deferred_hanja`).
+    pub(super) sw_defer_start: u64,
+    /// 마지막 포커스 표시(FocusIn·FIELD_FOCUS) 시각 — 포커스 직후 앱이 스스로 옮긴 커서(선택 복원 등)를
+    /// 사용자 클릭으로 세지 않기 위한 기준(R5).
+    pub(super) sw_focus_at: Option<u64>,
     /// `resume_deferred_hanja` 안에서만 true — 두 번째 Defer 금지(R9).
     pub(super) sw_no_defer: bool,
     /// 마지막 대상③ 판정 이유 코드(진단·적합성 시험용).
@@ -396,6 +401,8 @@ impl InputEngine {
             sw_move_at: None,
             sw_last_select_ms: None,
             sw_pending_defer: None,
+            sw_defer_start: 0,
+            sw_focus_at: None,
             sw_no_defer: false,
             sw_last_reason: "",
             hanja_sw_cands: Vec::new(),

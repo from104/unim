@@ -178,6 +178,20 @@ pub enum EngineRequest {
         cursor_pos: u32,
         anchor_pos: u32,
     },
+    /// 판정 보류 중(`DeferOutcome`)인 컨텍스트의 Surrounding text 설정 — 반영 직후 보류한 한자키를
+    /// 다시 판정하고 결과를 돌려준다(R9). 서비스는 보류가 있다고 아는 컨텍스트에서만 쓴다.
+    SetSurroundingTextDeferred {
+        context_id: u32,
+        text: String,
+        cursor_pos: u32,
+        anchor_pos: u32,
+        response: oneshot::Sender<DeferOutcome>,
+    },
+    /// 판정 보류 기한 도달(서비스 타이머 → 워커) — 보류가 아직 있고 기한이 됐으면 다시 판정한다(R9).
+    DeferDue {
+        context_id: u32,
+        response: oneshot::Sender<DeferOutcome>,
+    },
     /// 글로벌 TypeFix 변환 요청 (마지막 포커스된 컨텍스트 대상)
     GlobalTypeFix {
         direction: u32,
@@ -308,6 +322,24 @@ pub type EmojiShowPayloadTuple = (
     String,
 );
 
+/// 한자키 판정 보류(R7~R10)의 재판정 결과 — 워커 → 서비스.
+#[derive(Debug)]
+pub enum DeferOutcome {
+    /// 보류가 없다(키·포커스·Reset 으로 취소됐거나 이미 판정됨).
+    Idle,
+    /// 계속 대기한다. `deadline_ms` 는 워커 단조 ms(`engine_worker::mono_ms`)이며 서비스는 그 시각에 다시 깨운다.
+    Wait { deadline_ms: u64 },
+    /// 판정이 끝났다 — `ProcessKey` 응답이 싣는 것과 같은 팝업 페이로드(한자 또는 이모지 폴백).
+    Resolved(Box<DeferredPopup>),
+}
+
+/// 판정 보류 재판정이 끝났을 때 발행할 팝업 페이로드.
+#[derive(Debug)]
+pub struct DeferredPopup {
+    pub popup_action: Option<PopupAction>,
+    pub render_state: Option<PopupRenderPayload>,
+}
+
 /// 엔진 응답
 #[derive(Debug)]
 pub struct EngineResponse {
@@ -351,6 +383,9 @@ pub struct EngineResponse {
     /// 대상③ 확정(`HanjaSource::SurroundingWord`) — 서비스가 `ReplaceSurroundingText` 를
     /// 자기 InputContext path 로, HidePopup 뒤에 발행한다(`AutoTypefixApply` 와 같은 위치).
     pub replace_surrounding: Option<ReplaceSurrounding>,
+    /// 한자키 판정 보류(R7·R8, push 전용) — 키는 소비·팝업 없음으로 응답하고, 서비스가 이 기한(워커
+    /// 단조 ms)에 타이머를 걸어 `DeferDue` 를 보낸다. `None` 이면 보류 없음.
+    pub deferred_hanja: Option<u64>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -1997,7 +2032,10 @@ pub struct InputContextHandler {
     /// DBus 연결 (시그널 발송용)
     connection: Connection,
     /// 캐싱된 커서 위치 (x, y, width, height) — 본 컨텍스트 전용
-    cursor_rect: std::sync::Mutex<(i32, i32, i32, i32)>,
+    cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
+    /// 판정 보류(R7~R10) 타이머 태스크 수 — 0 이 아니면 `SetSurroundingText` 를 응답을 받는 변형으로
+    /// 보내 재판정한다(그 밖의 컨텍스트는 종전대로 응답 없이 보낸다). 태스크가 끝날 때 줄인다.
+    defer_armed: Arc<std::sync::atomic::AtomicU32>,
     /// 본 컨텍스트의 DBus 객체 path (예: `/org/atit/unim/InputContext_15`).
     /// `focus_in`/`destroy` 시 글로벌 `last_active_input_context_path` 캐시를
     /// 갱신/무효화할 때 사용한다.
@@ -2112,7 +2150,8 @@ impl InputContextHandler {
             client_name,
             engine_tx,
             connection,
-            cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
+            cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
+            defer_armed: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             path: ContextKind::Unim.object_path(id),
             last_cursor_rect,
             last_active_input_context_path,
@@ -2319,6 +2358,301 @@ impl InputContextHandler {
         }
     }
 
+    /// 팝업 시그널 발행 — `ProcessKey` 응답과 판정 보류(R9) 재판정 결과가 함께 쓴다.
+    ///
+    /// `popup_action` 을 알맞은 시그널로, 이어서 `render_state` 를 `PopupRender` 로 내보낸다.
+    /// 팝업 위치는 **발행 시점**의 `cursor_rect` 를 읽는다(보류 중 커서가 움직였을 수 있다).
+    async fn emit_popup_response(
+        signal_ctx: &SignalContext<'_>,
+        cursor_rect: &std::sync::Mutex<(i32, i32, i32, i32)>,
+        popup_action: &Option<PopupAction>,
+        render_state: &Option<PopupRenderPayload>,
+    ) {
+        // Push 방식: 인디케이터가 팝업 표시
+        if let Some(popup) = popup_action {
+            match popup {
+                PopupAction::ShowHanja {
+                    target,
+                    candidates,
+                    top_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    Self::show_hanja_popup(
+                        signal_ctx,
+                        target,
+                        candidates.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row={}자",
+                        target.chars().count(),
+                        candidates.len(),
+                        top_row.chars().count()
+                    );
+                }
+                PopupAction::ShowSpecial {
+                    target,
+                    characters,
+                    top_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    Self::show_special_popup(
+                        signal_ctx,
+                        target,
+                        characters.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowSpecialPopup 시그널 발행: target={}자, count={}",
+                        target.chars().count(),
+                        characters.len()
+                    );
+                }
+                PopupAction::ShowEmoji {
+                    target_cat_id,
+                    items,
+                    top_row,
+                    recent,
+                    categories,
+                    home_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
+                    Self::show_emoji_popup_v2(
+                        signal_ctx,
+                        target_cat_id,
+                        items.clone(),
+                        top_row,
+                        recent.clone(),
+                        categories.clone(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        home_row,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
+                        target_cat_id,
+                        items.len(),
+                        recent.len(),
+                        categories.len(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        home_row.chars().count()
+                    );
+                }
+                PopupAction::HidePopup => {
+                    Self::hide_popup(signal_ctx).await.ok();
+                    unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
+                }
+                PopupAction::PopupNavigate {
+                    page,
+                    total_pages,
+                    selected,
+                    rows,
+                    cols,
+                    sel_row,
+                    sel_col,
+                } => {
+                    Self::popup_navigate(
+                        signal_ctx,
+                        *page as i32,
+                        *total_pages as i32,
+                        *selected as i32,
+                        *rows as i32,
+                        *cols as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PopupNavigate: page={}/{}, selected={}, rows={}, cols={}, sel=({},{})",
+                        page,
+                        total_pages,
+                        selected,
+                        rows,
+                        cols,
+                        sel_row,
+                        sel_col
+                    );
+                }
+                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
+                    Self::hanja_bookmark_changed(signal_ctx, *index as u32, *bookmarked)
+                        .await
+                        .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
+                        index,
+                        bookmarked
+                    );
+                }
+                PopupAction::HanjaCandidatesReordered {
+                    target,
+                    candidates,
+                    bookmarks,
+                    new_cursor,
+                    page,
+                    sel_row,
+                    sel_col,
+                    bookmarked,
+                    was_bookmarked,
+                } => {
+                    // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
+                    let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
+                    let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
+                    Self::hanja_candidates_reordered(
+                        signal_ctx,
+                        target,
+                        hanjas,
+                        meanings,
+                        bookmarks.clone(),
+                        *new_cursor as u32,
+                        *page as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                        *bookmarked,
+                        *was_bookmarked,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaCandidatesReordered: target={}자, count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
+                        target.chars().count(),
+                        candidates.len(),
+                        new_cursor,
+                        page,
+                        sel_row,
+                        sel_col,
+                        bookmarked,
+                        was_bookmarked
+                    );
+                }
+                PopupAction::PageJump { page_index } => {
+                    // 마우스 ◀/▶ 등 외부 RPC 응답 — process_key 경로에서는 발생 안 함이지만
+                    // 안전하게 PopupNavigate 시그널로 변환. (현 진입점은 popup_change_page RPC.)
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PageJump: page_index={} (process_key 경로 — no-op)",
+                        page_index
+                    );
+                }
+            }
+        }
+
+        // PopupRender 시그널 발행 (Phase B 통합 SoT — frontend 가 이걸로 헤더·푸터·셀·탭
+        // 전부 즉시 렌더). popup 활성 시에만 산출.
+        if let Some(rs) = render_state {
+            Self::emit_popup_render(signal_ctx, rs).await;
+        }
+    }
+
+    /// 한자키 판정 보류(R7·R8)의 타이머를 건다 — `deadline_ms` 는 워커 단조 ms.
+    ///
+    /// 기한에 `DeferDue` 를 워커에 보낸다(`ChordIdleFlush` 와 같은 방식). 워커가 "계속 대기"(보고로
+    /// 기한이 늦춰짐)라 답하면 새 기한까지 다시 잔다. 보류가 사라졌으면(키·포커스·Reset·파괴로 취소, 또는
+    /// F2 가 이미 판정) 조용히 끝난다. 판정이 끝났으면 기존 팝업 발행 경로로 시그널을 낸다.
+    ///
+    /// 타이머를 택한 근거: 워커는 `blocking_recv` 루프라 자체 타이머가 없고, `replace_verify.sweep` 식
+    /// 청산은 "다음 요청이 올 때"만 돌아 키를 누르지 않고 기다리는 이 상황에서는 기한을 몇 초씩 놓친다.
+    /// 타이머는 ms 정확하고 상태(컨텍스트별 보류)는 워커 한 곳에만 남는다.
+    fn arm_defer(&self, deadline_ms: u64) {
+        use std::sync::atomic::Ordering;
+        self.defer_armed.fetch_add(1, Ordering::SeqCst);
+        let engine_tx = self.engine_tx.clone();
+        let connection = self.connection.clone();
+        let path = self.path.clone();
+        let cursor_rect = Arc::clone(&self.cursor_rect);
+        let armed = Arc::clone(&self.defer_armed);
+        let context_id = self.id;
+        tokio::spawn(async move {
+            let mut deadline = deadline_ms;
+            loop {
+                let now = crate::engine_worker::mono_ms();
+                if deadline > now {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(deadline - now)).await;
+                }
+                let (tx, rx) = oneshot::channel();
+                if engine_tx
+                    .send(EngineRequest::DeferDue {
+                        context_id,
+                        response: tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                match rx.await {
+                    Ok(DeferOutcome::Wait { deadline_ms }) => deadline = deadline_ms,
+                    Ok(DeferOutcome::Resolved(popup)) => {
+                        if let Ok(ctx) = zbus::SignalContext::new(&connection, path.as_str()) {
+                            Self::emit_deferred_popup(
+                                &ctx,
+                                &cursor_rect,
+                                &popup.popup_action,
+                                &popup.render_state,
+                                context_id,
+                                "deadline",
+                            )
+                            .await;
+                        }
+                        break;
+                    }
+                    Ok(DeferOutcome::Idle) | Err(_) => break,
+                }
+            }
+            armed.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+
+    /// 판정 보류의 재판정 결과를 내보낸다 — 기존 팝업 발행 경로(`emit_popup_response`)를 그대로 쓴다.
+    async fn emit_deferred_popup(
+        signal_ctx: &SignalContext<'_>,
+        cursor_rect: &std::sync::Mutex<(i32, i32, i32, i32)>,
+        popup_action: &Option<PopupAction>,
+        render_state: &Option<PopupRenderPayload>,
+        context_id: u32,
+        trigger: &str,
+    ) {
+        unim_log!(
+            "DBUS",
+            "[DBus] 한자키 판정 보류 재판정({}): context_id={}, popup={}",
+            trigger,
+            context_id,
+            match popup_action {
+                Some(PopupAction::ShowHanja { .. }) => "hanja",
+                Some(PopupAction::ShowEmoji { .. }) => "emoji",
+                Some(_) => "other",
+                None => "none",
+            }
+        );
+        Self::emit_popup_response(signal_ctx, cursor_rect, popup_action, render_state).await;
+    }
+
     /// PopupRender 시그널 발행 헬퍼 — engine view_model 페이로드를 unpack 하여 emit.
     /// frontend (GNOME / gui-gtk) 가 본 시그널로 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더.
     async fn emit_popup_render(signal_ctx: &SignalContext<'_>, rs: &PopupRenderPayload) {
@@ -2414,206 +2748,14 @@ impl InputContextHandler {
                 .ok();
         }
 
-        // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
-        if let Some(popup) = &response.popup_action {
-            match popup {
-                PopupAction::ShowHanja {
-                    target,
-                    candidates,
-                    top_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    Self::show_hanja_popup(
-                        &signal_ctx,
-                        target,
-                        candidates.clone(),
-                        top_row,
-                        x,
-                        y,
-                        w,
-                        h,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row={}자",
-                        target.chars().count(),
-                        candidates.len(),
-                        top_row.chars().count()
-                    );
-                }
-                PopupAction::ShowSpecial {
-                    target,
-                    characters,
-                    top_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    Self::show_special_popup(
-                        &signal_ctx,
-                        target,
-                        characters.clone(),
-                        top_row,
-                        x,
-                        y,
-                        w,
-                        h,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowSpecialPopup 시그널 발행: target={}자, count={}",
-                        target.chars().count(),
-                        characters.len()
-                    );
-                }
-                PopupAction::ShowEmoji {
-                    target_cat_id,
-                    items,
-                    top_row,
-                    recent,
-                    categories,
-                    home_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
-                    Self::show_emoji_popup_v2(
-                        &signal_ctx,
-                        target_cat_id,
-                        items.clone(),
-                        top_row,
-                        recent.clone(),
-                        categories.clone(),
-                        x,
-                        y,
-                        w,
-                        h,
-                        home_row,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
-                        target_cat_id,
-                        items.len(),
-                        recent.len(),
-                        categories.len(),
-                        x,
-                        y,
-                        w,
-                        h,
-                        home_row.chars().count()
-                    );
-                }
-                PopupAction::HidePopup => {
-                    Self::hide_popup(&signal_ctx).await.ok();
-                    unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
-                }
-                PopupAction::PopupNavigate {
-                    page,
-                    total_pages,
-                    selected,
-                    rows,
-                    cols,
-                    sel_row,
-                    sel_col,
-                } => {
-                    Self::popup_navigate(
-                        &signal_ctx,
-                        *page as i32,
-                        *total_pages as i32,
-                        *selected as i32,
-                        *rows as i32,
-                        *cols as i32,
-                        *sel_row as i32,
-                        *sel_col as i32,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] PopupNavigate: page={}/{}, selected={}, rows={}, cols={}, sel=({},{})",
-                        page,
-                        total_pages,
-                        selected,
-                        rows,
-                        cols,
-                        sel_row,
-                        sel_col
-                    );
-                }
-                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
-                    Self::hanja_bookmark_changed(&signal_ctx, *index as u32, *bookmarked)
-                        .await
-                        .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
-                        index,
-                        bookmarked
-                    );
-                }
-                PopupAction::HanjaCandidatesReordered {
-                    target,
-                    candidates,
-                    bookmarks,
-                    new_cursor,
-                    page,
-                    sel_row,
-                    sel_col,
-                    bookmarked,
-                    was_bookmarked,
-                } => {
-                    // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
-                    let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
-                    let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
-                    Self::hanja_candidates_reordered(
-                        &signal_ctx,
-                        target,
-                        hanjas,
-                        meanings,
-                        bookmarks.clone(),
-                        *new_cursor as u32,
-                        *page as i32,
-                        *sel_row as i32,
-                        *sel_col as i32,
-                        *bookmarked,
-                        *was_bookmarked,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] HanjaCandidatesReordered: target={}자, count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
-                        target.chars().count(),
-                        candidates.len(),
-                        new_cursor,
-                        page,
-                        sel_row,
-                        sel_col,
-                        bookmarked,
-                        was_bookmarked
-                    );
-                }
-                PopupAction::PageJump { page_index } => {
-                    // 마우스 ◀/▶ 등 외부 RPC 응답 — process_key 경로에서는 발생 안 함이지만
-                    // 안전하게 PopupNavigate 시그널로 변환. (현 진입점은 popup_change_page RPC.)
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] PageJump: page_index={} (process_key 경로 — no-op)",
-                        page_index
-                    );
-                }
-            }
-        }
-
-        // PopupRender 시그널 발행 (Phase B 통합 SoT — frontend 가 이걸로 헤더·푸터·셀·탭
-        // 전부 즉시 렌더). popup 활성 시에만 산출.
-        if let Some(rs) = &response.render_state {
-            Self::emit_popup_render(&signal_ctx, rs).await;
-        }
+        // 팝업 시그널 자동 발행 + PopupRender (Phase B 통합 SoT). 판정 보류의 재판정 결과도 같은 경로를 쓴다.
+        Self::emit_popup_response(
+            &signal_ctx,
+            &self.cursor_rect,
+            &response.popup_action,
+            &response.render_state,
+        )
+        .await;
 
         // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
         if let Some((delete_chars, commit_text, preedit_text)) = &response.auto_typefix {
@@ -2745,6 +2887,18 @@ impl InputContextHandler {
                         .ok();
                 }
             });
+        }
+
+        // 한자키 판정 보류(R7·R8): 이미 소비·팝업 없음으로 답했다. 기한에 재판정하는 타이머를 건다
+        // (F2 가 먼저 오면 `set_surrounding_text` 가 재판정한다).
+        if let Some(deadline_ms) = response.deferred_hanja {
+            unim_log!(
+                "DBUS",
+                "[DBus] 한자키 판정 보류: context_id={}, wait_ms={}",
+                self.id,
+                deadline_ms.saturating_sub(crate::engine_worker::mono_ms())
+            );
+            self.arm_defer(deadline_ms);
         }
 
         unim_log!(
@@ -3212,12 +3366,44 @@ impl InputContextHandler {
     }
 
     /// Surrounding text 설정 (커서 주변 텍스트 전달)
+    ///
+    /// 한자키 판정 보류(R7~R9)가 걸린 컨텍스트면 응답을 받는 변형으로 보내 반영 직후 재판정하고,
+    /// 판정이 끝났으면 이 컨텍스트 path 로 팝업 시그널을 낸다. 그 밖에는 종전처럼 응답 없이 보낸다.
     async fn set_surrounding_text(
         &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
         text: &str,
         cursor_pos: u32,
         anchor_pos: u32,
     ) -> zbus::fdo::Result<()> {
+        if self.defer_armed.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            let (tx, rx) = oneshot::channel();
+            let sent = self
+                .engine_tx
+                .send(EngineRequest::SetSurroundingTextDeferred {
+                    context_id: self.id,
+                    text: text.to_string(),
+                    cursor_pos,
+                    anchor_pos,
+                    response: tx,
+                })
+                .await
+                .is_ok();
+            if sent {
+                if let Ok(DeferOutcome::Resolved(popup)) = rx.await {
+                    Self::emit_deferred_popup(
+                        &signal_ctx,
+                        &self.cursor_rect,
+                        &popup.popup_action,
+                        &popup.render_state,
+                        self.id,
+                        "report",
+                    )
+                    .await;
+                }
+            }
+            return Ok(());
+        }
         self.engine_tx
             .send(EngineRequest::SetSurroundingText {
                 context_id: self.id,

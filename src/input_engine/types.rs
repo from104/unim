@@ -279,6 +279,8 @@ pub const SURROUNDING_HINT_FIELD_FOCUS: u32 = 6;
 pub const SURROUNDING_SETTLE_MS: u64 = 300;
 /// R7 — 낡음 거절을 이 시간(ms)만큼 미뤄 다음 보고를 기다린다.
 pub const SURROUNDING_DEFER_WAIT_MS: u64 = 150;
+/// 한자키 시점부터 판정 보류의 총 대기 상한(ms) = SETTLE + WAIT. 보고가 더 와도 이 시각을 넘기지 않는다.
+pub const SURROUNDING_DEFER_TOTAL_MAX_MS: u64 = SURROUNDING_SETTLE_MS + SURROUNDING_DEFER_WAIT_MS;
 
 /// 대상③ 신선도·선택 거부 상태 — 엔진 재생성(Reset·FocusOut)을 건너 이월하는 묶음.
 /// 필드는 크레이트 내부 전용이며 호출부는 `surrounding_word_carry` / `restore_*` 로만 옮긴다.

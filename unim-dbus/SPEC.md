@@ -123,6 +123,8 @@ pub enum EngineRequest {
     SetClientCapabilities { context_id, caps },    // 응답 없음 — 대상③ 능력 비트
     SurroundingHint { context_id, kind, keyval, state }, // 응답 없음 — 엔진 밖 사건(키·포인터·PRIMARY·선택 불명)
     CancelEmojiPopup { context_id, committed, response }, // committed=true 면 문서 낡음 표시
+    SetSurroundingTextDeferred { context_id, text, cursor_pos, anchor_pos, response }, // 판정 보류 중일 때만 — 응답 DeferOutcome (§6.3a)
+    DeferDue { context_id, response },             // 판정 보류 기한 타이머 → 워커, 응답 DeferOutcome
 }
 ```
 
@@ -135,6 +137,7 @@ pub struct EngineResponse {
     pub commit: Option<String>,      // 커밋할 텍스트 (None이면 없음)
     pub mode_changed: Option<bool>,  // 모드 변경 시 is_korean (None이면 변경 없음)
     pub replace_surrounding: Option<ReplaceSurrounding>, // 대상③ 확정 — {delete_before, delete_after, commit_text, expect_text}
+    pub deferred_hanja: Option<u64>, // 한자키 판정 보류의 기한(워커 단조 ms) — §6.3a
     // (그 밖 popup_action·auto_typefix·render_state·chord_pending·atf_* 필드는 코드 참조)
 }
 ```
@@ -336,7 +339,7 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
 | `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | **응답 없이 보내도 이후 호출(GetHanjaCandidates·ProcessKeyEvent) 전에 엔진에 반영된다(§4.4 직렬 디스패치).** 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건). 한자 선택 변환(대상②) 감지·확정 접두 정합성 검증에도 쓴다 — Wayland 는 `done` 마다, Qt 는 `update()` 마다(변경 시, 빈 텍스트 포함), TSF 는 idle 한자키 시점에 전송. 커서가 걸친 단어(대상③) 판정에도 쓰고, 수신(비밀번호 필드 포함)이 엔진의 "낡음"·"소진"·"선택 불명" 표시를 푼다(HANJA_WORD_SPEC §2.4b.6). GNOME 확장은 Mutter 값을 그대로 전달만 한다(PRIMARY 로 만든 가짜 anchor 송신은 퇴역) |
 | `SetClientCapabilities` | `caps: u` | — | 클라이언트 능력 선언(응답 없이 보냄, 멱등 — FocusIn 직후마다). 비트 `0x1` REPLACE_SURROUNDING · `0x2` SELECTION_RELIABLE · `0x4` POINTER_HINTS. 대상③ 허용 조건은 `(caps&1) && (caps&6)`. 엔진 재생성(Reset·FocusOut)·FocusIn 을 건너 유지되고, 보내지 않으면 0(종전 동작, IBus 호환·XIM·순수 Wayland 포함) |
-| `SurroundingHint` | `kind: u, keyval: u, state: u` | — | 프런트가 엔진 밖에서 관측한 사건(응답 없이 보냄). `kind` 1 KEY(엔진을 거치지 않고 앱에 넘긴 키 — keyval 은 X11 keysym, state 는 X11/Clutter 마스크) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN(다음 한자키 한 번). `kind≠1` 이면 keyval·state=0. 알 수 없는 kind 는 무시하고 로그. 로그에는 탐색·편집 키 이름만 남긴다(글자 평문 금지) |
+| `SurroundingHint` | `kind: u, keyval: u, state: u` | — | 프런트가 엔진 밖에서 관측한 사건(응답 없이 보냄). `kind` 1 KEY(엔진을 거치지 않고 앱에 넘긴 키 — keyval 은 X11 keysym, state 는 X11/Clutter 마스크) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN(다음 한자키 한 번) · 6 FIELD_FOCUS(입력란이 바뀜 — 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 보낸다. FocusIn 과 같은 낡음·선택 거부 표시를 하되 모드 복원·ATF 리셋은 하지 않으며, push 컨텍스트(caps 에 `0x2` 없음·`0x4` 있음)에서만 효력이 있고 그 밖에는 무시). `kind≠1` 이면 keyval·state=0. 알 수 없는 kind 는 무시하고 로그. 로그에는 탐색·편집 키 이름만 남긴다(글자 평문 금지) |
 | `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
 | `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
 | `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
@@ -377,6 +380,29 @@ ProcessKeyEvent(keyval, keycode, state)
 ```
 
 > **키 자동 반복 억제 게이트(접근성, `ignore_key_repeat`)**: 설정이 켜져 있으면 엔진 워커가 `press_key` 앞단에서 반복 press 를 소비-드롭한다. 반복 판정은 `state` 의 `UNIM_REPEAT_AWARE_MASK`(1<<31)/`UNIM_KEY_REPEAT_MASK`(1<<29) 비트를 우선하고(aware 프런트: Wayland·Qt5/6·GNOME), aware 비트가 없는 프런트(GTK3/4·XIM·ibus)는 per-context 80ms 시간창(`REPEAT_INFER_WINDOW`)으로 근사한다 — 첫 반복 1회 누출·80ms 초과 interval 미검출 한계는 항상 "미억제(현행 유지)" 방향의 fail-safe. 억제 대상은 토글 키·한글 모드 문자 키뿐이며, 드롭 응답은 현재 preedit 를 에코해 조합 증발·preedit-end 오발사를 막는다. off 면 게이트 첫 조건에서 탈락(오버헤드 0·동작 무손상).
+
+### 6.3a 한자키 판정 보류 (Defer, push 컨텍스트 전용)
+
+대상③(커서 주변 단어) 판정 입력은 push 프런트(GNOME — caps `0x5`)에서 한자키 시점에 낡았거나 아직 안정되지 않았을 수 있다. 이 경우 엔진은 판정을 **미루고**(R7: 낡음 → 150ms, R8: 키 없는 커서 이동 뒤 안정 300ms), 데몬은 팝업 없이 응답한다. caps 에 `0x2`(SELECTION_RELIABLE)가 있는 GTK·Qt·TSF 는 이 경로를 타지 않는다(종전 즉시 판정). 대상②(앱 선택)의 낡음 거절도 caps 에 `0x1`(REPLACE)이 있으면 같은 보류를 받는다.
+
+```
+ProcessKeyEvent(한자키) → consumed=true, preedit="", commit=""  (팝업 시그널 없음)
+   └ EngineResponse.deferred_hanja = Some(기한)  →  service 가 tokio 타이머 태스크를 건다
+재판정(R9) — 둘 중 먼저 오는 쪽
+   (a) SetSurroundingText 도착(F2): 서비스가 보류를 안다면 SetSurroundingTextDeferred 로 보내
+       반영 직후 재판정한다. 낡음만 풀렸는데 안정 대기(R8)가 남았다면 일찍 판정하지 않고 기한을 안정
+       시각으로 늦춰 계속 기다린다(`poll_deferred_hanja`). 한자키 시점부터 총 대기는
+       SETTLE+WAIT = 450ms 를 넘지 않는다.
+   (b) 기한 도달: 타이머가 DeferDue 를 보낸다. 기한이 늦춰졌으면(Wait) 새 기한까지 다시 잔다.
+결과 → 평소 ProcessKeyEvent 가 내는 것과 같은 시그널을 **한자키를 받은 그 InputContext path** 로
+       발행한다: 한자 후보면 ShowHanjaPopup + PopupRender, 거절이면 이모지 폴백(ShowEmojiPopupV2 +
+       PopupRender). 팝업 위치는 재판정 시점의 CursorRect. 두 번째 보류는 없다.
+```
+
+- **취소(R10)**: 보류 중 같은 컨텍스트에 다른 키(수정자 단독 제외)·FocusIn·FIELD_FOCUS·FocusOut·Reset·POINTER_PLAIN/SELECT·KEY 힌트·비밀번호 목적 진입·AutoTypeFix 되돌리기가 오면 보류를 조용히 취소한다(팝업 없음, 그 사건은 정상 처리, 로그 `reason=defer_cancel`). 컨텍스트 파괴(회수 포함)는 엔진을 버리므로 보류도 사라지고, 깨어난 타이머는 `DeferOutcome::Idle` 을 받아 끝난다. 엔진 재생성(FocusOut·Reset) 전에 `cancel_deferred_hanja()` 를 부른다.
+- **타이머 근거**: 워커는 `blocking_recv` 루프라 자체 타이머가 없고, `replace_verify.sweep` 식 청산은 다음 요청이 올 때만 돌아 키를 누르지 않고 기다리는 이 상황에서 기한을 놓친다. 서비스 tokio 타이머는 ms 정확하고(`ChordIdleFlush` 와 같은 방식) 보류 상태는 워커의 엔진에만 둔다.
+- **GNOME 확장**: 무변경. 팝업 표시는 시그널 구동이고 키는 항상 `ProcessKeyEvent` 로 가므로, 늦게 온 팝업 시그널로도 숫자·방향·Esc 가 정상 라우팅된다.
+- **pull 경로**(`GetHanjaCandidates`)에서 보류가 나오면(pull 프런트는 S 를 선언하므로 정상 조합에서는 없음) 보류를 취소하고 빈 후보로 답한다.
 
 ### 6.4 FocusIn 상세
 

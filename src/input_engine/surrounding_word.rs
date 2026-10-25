@@ -98,6 +98,15 @@ pub(super) enum SwJudge {
     Defer { deadline_ms: u64, reason: &'static str },
 }
 
+/// 보류 중인 한자키를 다시 판정하게 한 호스트 사건(`InputEngine::poll_deferred_hanja`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeferTrigger {
+    /// `SetSurroundingText`(F2)가 엔진에 반영된 직후.
+    Report,
+    /// 호스트 타이머가 `deferred_hanja_deadline()` 에 도달했다.
+    Deadline,
+}
+
 /// 대상③ 후보 한 건 — 사전 키와 커서 기준 앞 a자·뒤 b자.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct SwCand {
@@ -273,10 +282,13 @@ impl InputEngine {
             SURROUNDING_HINT_POINTER_PLAIN => {
                 self.surrounding_stale = true;
                 self.clear_sel_flag();
+                // R10 — 다른 위치를 눌렀다: 보류한 한자키는 옛 위치 기준이라 조용히 취소한다.
+                self.sw_cancel_defer("pointer");
                 unim_log!("ENGINE", "SurroundingHint: kind={} (pointer_plain)", kind);
             }
             SURROUNDING_HINT_POINTER_SELECT => {
                 self.surrounding_stale = true;
+                self.sw_cancel_defer("pointer");
                 self.sw_note_select_signal();
                 self.set_sel_flag(SelFlagCause::PointerSelect);
                 unim_log!("ENGINE", "SurroundingHint: kind={} (pointer_select)", kind);
@@ -319,6 +331,7 @@ impl InputEngine {
         self.selection_unknown_once = false;
         self.sw_last_report = None;
         self.sw_move_at = None;
+        self.sw_focus_at = Some(self.sw_now_ms);
         self.sw_cancel_defer(why);
     }
 
@@ -387,7 +400,14 @@ impl InputEngine {
         }
         if let Some(prev) = self.sw_last_report {
             if !prev.keys_since && prev.cursor != cursor {
-                self.sw_move_at = Some(self.sw_now_ms);
+                // 포커스 직후 SETTLE 안의 이동은 앱이 스스로 옮긴 것(select-on-focus·선택 복원 등)일 수
+                // 있어 클릭 후보로 세지 않는다(기준점만 갱신) — 선택이 남은 채 한자로 풀리는 것을 막는다.
+                let near_focus = self
+                    .sw_focus_at
+                    .is_some_and(|f| self.sw_now_ms.saturating_sub(f) < super::types::SURROUNDING_SETTLE_MS);
+                if !near_focus {
+                    self.sw_move_at = Some(self.sw_now_ms);
+                }
             }
         }
         self.sw_last_report = Some(SwReport { cursor, keys_since: false });
@@ -408,6 +428,59 @@ impl InputEngine {
         match self.sw_last_select_ms {
             Some(sig) => sig.saturating_add(super::types::SURROUNDING_SETTLE_MS) < at,
             None => true,
+        }
+    }
+
+    /// R9 — 보류했던 한자키의 재판정 시도. `None` 이면 **계속 대기**(`deferred_hanja_deadline()` 이
+    /// 갱신됐을 수 있다), `Some(r)` 이면 판정이 끝났다(`resume_deferred_hanja` 와 같은 결과 규약).
+    ///
+    /// - 보류가 없으면 `Some(not_consumed)`(무동작).
+    /// - `Deadline`: 기한이 됐으므로 곧장 재판정한다(두 번째 Defer 없음).
+    /// - `Report`: 기한 전이라도 새 보고가 낡음을 풀었다. 그런데 R8(안정 대기)이 아직 남아 있으면
+    ///   일찍 재판정하지 않고(그러면 `selpossible` 이모지가 된다) 안정 시각까지 기한을 늦춰 한 번 더
+    ///   기다린다. 단 **한자키 시점부터 총 대기가 `SURROUNDING_DEFER_TOTAL_MAX_MS`(SETTLE+WAIT=450ms)를
+    ///   넘지 않게** 기한을 자른다. 기한이 이미 지났으면 곧장 재판정한다.
+    pub fn poll_deferred_hanja(&mut self, now_ms: u64, trigger: DeferTrigger) -> Option<InputResult> {
+        let Some(deadline) = self.sw_pending_defer else {
+            return Some(InputResult::not_consumed());
+        };
+        let now = match trigger {
+            DeferTrigger::Deadline => now_ms.max(deadline),
+            DeferTrigger::Report => now_ms,
+        };
+        self.sw_now_ms = now;
+        if trigger == DeferTrigger::Report && now < deadline {
+            if let Some(next) = self.sw_peek_defer_deadline() {
+                let cap = self
+                    .sw_defer_start
+                    .saturating_add(super::types::SURROUNDING_DEFER_TOTAL_MAX_MS);
+                let next = next.min(cap);
+                if next > now {
+                    if next != deadline {
+                        unim_log!(
+                            "ENGINE",
+                            "대상③: reason=defer_extend client={} wait_ms={} total_ms={}",
+                            self.client_tag,
+                            next - now,
+                            next.saturating_sub(self.sw_defer_start)
+                        );
+                    }
+                    self.sw_pending_defer = Some(next);
+                    return None;
+                }
+            }
+        }
+        Some(self.resume_deferred_hanja(now))
+    }
+
+    /// 지금 상태로 판정하면 Defer 가 날지 미리 본다(상태 불변). 앱 선택(대상②)·소진은 Defer 가 없다.
+    fn sw_peek_defer_deadline(&self) -> Option<u64> {
+        if self.has_selection() || self.surrounding_word_exhausted {
+            return None;
+        }
+        match self.surrounding_word_judge(true) {
+            SwJudge::Defer { deadline_ms, .. } => Some(deadline_ms),
+            _ => None,
         }
     }
 

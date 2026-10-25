@@ -6,7 +6,7 @@
 //! 시각 `t` 는 호스트가 `set_now_ms` 로 넘기는 단조 ms 다 — 코어는 시계를 읽지 않는다.
 
 use super::test_helpers::create_test_engine;
-use super::{HanjaSource, InputEngine, SURROUNDING_HINT_FIELD_FOCUS};
+use super::{DeferTrigger, HanjaSource, InputEngine, SURROUNDING_HINT_FIELD_FOCUS};
 use crate::config::{Config, ContentPurpose};
 use crate::keycode::{KeyCode, ModifierState};
 use serde_json::Value;
@@ -17,7 +17,7 @@ fn u(v: &Value, k: &str) -> u64 {
     v.get(k).and_then(Value::as_u64).unwrap_or(0)
 }
 
-fn observe(e: &InputEngine) -> Value {
+fn observe(e: &InputEngine, poll: Option<&str>) -> Value {
     let deadline = e.deferred_hanja_deadline();
     let result = if deadline.is_some() {
         "defer"
@@ -39,6 +39,7 @@ fn observe(e: &InputEngine) -> Value {
         "deadline": deadline,
         "pending": deadline.is_some(),
         "span": span,
+        "poll": poll,
     })
 }
 
@@ -57,15 +58,33 @@ fn press(e: &mut InputEngine, k: KeyCode, m: ModifierState) {
     e.press_key(k, m, &Config::default());
 }
 
+/// 사례 실행 방식.
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    /// 사건열을 그대로 돌리며 `expect` 를 비교한다.
+    Check,
+    /// `expect` 는 무시하고 매 사건 뒤 보류가 없음을 단언한다(S 컨텍스트로 바꿔 돌린다).
+    NeverDefer,
+}
+
 /// 한 사례를 돌린다. `time` 은 사건 시각을 바꾸는 사상(S 컨텍스트 시각 무관 시험용).
 fn run_case(c: &Value, time: &dyn Fn(u64) -> u64) -> Result<(), String> {
+    run_case_mode(c, time, Mode::Check)
+}
+
+fn run_case_mode(c: &Value, time: &dyn Fn(u64) -> u64, mode: Mode) -> Result<(), String> {
     let name = c["name"].as_str().unwrap_or("?").to_string();
     let mut e = create_test_engine();
     for (i, ev) in c["events"].as_array().unwrap().iter().enumerate() {
         let t = time(u(ev, "t"));
         e.set_now_ms(t);
+        let mut poll: Option<&str> = None;
         match ev["ev"].as_str().unwrap() {
-            "caps" => e.set_surrounding_word_caps(u(ev, "v") as u32),
+            "caps" => {
+                let v = u(ev, "v") as u32;
+                // NeverDefer: 같은 사건열을 S 비트 컨텍스트(REPLACE|SELECTION_RELIABLE, P 는 유지)로 돌린다.
+                e.set_surrounding_word_caps(if mode == Mode::NeverDefer { 0x3 | (v & 0x4) } else { v });
+            }
             "purpose" => e.set_content_purpose(match ev["v"].as_str().unwrap() {
                 "password" => ContentPurpose::Password,
                 _ => ContentPurpose::Normal,
@@ -98,6 +117,15 @@ fn run_case(c: &Value, time: &dyn Fn(u64) -> u64) -> Result<(), String> {
             "resume" => {
                 e.resume_deferred_hanja(t);
             }
+            // 호스트의 재판정 시도(R9) — "wait" 는 계속 대기(기한 갱신 가능), "done" 은 판정 끝.
+            "poll" => {
+                let trigger = match ev["trigger"].as_str().unwrap_or("") {
+                    "report" => DeferTrigger::Report,
+                    "deadline" => DeferTrigger::Deadline,
+                    other => return Err(format!("{name} #{i}: 알 수 없는 trigger {other}")),
+                };
+                poll = Some(if e.poll_deferred_hanja(t, trigger).is_none() { "wait" } else { "done" });
+            }
             "reset" => e.reset(),
             "recreate" => {
                 // 엔진 재생성(FocusOut·Reset) — 이월 묶음만 건너간다. 문서(surrounding)는 이월되지 않는다.
@@ -108,8 +136,17 @@ fn run_case(c: &Value, time: &dyn Fn(u64) -> u64) -> Result<(), String> {
             }
             other => return Err(format!("{name} #{i}: 알 수 없는 사건 {other}")),
         }
-        if let Some(exp) = ev.get("expect") {
-            check(&name, i, &observe(&e), exp)?;
+        match mode {
+            Mode::Check => {
+                if let Some(exp) = ev.get("expect") {
+                    check(&name, i, &observe(&e, poll), exp)?;
+                }
+            }
+            Mode::NeverDefer => {
+                if e.deferred_hanja_deadline().is_some() {
+                    return Err(format!("{name} #{i}: S 컨텍스트에서 Defer 발생"));
+                }
+            }
         }
     }
     Ok(())
@@ -154,32 +191,14 @@ fn contract_s_contexts_are_time_independent() {
     assert!(n >= 5, "S 사례 수: {n}");
 }
 
-/// 같은 사건열을 S 컨텍스트로 돌리면 push 전용 상태(보류·후보)는 전혀 만들어지지 않는다.
+/// 같은 사건열을 S 컨텍스트로 돌리면 push 전용 상태(보류·후보)는 전혀 만들어지지 않는다 —
+/// 키·커밋·resume·poll·재생성·목적 사건까지 전부 재생한다.
 #[test]
 fn contract_s_context_never_defers() {
+    let mut n = 0;
     for c in cases() {
-        let mut e = create_test_engine();
-        for ev in c["events"].as_array().unwrap() {
-            e.set_now_ms(u(ev, "t"));
-            match ev["ev"].as_str().unwrap() {
-                "caps" => e.set_surrounding_word_caps(0x3 | (u(ev, "v") as u32 & 0x4)),
-                "focus_in" => e.surrounding_word_focus_in(),
-                "field_focus" => e.surrounding_hint(SURROUNDING_HINT_FIELD_FOCUS, 0, 0),
-                "surrounding" => {
-                    let cur = u(ev, "cursor") as u32;
-                    let a = ev.get("anchor").and_then(Value::as_u64).map_or(cur, |a| a as u32);
-                    e.set_surrounding_text(ev["text"].as_str().unwrap().to_string(), cur, a);
-                }
-                "hint" => e.surrounding_hint(u(ev, "kind") as u32, u(ev, "key") as u32, 0),
-                "hanja" => press(&mut e, KeyCode::F9, ModifierState::default()),
-                "reset" => e.reset(),
-                _ => {}
-            }
-            assert!(
-                e.deferred_hanja_deadline().is_none(),
-                "{}: S 컨텍스트에서 Defer 발생",
-                c["name"]
-            );
-        }
+        n += 1;
+        run_case_mode(&c, &|t| t, Mode::NeverDefer).unwrap_or_else(|m| panic!("{m}"));
     }
+    assert!(n >= 30);
 }
