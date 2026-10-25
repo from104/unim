@@ -212,6 +212,8 @@ impl UnimTextService {
         // 대상③(커서가 걸친 단어) 능력 — 문서 범위 교체(R)와 App-pull 선택(S, GetSelection).
         // 재생성 시 0 으로 돌아가므로 생성 지점마다 켠다(HANJA_WORD_SPEC §4.4·§4.6).
         engine.set_surrounding_word_caps(SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE);
+        // 대상③ 판정 로그 `client=` 꼬리표(동작 무관) — 재생성 지점마다 다시 넣는다.
+        engine.set_client_tag("tsf");
         // 초기 한/영 모드 (기본 카테고리 기준)
         let is_korean = engine.input_category() == InputCategory::Korean;
         Self {
@@ -535,6 +537,7 @@ impl UnimTextService {
             new_engine.set_surrounding_word_caps(
                 SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE,
             );
+            new_engine.set_client_tag("tsf");
             // engine → config → composition → popup → atf 순(다른 경로와 동일).
             let mut engine_guard = self.engine.lock().unwrap();
             let mut config_guard = self.config.lock().unwrap();

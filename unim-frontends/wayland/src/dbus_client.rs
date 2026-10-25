@@ -422,8 +422,8 @@ async fn run_dbus_client(
                         Ok((target, candidates)) => {
                             unim_log!(
                                 "WAYLAND_DBUS",
-                                "한자 후보: target='{}', count={}",
-                                target,
+                                "한자 후보: target={}자, count={}",
+                                target.chars().count(),
                                 candidates.len()
                             );
                             if let Some(tx) = response {
@@ -454,9 +454,9 @@ async fn run_dbus_client(
                         Ok(commit) => {
                             unim_log!(
                                 "WAYLAND_DBUS",
-                                "한자 선택: index={}, commit='{}'",
+                                "한자 선택: index={}, commit={}자",
                                 index,
-                                commit
+                                commit.chars().count()
                             );
                             if let Some(tx) = response {
                                 let _ = tx.send(DbusResponse::HanjaSelected { commit });
@@ -481,7 +481,7 @@ async fn run_dbus_client(
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     match proxy.cancel_hanja().await {
                         Ok(text) => {
-                            unim_log!("WAYLAND_DBUS", "한자 취소: commit='{}'", text);
+                            unim_log!("WAYLAND_DBUS", "한자 취소: commit={}자", text.chars().count());
                             if let Some(tx) = response {
                                 let _ = tx.send(DbusResponse::CommitText { text });
                             }
@@ -507,10 +507,10 @@ async fn run_dbus_client(
                         Ok((target, characters, top_row)) => {
                             unim_log!(
                                 "WAYLAND_DBUS",
-                                "특수문자 후보: target='{}', count={}, top_row='{}'",
-                                target,
+                                "특수문자 후보: target={}자, count={}, top_row={}자",
+                                target.chars().count(),
                                 characters.len(),
-                                top_row
+                                top_row.chars().count()
                             );
                             if let Some(tx) = response {
                                 let _ = tx.send(DbusResponse::SpecialCharCandidates {
@@ -544,9 +544,9 @@ async fn run_dbus_client(
                         Ok(commit) => {
                             unim_log!(
                                 "WAYLAND_DBUS",
-                                "특수문자 선택: index={}, commit='{}'",
+                                "특수문자 선택: index={}, commit={}자",
                                 index,
-                                commit
+                                commit.chars().count()
                             );
                             if let Some(tx) = response {
                                 let _ = tx.send(DbusResponse::SpecialCharSelected { commit });
@@ -571,7 +571,7 @@ async fn run_dbus_client(
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     match proxy.cancel_special_char().await {
                         Ok(text) => {
-                            unim_log!("WAYLAND_DBUS", "특수문자 취소: commit='{}'", text);
+                            unim_log!("WAYLAND_DBUS", "특수문자 취소: commit={}자", text.chars().count());
                             if let Some(tx) = response {
                                 let _ = tx.send(DbusResponse::CommitText { text });
                             }

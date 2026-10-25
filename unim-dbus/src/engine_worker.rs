@@ -607,9 +607,9 @@ fn try_autotypefix_undo(
     }
     unim_log!(
         "ENGINE_WORKER",
-        "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}' (delete={}, live_composition={})",
-        obs.corrected,
-        obs.original,
+        "[Engine Worker] AutoTypeFix 되돌리기: {}자 → {}자 (delete={}, live_composition={})",
+        obs.corrected.chars().count(),
+        obs.original.chars().count(),
         delete_chars,
         obs.corrected_is_live
     );
@@ -987,12 +987,38 @@ fn popup_open(engine: &InputEngine) -> bool {
 fn new_daemon_engine(config: &Config, window_id: &str) -> InputEngine {
     let mut engine = InputEngine::new(config);
     engine.set_hanja_word_replace_capable(host_emits_hanja_replacement(window_id));
+    engine.set_client_tag(client_tag_from_window_id(window_id));
     engine
 }
 
 /// 이 컨텍스트의 프런트가 한자 단어 교체 페이로드(`AutoTypefixApply`)를 소비하는가.
 fn host_emits_hanja_replacement(window_id: &str) -> bool {
     !window_id.starts_with("ibus-")
+}
+
+/// 프런트 표시 이름(`detect_frontend_type` 결과)을 판정 로그용 꼬리표로 바꾼다.
+/// 알 수 없으면 `unknown`. (코어 로그 전용 — 동작에 쓰지 않는다.)
+fn client_tag_from_frontend(frontend: &str) -> &'static str {
+    match frontend {
+        "GTK3" => "gtk3",
+        "GTK4" => "gtk4",
+        "Qt5" => "qt5",
+        "Qt6" => "qt6",
+        "GNOME" => "gnome",
+        "XIM" => "xim",
+        "Wayland" => "wayland",
+        _ => "unknown",
+    }
+}
+
+/// 컨텍스트 생성 시점에 알 수 있는 꼬리표 — IBus 호환 컨텍스트(`ibus-` 접두)만 확정되고
+/// 나머지는 `NoteFrontend` 가 도착해 정한다.
+fn client_tag_from_window_id(window_id: &str) -> &'static str {
+    if window_id.starts_with("ibus-") {
+        "ibus"
+    } else {
+        "unknown"
+    }
 }
 
 /// 포커스 아웃 / Reset 공통 처리: 팝업을 커밋 텍스트로 변환하고 엔진을 초기화한다.
@@ -1826,9 +1852,9 @@ fn run_engine_worker(
                                     }
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 재트리거 감지({:?}) → 억제 + blacklist tentative 추가: '{}'",
+                                        "[Engine Worker] 재트리거 감지({:?}) → 억제 + blacklist tentative 추가: {}자",
                                         direction,
-                                        key
+                                        key.chars().count()
                                     );
                                     // 버퍼는 초기화하여 같은 키스트로크가 또 감지되지 않도록 한다.
                                     buf.clear();
@@ -1880,9 +1906,9 @@ fn run_engine_worker(
 
                                 unim_log!(
                                     "ENGINE_WORKER",
-                                    "[Engine Worker] AutoTypeFix: delete={}, corrected='{}', clear_preedit={}",
+                                    "[Engine Worker] AutoTypeFix: delete={}, corrected={}자, clear_preedit={}",
                                     fix.delete_chars,
-                                    fix.corrected,
+                                    fix.corrected.chars().count(),
                                     fix.clear_preedit
                                 );
 
@@ -2063,10 +2089,9 @@ fn run_engine_worker(
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 역방향 real_delete: ascii='{}', trigger='{}', kor_sim='{}', real_delete={}, word_guard={}, effective_delete={}, layout={:?}",
-                                        buf_ascii,
-                                        buf_ascii.chars().last().unwrap_or(' '),
-                                        kor_sim,
+                                        "[Engine Worker] 역방향 real_delete: ascii={}자, kor_sim={}자, real_delete={}, word_guard={}, effective_delete={}, layout={:?}",
+                                        buf_ascii.chars().count(),
+                                        kor_sim.chars().count(),
                                         real_delete,
                                         fix.replace_composition,
                                         effective_delete,
@@ -2839,6 +2864,12 @@ fn run_engine_worker(
             }
 
             EngineRequest::NoteFrontend { context_id, name } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    // IBus 호환 컨텍스트는 생성 시 "ibus" 로 확정 — 덮어쓰지 않는다.
+                    if engine.client_tag() != "ibus" {
+                        engine.set_client_tag(client_tag_from_frontend(&name));
+                    }
+                }
                 context_frontends.insert(context_id, name);
             }
 
@@ -2958,8 +2989,8 @@ fn run_engine_worker(
                     } else {
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] user-dict 추가: '{}' (총 {}개)",
-                            word,
+                            "[Engine Worker] user-dict 추가: {}자 (총 {}개)",
+                            word.chars().count(),
                             user_dict.len()
                         );
                     }
@@ -2979,8 +3010,8 @@ fn run_engine_worker(
                     } else {
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] user-dict 제거: '{}' (총 {}개)",
-                            word,
+                            "[Engine Worker] user-dict 제거: {}자 (총 {}개)",
+                            word.chars().count(),
                             user_dict.len()
                         );
                     }
@@ -3066,25 +3097,25 @@ fn run_engine_worker(
                                     } else {
                                         unim_log!(
                                             "ENGINE_WORKER",
-                                            "[Engine Worker] user-dict 단축키 등록: '{}' (원본: '{}')",
-                                            trimmed,
-                                            selection
+                                            "[Engine Worker] user-dict 단축키 등록: {}자 (원본: {}자)",
+                                            trimmed.chars().count(),
+                                            selection.chars().count()
                                         );
                                         trimmed.to_string()
                                     }
                                 } else {
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] user-dict 단축키 등록 실패(중복/비유효): '{}'",
-                                        trimmed
+                                        "[Engine Worker] user-dict 단축키 등록 실패(중복/비유효): {}자",
+                                        trimmed.chars().count()
                                     );
                                     String::new()
                                 }
                             } else {
                                 unim_log!(
                                     "ENGINE_WORKER",
-                                    "[Engine Worker] user-dict 단축키: 변환 결과 비유효 '{}'",
-                                    candidate
+                                    "[Engine Worker] user-dict 단축키: 변환 결과 비유효 {}자",
+                                    candidate.chars().count()
                                 );
                                 String::new()
                             }
@@ -3877,6 +3908,29 @@ mod tests {
 
     /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과
     /// 마우스 확정(`select_hanja`) 교체 페이로드(delete=3)가 나온다.
+    #[test]
+    fn client_tag_mapping_and_reset_carry() {
+        assert_eq!(client_tag_from_frontend("GTK3"), "gtk3");
+        assert_eq!(client_tag_from_frontend("GTK4"), "gtk4");
+        assert_eq!(client_tag_from_frontend("Qt5"), "qt5");
+        assert_eq!(client_tag_from_frontend("Qt6"), "qt6");
+        assert_eq!(client_tag_from_frontend("GNOME"), "gnome");
+        assert_eq!(client_tag_from_frontend("XIM"), "xim");
+        assert_eq!(client_tag_from_frontend("Wayland"), "wayland");
+        assert_eq!(client_tag_from_frontend("Unknown"), "unknown");
+        assert_eq!(client_tag_from_window_id("ibus-firefox-3"), "ibus");
+        assert_eq!(client_tag_from_window_id("gtk4-test"), "unknown");
+
+        // Reset/FocusOut 재생성 경로(reset_engine_and_capture_commit)가 꼬리표를 잃지 않는다.
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_client_tag("qt6");
+        let _ = reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(e.client_tag(), "qt6");
+        let ibus = new_daemon_engine(&config, "ibus-firefox-3");
+        assert_eq!(ibus.client_tag(), "ibus");
+    }
+
     #[test]
     fn new_daemon_engine_enables_hanja_word_replacement() {
         let config = Config::default();

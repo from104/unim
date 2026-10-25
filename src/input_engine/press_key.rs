@@ -280,7 +280,11 @@ impl InputEngine {
             if idle {
                 if self.sw_exhausted_key {
                     // pull 경로에서 대상③ 후보가 소진된 뒤의 폴백 키 — 이모지.
-                    unim_log!("ENGINE", "대상③: reason=exhausted → 이모지");
+                    unim_log!(
+                        "ENGINE",
+                        "대상③: reason=exhausted client={} → 이모지",
+                        self.client_tag
+                    );
                 } else {
                     // 대상②(선택)·대상③(커서 주변 단어) 판정은 resolve_idle 이 한다.
                     // 대상이 없거나 불일치면 종전 idle 동작(이모지)으로 폴백(Q8(a)).
@@ -349,9 +353,8 @@ impl InputEngine {
                 self.commit_buffer.push(c);
                 unim_log!(
                     "ENGINE",
-                    "auto-english: '{:?}' -> 영문 전환 + commit '{}'",
-                    keycode,
-                    c
+                    "auto-english: '{:?}' -> 영문 전환 + commit",
+                    keycode
                 );
                 return InputResult::committed();
             }
@@ -376,7 +379,7 @@ impl InputEngine {
             if self.korean_context.is_composing() {
                 self.korean_context.backspace();
                 self.update_preedit_cache();
-                unim_log!("ENGINE", "Backspace -> preedit='{}'", self.preedit_cache);
+                unim_log!("ENGINE", "Backspace -> preedit={}자", self.preedit_cache.chars().count());
                 return InputResult::preedit_updated();
             }
             return InputResult::not_consumed();
@@ -432,7 +435,7 @@ impl InputEngine {
         let ch = self.english_keymap.get_char(keycode, modifier.shift);
 
         if let Some(c) = ch {
-            unim_log!("ENGINE", "문자 키: '{}'", c);
+            unim_log!("ENGINE", "문자 키");
 
             // 룰 B (schema v2 `key_meta.context_alt`) — 한글 모드 + 팝업 비활성에서만.
             // 조건이 맞으면 정상 jamo 흐름으로 진입하고, 불충족이면 fallback 리터럴 commit.
@@ -458,8 +461,7 @@ impl InputEngine {
                         if !cond_ok {
                             unim_log!(
                                 "ENGINE",
-                                "key_meta.context_alt 불충족 → fallback '{}' commit",
-                                alt.fallback
+                                "key_meta.context_alt 불충족 → fallback commit"
                             );
                             self.flush_preedit();
                             self.commit_buffer.push_str(&alt.fallback);
@@ -472,13 +474,13 @@ impl InputEngine {
             // 키보드 맵에서 자모 찾기
             if let Some(ref keyboard_map) = self.keyboard_map {
                 if let Some(jamo) = keyboard_map.get(&c) {
-                    unim_log!("ENGINE", "자모 매핑: {:?}", jamo);
+                    unim_log!("ENGINE", "자모 매핑");
 
                     // Special 자모는 비-한국어 문자이므로 별도 처리.
                     // chord 버퍼가 활성 중이면 먼저 finalize 한다.
                     if let JamoEnum::Special(special_char) = jamo {
                         let ch_to_commit = *special_char;
-                        unim_log!("ENGINE", "Special 자모 처리: '{}'", ch_to_commit);
+                        unim_log!("ENGINE", "Special 자모 처리");
                         self.finalize_chord_buffer();
                         self.flush_preedit();
                         self.commit_buffer.push(ch_to_commit);
@@ -495,7 +497,7 @@ impl InputEngine {
 
                     if self.chord_buffer.is_active() {
                         // chord 모드: 버퍼에 push → flush 여부 결정
-                        unim_log!("ENGINE", "chord push: {:?}", jamo_copy);
+                        unim_log!("ENGINE", "chord push");
                         // push 직전 preview 상태 capture (chord_buffer 내부에서 만료/MAX flush 시 리셋되므로)
                         let prev_preview_active = self.chord_buffer.was_preview_injected();
                         let prev_was_atomic = self.chord_buffer.was_preview_atomic();
@@ -505,8 +507,8 @@ impl InputEngine {
                                 self.update_chord_preview();
                                 unim_log!(
                                     "ENGINE",
-                                    "chord 진행 중 (preview) -> preedit='{}'",
-                                    self.preedit_cache
+                                    "chord 진행 중 (preview) -> preedit={}자",
+                                    self.preedit_cache.chars().count()
                                 );
                                 return if !self.commit_buffer.is_empty() {
                                     InputResult::committed()
@@ -559,9 +561,9 @@ impl InputEngine {
                         let committed = self.korean_context.get_committed();
                         unim_log!(
                             "ENGINE",
-                            "context.committed='{}', context.preedit='{}'",
-                            committed,
-                            self.korean_context.get_preedit()
+                            "context.committed={}자, context.preedit={}자",
+                            committed.chars().count(),
+                            self.korean_context.get_preedit().chars().count()
                         );
 
                         if !committed.is_empty() {
@@ -569,16 +571,16 @@ impl InputEngine {
                             self.korean_context.clear_committed();
                             unim_log!(
                                 "ENGINE",
-                                "commit_buffer에 추가 후: '{}'",
-                                self.commit_buffer
+                                "commit_buffer에 추가 후: {}자",
+                                self.commit_buffer.chars().count()
                             );
                         }
 
                         self.update_preedit_cache();
                         unim_log!(
                             "ENGINE",
-                            "preedit_cache 업데이트 후: '{}'",
-                            self.preedit_cache
+                            "preedit_cache 업데이트 후: {}자",
+                            self.preedit_cache.chars().count()
                         );
 
                         if !self.commit_buffer.is_empty() {
@@ -594,7 +596,7 @@ impl InputEngine {
             // 자모가 아닌 문자 (기호 등)
             if self.chord_buffer.is_active() {
                 // chord 모드: 비자모도 윈도우에 합류
-                unim_log!("ENGINE", "chord push_non_jamo: '{}'", c);
+                unim_log!("ENGINE", "chord push_non_jamo");
                 let prev_preview_active = self.chord_buffer.was_preview_injected();
                 let prev_was_atomic = self.chord_buffer.was_preview_atomic();
                 match self.chord_buffer.push_non_jamo(c) {

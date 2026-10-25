@@ -182,6 +182,10 @@ pub struct InputEngine {
     /// 클라이언트 능력 비트(`SURROUNDING_CAP_*`) — 대상③·낡음 게이트의 전제. 0(기본)이면
     /// v1.5 와 바이트 동일. `reset()`·재생성(carry)에서 보존한다(HANJA_WORD_SPEC §2.4b).
     pub(super) surrounding_caps: u32,
+    /// 이 컨텍스트의 프런트 종류 꼬리표(`gtk3|gtk4|qt5|qt6|gnome|tsf|xim|wayland|ibus|unknown`) —
+    /// 대상③ 판정 로그 전용(동작 무관). 코어는 클라이언트를 모르므로 호스트가 `set_client_tag`
+    /// 로 넣는다. `reset()`·재생성(carry)에서 보존한다.
+    pub(super) client_tag: &'static str,
     /// 마지막 surrounding 보고 뒤 커서·문서를 바꿀 사건(확정·통과 키·포인터)이 있었는가.
     pub(super) surrounding_stale: bool,
     /// 앱에 선택이 있을 수 있다는 거부 플래그(드래그·Shift+이동·Ctrl+A·FocusIn 등).
@@ -366,6 +370,7 @@ impl InputEngine {
             learn_obs: None,
             surrounding_seen: false,
             surrounding_caps: 0,
+            client_tag: "unknown",
             surrounding_stale: false,
             selection_possible: false,
             selection_flag_cause: Default::default(),

@@ -843,10 +843,10 @@ impl InputMethodService {
         if let Some((offset_from_cursor, delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement='{}'",
+                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement={}자",
                 offset_from_cursor,
                 delete_chars,
-                replacement
+                replacement.chars().count()
             );
             Ok((offset_from_cursor, delete_chars, replacement))
         } else {
@@ -872,8 +872,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] AddReverseUserDictWord: word='{}', ok={}",
-            word,
+            "[DBus] AddReverseUserDictWord: word={}자, ok={}",
+            word.chars().count(),
             ok
         );
         Ok(ok)
@@ -894,8 +894,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] RemoveReverseUserDictWord: word='{}', ok={}",
-            word,
+            "[DBus] RemoveReverseUserDictWord: word={}자, ok={}",
+            word.chars().count(),
             ok
         );
         Ok(ok)
@@ -950,8 +950,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] RegisterUserDictFromSelection: word='{}'",
-            word
+            "[DBus] RegisterUserDictFromSelection: word={}자",
+            word.chars().count()
         );
         Ok(word)
     }
@@ -3286,9 +3286,9 @@ impl InputContextHandler {
         if let Some((delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] SmartBackspace: delete={}, replacement='{}'",
+                "[DBus] SmartBackspace: delete={}, replacement={}자",
                 delete_chars,
-                replacement
+                replacement.chars().count()
             );
             // 기존 글자 삭제
             Self::delete_surrounding_text(&signal_ctx, -(delete_chars as i32), delete_chars)
@@ -3821,9 +3821,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] SelectSpecialChar: index={}, result='{}'",
+            "[DBus] SelectSpecialChar: index={}, result={}자",
             index,
-            ch
+            ch.chars().count()
         );
 
         Ok(ch)

@@ -220,10 +220,10 @@ fn main() {
                 } => {
                     unim_log!(
                         "WAYLAND",
-                        "AutoTypeFix 적용: delete={}, commit='{}', preedit='{}'",
+                        "AutoTypeFix 적용: delete={}, commit={}자, preedit={}자",
                         delete_chars,
-                        commit_text,
-                        preedit_text
+                        commit_text.chars().count(),
+                        preedit_text.chars().count()
                     );
                     app.apply_auto_typefix(delete_chars, &commit_text, &preedit_text);
                 }

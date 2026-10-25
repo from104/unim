@@ -277,6 +277,8 @@ pub const SURROUNDING_HINT_SELECTION_UNKNOWN: u32 = 5;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SurroundingWordCarry {
     pub(super) caps: u32,
+    /// 프런트 종류 꼬리표(로그 전용). `Default` 는 빈 문자열이라 복원 시 "" 이면 건너뛴다.
+    pub(super) client_tag: &'static str,
     pub(super) stale: bool,
     pub(super) selection_possible: bool,
     pub(super) flag_cause: u8,

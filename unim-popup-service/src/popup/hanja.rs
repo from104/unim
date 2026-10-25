@@ -228,9 +228,9 @@ impl HanjaPopup {
 
         unim_log!(
             "INDICATOR",
-            "[Popup] 한자 show() 진입: display_server={:?}, top_row='{}', cursor=({},{},{})",
+            "[Popup] 한자 show() 진입: display_server={:?}, top_row={}자, cursor=({},{},{})",
             self.display_server,
-            top_row,
+            top_row.chars().count(),
             x,
             y,
             h
@@ -274,8 +274,8 @@ impl HanjaPopup {
         fetch_bookmark_states_async(self.context_path.clone());
         unim_log!(
             "INDICATOR",
-            "[Popup] 한자 팝업 표시 완료: target='{}', realized={}",
-            target,
+            "[Popup] 한자 팝업 표시 완료: target={}자, realized={}",
+            target.chars().count(),
             self.window.is_realized()
         );
     }

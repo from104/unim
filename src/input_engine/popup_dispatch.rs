@@ -221,7 +221,7 @@ impl InputEngine {
             }
         } else if self.special_char_mode {
             if let Some(ch) = self.select_special_char(abs_index) {
-                unim_log!("ENGINE", "팝업 특수문자 선택: [{}] '{}'", abs_index, ch);
+                unim_log!("ENGINE", "팝업 특수문자 선택: [{}]", abs_index);
                 self.commit_buffer.push(ch);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
@@ -231,9 +231,8 @@ impl InputEngine {
             if let Some(emoji) = self.emoji_at_global_index(abs_index) {
                 unim_log!(
                     "ENGINE",
-                    "팝업 이모지 선택: [{}] '{}'",
-                    abs_index,
-                    emoji
+                    "팝업 이모지 선택: [{}]",
+                    abs_index
                 );
                 self.commit_buffer.push_str(&emoji);
                 let _ = crate::emoji::touch_recent(&emoji);

@@ -216,9 +216,9 @@ pub fn try_undo(
     state.buf.clear();
     unim_log!(
         "TSF_ATF",
-        "[TSF AutoTypeFix] Ctrl+Z 되돌리기: '{}' → '{}'",
-        obs.corrected,
-        obs.original
+        "[TSF AutoTypeFix] Ctrl+Z 되돌리기: {}자 → {}자",
+        obs.corrected.chars().count(),
+        obs.original.chars().count()
     );
     Some(AutoFixApply {
         delete_chars,
@@ -410,9 +410,9 @@ pub fn process_after_key(
                 ));
                 unim_log!(
                     "TSF_ATF",
-                    "[TSF AutoTypeFix] 재트리거 감지({:?}) → 억제 + blacklist tentative: '{}'",
+                    "[TSF AutoTypeFix] 재트리거 감지({:?}) → 억제 + blacklist tentative: {}자",
                     direction,
-                    suppression_key
+                    suppression_key.chars().count()
                 );
                 state.buf.clear();
                 None
@@ -458,9 +458,9 @@ pub fn process_after_key(
 
             unim_log!(
                 "TSF_ATF",
-                "[TSF AutoTypeFix] 트리거: delete={}, corrected='{}', clear_preedit={}",
+                "[TSF AutoTypeFix] 트리거: delete={}, corrected={}자, clear_preedit={}",
                 fix.delete_chars,
-                fix.corrected,
+                fix.corrected.chars().count(),
                 fix.clear_preedit
             );
 
@@ -548,10 +548,10 @@ pub fn process_after_key(
 
                 unim_log!(
                     "TSF_ATF",
-                    "[TSF AutoTypeFix] 순방향 replay(word={}): preedit='{}', commit='{}'",
+                    "[TSF AutoTypeFix] 순방향 replay(word={}): preedit={}자, commit={}자",
                     was_word,
-                    replay_preedit,
-                    commit_text
+                    replay_preedit.chars().count(),
+                    commit_text.chars().count()
                 );
 
                 // 순방향(영→한) delete_chars = 입력한 영문 전체 길이.

@@ -365,7 +365,11 @@ impl InputEngine {
             return self.selection_target();
         }
         if self.surrounding_word_exhausted {
-            unim_log!("ENGINE", "대상③: reason=exhausted");
+            unim_log!(
+                "ENGINE",
+                "대상③: reason=exhausted client={}",
+                self.client_tag
+            );
             return Resolve::None;
         }
         let flag = if self.selection_unknown_once {
@@ -378,7 +382,8 @@ impl InputEngine {
                 let first = &cands[0];
                 unim_log!(
                     "ENGINE",
-                    "대상③: reason=ok cands={} len={} a={} b={} flag={}",
+                    "대상③: reason=ok client={} cands={} len={} a={} b={} flag={}",
+                    self.client_tag,
                     cands.len(),
                     first.key.chars().count(),
                     first.a,
@@ -388,7 +393,14 @@ impl InputEngine {
                 Resolve::SurroundingWord(cands)
             }
             Err((reason, run)) => {
-                unim_log!("ENGINE", "대상③: reason={} run={}자 flag={}", reason, run, flag);
+                unim_log!(
+                    "ENGINE",
+                    "대상③: reason={} client={} run={}자 flag={}",
+                    reason,
+                    self.client_tag,
+                    run,
+                    flag
+                );
                 Resolve::None
             }
         }

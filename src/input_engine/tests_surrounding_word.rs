@@ -543,6 +543,24 @@ fn sw_carry_over_recreation() {
     assert!(b.selection_possible());
 }
 
+/// 판정 로그용 client 꼬리표는 재생성(carry)·reset() 을 건너 보존된다(기본 unknown).
+#[test]
+fn sw_client_tag_survives_carry_and_reset() {
+    let mut a = eng("국어교육", 4);
+    assert_eq!(a.client_tag(), "unknown");
+    a.set_client_tag("gtk3");
+    let carry = a.surrounding_word_carry();
+    let mut b = create_test_engine();
+    assert_eq!(b.client_tag(), "unknown");
+    b.restore_surrounding_word_carry(carry);
+    assert_eq!(b.client_tag(), "gtk3");
+    b.reset();
+    assert_eq!(b.client_tag(), "gtk3");
+    // Default carry(빈 꼬리표)는 기존 꼬리표를 지우지 않는다.
+    b.restore_surrounding_word_carry(Default::default());
+    assert_eq!(b.client_tag(), "gtk3");
+}
+
 #[test]
 fn sw_focus_in_resets() {
     let mut e = eng("국어교육", 4);

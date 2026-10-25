@@ -76,8 +76,7 @@ impl InputEngine {
         if let Some(entry) = crate::special_chars::search_by_choseong(ch) {
             unim_log!(
                 "ENGINE",
-                "특수문자 후보 발견: '{}' ({}) -> {} 개",
-                ch,
+                "특수문자 후보 발견: ({}) -> {} 개",
                 entry.category,
                 entry.characters.len()
             );
@@ -326,9 +325,9 @@ impl InputEngine {
 
         unim_log!(
             "ENGINE",
-            "한자 즐겨찾기 토글+재정렬: target={}자, '{}' [{} -> {}] state={} (was={})",
+            "한자 즐겨찾기 토글+재정렬: target={}자, hanja={}자 [{} -> {}] state={} (was={})",
             self.hanja_target.chars().count(),
-            hanja,
+            hanja.chars().count(),
             index,
             new_index,
             new_state,
@@ -389,7 +388,7 @@ impl InputEngine {
         }
 
         let selected = self.special_char_candidates[index];
-        unim_log!("ENGINE", "특수문자 선택: [{}] '{}'", index, selected);
+        unim_log!("ENGINE", "특수문자 선택: [{}]", index);
 
         // preedit(초성)을 제거
         self.korean_context.clear();

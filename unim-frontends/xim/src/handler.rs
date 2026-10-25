@@ -582,10 +582,10 @@ impl UnimHandler {
                 if let Some(_app_win) = self.last_focused_app_window {
                     unim_log!(
                         "XIM_HANDLER",
-                        "AutoTypeFix: delete={}, commit='{}', preedit='{}'",
+                        "AutoTypeFix: delete={}, commit={}자, preedit={}자",
                         delete_chars,
-                        commit_text,
-                        preedit_text
+                        commit_text.chars().count(),
+                        preedit_text.chars().count()
                     );
 
                     // 이전 AutoTypeFix가 미완료 상태면 폐기
@@ -623,7 +623,7 @@ impl UnimHandler {
                 // ResetIcReply 로 같은 글자를 제자리에 커밋했으므로, 이걸 통과시키면
                 // 캐럿이 옮겨간 자리에 한 번 더 박힌다. (pending_skip_commit 주석 참조)
                 if self.take_pending_skip_commit(&text) {
-                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: '{}'", text);
+                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: {}자", text.chars().count());
                     return Ok(());
                 }
                 // Standalone popup 마우스 클릭 시 커밋. last_focused_ic_info에 캐시된
@@ -636,8 +636,8 @@ impl UnimHandler {
                         Ok(()) => {
                             unim_log!(
                                 "XIM_HANDLER",
-                                "CommitText (Standalone): '{}' → server.commit OK",
-                                text
+                                "CommitText (Standalone): {}자 → server.commit OK",
+                                text.chars().count()
                             );
                             // 팝업 마우스 클릭 확정도 캐럿을 옮긴다 — 뒤따를
                             // 스팟 보고 1회를 기대된 갱신으로 표시(U5 (b)).
@@ -645,16 +645,16 @@ impl UnimHandler {
                         }
                         Err(e) => unim_log!(
                             "XIM_HANDLER",
-                            "CommitText (Standalone): '{}' → server.commit 실패: {:?}",
-                            text,
+                            "CommitText (Standalone): {}자 → server.commit 실패: {:?}",
+                            text.chars().count(),
                             e
                         ),
                     }
                 } else {
                     unim_log!(
                         "XIM_HANDLER",
-                        "CommitText (Standalone): '{}' → 활성 IC 없음, 무시",
-                        text
+                        "CommitText (Standalone): {}자 → 활성 IC 없음, 무시",
+                        text.chars().count()
                     );
                 }
             }
@@ -990,8 +990,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         if !cached_preedit.is_empty() {
             unim_log!(
                 "XIM_HANDLER",
-                "focus_out: 로컬 캐시 커밋 \"{}\"",
-                cached_preedit
+                "focus_out: 로컬 캐시 커밋 {}자",
+                cached_preedit.chars().count()
             );
             server.commit(&user_ic.ic, &cached_preedit)?;
         }
@@ -1239,8 +1239,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                             server.conn().flush().ok();
                             unim_log!(
                                 "XIM_HANDLER",
-                                "AutoTypeFix commit '{}' (진짜 IC)",
-                                commit_text
+                                "AutoTypeFix commit {}자 (진짜 IC)",
+                                commit_text.chars().count()
                             );
                         }
 
@@ -1254,8 +1254,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                             server.conn().flush().ok();
                             unim_log!(
                                 "XIM_HANDLER",
-                                "AutoTypeFix preedit '{}' (진짜 IC)",
-                                preedit_text
+                                "AutoTypeFix preedit {}자 (진짜 IC)",
+                                preedit_text.chars().count()
                             );
                         }
 
@@ -1342,8 +1342,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 if !candidates.is_empty() {
                     unim_log!(
                         "XIM_HANDLER",
-                        "한자 후보 있음 (Standalone) → 키 consumed: target='{}', count={}",
-                        target,
+                        "한자 후보 있음 (Standalone) → 키 consumed: target={}자, count={}",
+                        target.chars().count(),
                         candidates.len()
                     );
                     // ShowHanjaPopup 시그널은 GetHanjaCandidates RPC 응답에서 데몬이 이미 발행.
@@ -1366,8 +1366,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 if !characters.is_empty() {
                     unim_log!(
                         "XIM_HANDLER",
-                        "특수문자 후보 있음 (Standalone) → 키 consumed: target='{}'",
-                        target
+                        "특수문자 후보 있음 (Standalone) → 키 consumed: target={}자",
+                        target.chars().count()
                     );
                     // ShowSpecialPopup 시그널은 GetSpecialCharCandidates RPC 응답에서 데몬이 이미 발행.
                     return Ok(true);
@@ -1423,10 +1423,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         let preedit_text = preedit.unwrap_or_default();
 
         if !commit_text.is_empty() {
-            unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
+            unim_log!("XIM_HANDLER", "커밋: {}자", commit_text.chars().count());
         }
         if !preedit_text.is_empty() {
-            unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
+            unim_log!("XIM_HANDLER", "Preedit: {}자", preedit_text.chars().count());
         }
 
         self.commit_then_preedit(server, user_ic, &commit_text, &preedit_text)?;

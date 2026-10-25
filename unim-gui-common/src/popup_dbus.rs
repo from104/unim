@@ -226,7 +226,7 @@ pub fn commit_emoji_via_dbus(emoji_str: String) {
         );
         return;
     }
-    unim_log!("INDICATOR", "[EmojiPopup] CommitEmoji 호출: '{}'", emoji_str);
+    unim_log!("INDICATOR", "[EmojiPopup] CommitEmoji 호출: {}자", emoji_str.chars().count());
     // (String,) tuple — popup-service 인터페이스 시그너처 일치.
     call_popup_service("CommitEmoji", (emoji_str,));
 }

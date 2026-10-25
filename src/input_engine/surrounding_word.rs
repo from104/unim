@@ -200,6 +200,17 @@ impl InputEngine {
         self.surrounding_caps
     }
 
+    /// 프런트 종류 꼬리표를 설정한다(대상③ 판정 로그 `client=` 전용 — 동작 무관).
+    /// 값: `gtk3|gtk4|qt5|qt6|gnome|tsf|xim|wayland|ibus|unknown`.
+    pub fn set_client_tag(&mut self, tag: &'static str) {
+        self.client_tag = tag;
+    }
+
+    /// 현재 프런트 종류 꼬리표.
+    pub fn client_tag(&self) -> &'static str {
+        self.client_tag
+    }
+
     fn set_sel_flag(&mut self, cause: SelFlagCause) {
         self.selection_possible = true;
         self.selection_flag_cause = cause;
@@ -271,6 +282,7 @@ impl InputEngine {
     pub fn surrounding_word_carry(&self) -> SurroundingWordCarry {
         SurroundingWordCarry {
             caps: self.surrounding_caps,
+            client_tag: self.client_tag,
             stale: self.surrounding_stale,
             selection_possible: self.selection_possible,
             flag_cause: self.selection_flag_cause.as_u8(),
@@ -281,6 +293,9 @@ impl InputEngine {
     /// `surrounding_word_carry` 로 받아 둔 상태를 되돌린다.
     pub fn restore_surrounding_word_carry(&mut self, c: SurroundingWordCarry) {
         self.surrounding_caps = c.caps;
+        if !c.client_tag.is_empty() {
+            self.client_tag = c.client_tag;
+        }
         self.surrounding_stale = c.stale;
         self.selection_possible = c.selection_possible;
         self.selection_flag_cause = SelFlagCause::from_u8(c.flag_cause);
