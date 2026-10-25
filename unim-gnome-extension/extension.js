@@ -25,7 +25,8 @@ import { PreeditOverlay } from './preedit_overlay.js';
 // 한자/특수문자/이모지 popup 은 unim-popup-service (GTK4) 가 전담.
 // GNOME extension 은 popup show/hide signal 만 PopupView 에 중계하고(preedit 불변),
 // commit/cancel 결과는 daemon CommitText 시그널로 InputMethod 에 반영된다.
-import { unimLog, unimError } from './logging.js';
+import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
+import { verifyReplaceExpectation } from './surrounding_facts.js';
 
 /**
  * Wayland 컴포지터 위에서 도는지 판별한다.
@@ -303,12 +304,19 @@ export default class UnimExtension extends Extension {
                         this._inputMethod.updatePreedit(visible ? text : '');
                     }
                 },
-                onReplaceSurrounding: (deleteBefore, deleteAfter, commitText, _expectText) => {
+                onReplaceSurrounding: (deleteBefore, deleteAfter, commitText, expectText) => {
                     // 대상③ 확정(HANJA_WORD_SPEC §2.4b.5) — 커서 앞 a자·뒤 b자를 지우고 확정한다.
-                    // GNOME 은 expect 대조 없이 실행한다(mutter 캐시뿐). onAutoTypeFix 와 같은
-                    // 포커스 게이트: 포커스가 없으면 버린다(문서 무변경). 로그는 a·b·길이만.
+                    // onAutoTypeFix 와 같은 포커스 게이트: 포커스가 없으면 버린다(문서 무변경).
+                    // 실행 전에 마지막 surrounding 캐시로 `text[cursor-a .. cursor+b] == expect` 를
+                    // 대조해 맞지 않으면 드롭한다(통합 계획 §2.1 F7). 로그는 a·b·길이만(평문 금지).
                     if (!this._inputMethod?._hasFocus) {
                         unimLog('EXT', `ReplaceSurrounding 버림: reason=nofocus, a=${deleteBefore}, b=${deleteAfter}`);
+                        return;
+                    }
+                    const v = verifyReplaceExpectation(
+                        this._inputMethod.getSurroundingCache(), deleteBefore, deleteAfter, expectText);
+                    if (!v.ok) {
+                        unimLog('EXT', `ReplaceSurrounding 버림: reason=${v.reason}, a=${deleteBefore}, b=${deleteAfter}, expectLen=${v.expectLen}, cacheLen=${v.cacheLen}`);
                         return;
                     }
                     this._inputMethod.replaceSurrounding(deleteBefore, deleteAfter, commitText);
@@ -453,6 +461,10 @@ export default class UnimExtension extends Extension {
      */
     _onFocusWindowChanged() {
         const focusWindow = global.display.focus_window;
+        if (isUnimDevelop()) {
+            unimProbe('win_focus_notify',
+                `has_window=${focusWindow ? 1 : 0} im_focus=${this._inputMethod?.hasFocus() ? 1 : 0}`);
+        }
 
         // popup-service 가 자체 outside-click dismiss 처리. focus null 케이스도 popup-service
         // 가 GTK4 grab 으로 직접 캡처하므로 GNOME extension 은 별도 분기 불필요.
@@ -481,7 +493,12 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(commit);
             }
             this._dbusIME.focusIn(windowId);
+            unimProbe('win_focus_in_sent', `im_focus=${this._inputMethod?.hasFocus() ? 1 : 0}`);
             if (this._indicator) this._indicator.setInputActive(true);
+            // 창 FocusIn 은 엔진의 낡음(stale)을 세운다. mutter 가 새 필드의 set_surrounding 을 이보다
+            // 먼저 넘겼다면 그 스냅샷으로 낡음이 안 풀리므로, 같은 필드 세대의 마지막 스냅샷을 한 번
+            // 더 보낸다(포커스 없음·비밀번호 칸·그 뒤 힌트·커밋이 있었으면 안 보낸다).
+            this._inputMethod?.resendSurroundingFacts('win_focus_in');
         }
 
         this._preeditOverlay?.hide();
@@ -838,7 +855,7 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacement='${replacement}'`);
+            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacementLen=${Array.from(replacement).length}`);  // 평문 금지(HANJA_WORD_SPEC §2.8)
 
             // 텍스트 치환: 정확한 위치에서 선택 텍스트 삭제 후 대체 텍스트 커밋
             if (this._inputMethod) {
@@ -907,7 +924,7 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            unimLog('EXTENSION', `UserDict 등록: '${word}'`);
+            unimLog('EXTENSION', `UserDict 등록: len=${Array.from(word).length}`);  // 평문 금지(HANJA_WORD_SPEC §2.8)
 
             this._notifyFeatureResult(
                 _('UNIM Dictionary'),

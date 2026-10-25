@@ -11,7 +11,7 @@
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
-import { unimLog, unimError } from './logging.js';
+import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
 import {
     createPointerState, classifyPointer, hintKeyLogName,
     HINT_KEY, HINT_PRIMARY_CHANGED,
@@ -223,6 +223,8 @@ export class KeyHandler {
          * @type {import('./pointer_hints.js').PointerState}
          */
         this._pointerState = createPointerState();
+        /** @type {number} 탐침: 마지막 captured_ptr 줄 이후 stage 가 받은 모션 수 */
+        this._probeMotionCount = 0;
         /** @type {number} global.display.get_selection() owner-changed 시그널 ID */
         this._selectionOwnerId = 0;
     }
@@ -249,6 +251,7 @@ export class KeyHandler {
             (actor, event) => {
                 if (event.type() !== Clutter.EventType.KEY_PRESS) {
                     // 마우스·터치는 사건의 성격만 엔진에 보고하고 이벤트는 건드리지 않는다.
+                    this._probePointerEvent(event);
                     this._reportPointer(event);
                     return Clutter.EVENT_PROPAGATE;
                 }
@@ -392,6 +395,7 @@ export class KeyHandler {
         if (!result) {
             // D-Bus 실패 → 소비하지 않는다. 사본을 만드는 대신 mutter 에게 그대로
             // 넘겨야 고정키 래치가 살아 있다(3번 주석과 같은 이유).
+            this._inputMethod.noteKeyPassedToApp();
             this._drainKeyQueue();
             return false;
         }
@@ -412,6 +416,7 @@ export class KeyHandler {
             // **Shift 고정키가 이 경로를 탄다**: Shift 는 BYPASS_MODIFIER_MASK 에
             // 없어 3번으로 안 빠지므로, Shift+Home·Shift+방향키(선택) 같은 조합이
             // 여기까지 내려온다. 사본으로 미루면 래치가 먼저 풀려 선택이 안 된다.
+            this._inputMethod.noteKeyPassedToApp();
             this._drainKeyQueue();
             return false;
         }
@@ -423,6 +428,8 @@ export class KeyHandler {
         // 커밋의 done 아이들이 먼저 발사돼 순서가 지켜진다.
         // 대신 이 키에서는 고정키 래치를 보장하지 못한다 — 조합 중 Shift+Home
         // 같은 드문 조합이 해당된다. 글자 순서가 어긋나는 쪽이 훨씬 나쁘다.
+        // 소비되지 않은 키(커밋이 딸린 통과 키)는 앱으로 가므로 surrounding 캐시가 낡는다.
+        if (!consumed) this._inputMethod.noteKeyPassedToApp();
         this._inputMethod.notify_key_event(event, consumed);
 
         // 8. 재진입으로 큐에 쌓인 키 순차 처리
@@ -451,10 +458,50 @@ export class KeyHandler {
         if (!this._dbusIME?.isConnected) return;
         try {
             this._dbusIME.surroundingHintAsync(kind, keyval, state);
+            // KEY·포인터 힌트 뒤에는 마지막 스냅샷이 현재 문서가 아니다 — 재송신 판정에 알린다.
+            this._inputMethod?.noteHintSent?.(kind);
             unimLog('KEY', `SurroundingHint: kind=${kind}` +
                            (kind === HINT_KEY ? ` key=${hintKeyLogName(keyval)}` : ''));
+            unimProbe('hint_sent', `kind=${kind}`);
         } catch (e) {
             unimError('KEY', `SurroundingHint 송신 오류: ${e.message}`);
+        }
+    }
+
+    /**
+     * 순서 탐침(통합 계획 P0-3, UNIM_DEVELOP=1 일 때만) — stage `captured-event` 가 포인터 사건을
+     * 받는지 본다. mutter 가 Wayland 클라이언트 창 위의 사건을 stage 로 안 보내면, 앱 창 안
+     * 클릭에는 이 줄이 하나도 안 찍힌다 (§1.1 (나)). 모션은 세지만 줄은 누름·뗌·터치에만 남긴다.
+     * 좌표는 남기지 않는다.
+     * @param {Clutter.Event} event
+     * @private
+     */
+    _probePointerEvent(event) {
+        if (!isUnimDevelop()) return;
+        try {
+            const E = Clutter.EventType;
+            const t = event.type();
+            let name;
+            if (t === E.MOTION) {
+                this._probeMotionCount++;
+                return;
+            } else if (t === E.BUTTON_PRESS) {
+                name = 'button_press';
+            } else if (t === E.BUTTON_RELEASE) {
+                name = 'button_release';
+            } else if (t === E.TOUCH_BEGIN) {
+                name = 'touch_begin';
+            } else {
+                return;
+            }
+            const mods = global.get_pointer()[2];
+            const btn = '0x' + ((mods & (Clutter.ModifierType.BUTTON1_MASK |
+                                         Clutter.ModifierType.BUTTON2_MASK |
+                                         Clutter.ModifierType.BUTTON3_MASK)) >>> 0).toString(16);
+            unimProbe('captured_ptr', `type=${name} motions_since=${this._probeMotionCount} btn=${btn}`);
+            this._probeMotionCount = 0;
+        } catch (e) {
+            unimError('KEY', `탐침 오류(무시): ${e.message}`);
         }
     }
 
@@ -595,6 +642,7 @@ export class KeyHandler {
         }
 
         if (!this._dbusIME.isConnected) {
+            this._inputMethod.noteKeyPassedToApp();
             this._inputMethod.notify_key_event(entry.event, false);
             return;
         }
@@ -608,6 +656,7 @@ export class KeyHandler {
         }
 
         if (!result) {
+            this._inputMethod.noteKeyPassedToApp();
             this._inputMethod.notify_key_event(entry.event, false);
             return;
         }
@@ -615,6 +664,9 @@ export class KeyHandler {
         const { consumed, preedit, commit } = result;
         // _handleVfuncKey와 동일한 race 회피 (commit→preedit 분리)
         this._commitAndPreedit(commit, preedit);
+        // 큐에서 뒤늦게 처리되는 미소비 키(예: 선택 키 처리 중 쌓인 →)도 앱으로 간다 —
+        // ReplaceSurroundingText 가 이 키보다 늦게 처리돼도 낡은 캐시로 대조가 통과하지 않게 dirty 를 세운다.
+        if (!consumed) this._inputMethod.noteKeyPassedToApp();
         this._inputMethod.notify_key_event(entry.event, consumed);
     }
 
@@ -932,6 +984,7 @@ export class KeyHandler {
         }
 
         if (!result) {
+            this._inputMethod.noteKeyPassedToApp();
             return Clutter.EVENT_PROPAGATE;
         }
 
@@ -940,6 +993,7 @@ export class KeyHandler {
 
         // commit + preedit 동시 송출 시 mutter race 회피 (vfunc 경로와 동일)
         this._commitAndPreedit(commit, preedit);
+        if (!consumed) this._inputMethod.noteKeyPassedToApp();
 
         // consumed=true면 키를 소비, false면 앱에 전달
         return consumed ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;

@@ -690,7 +690,7 @@ export class UnimDbusIME {
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
             } else if (signalName === 'ReplaceSurroundingText' && isOwnContext && this._onReplaceSurrounding) {
                 // 대상③ 확정: (delete_before, delete_after, commit_text, expect_text) — 와이어 `uuss`.
-                // GNOME 은 expect 대조 없이 실행한다(mutter 캐시뿐, SPEC.md §2.8).
+                // 실행 전 대조는 extension.js onReplaceSurrounding 이 마지막 surrounding 캐시로 한다(SPEC.md §2.8).
                 const [deleteBefore, deleteAfter, commitText, expectText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `ReplaceSurroundingText: a=${deleteBefore}, b=${deleteAfter}, commitLen=${Array.from(commitText).length}, expectLen=${Array.from(expectText).length}`);
                 this._onReplaceSurrounding(deleteBefore, deleteAfter, commitText, expectText);
@@ -994,7 +994,7 @@ export class UnimDbusIME {
     /**
      * 대상③ 거부 신호 보고(fire-and-forget) — 엔진이 직접 볼 수 없는 사건만.
      * kind: 1 KEY(keyval·state 동반) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED ·
-     * 5 SELECTION_UNKNOWN. kind≠1 이면 keyval·state 는 0.
+     * 5 SELECTION_UNKNOWN · 6 FIELD_FOCUS(필드 포커스, 구버전 데몬은 무시). kind≠1 이면 keyval·state 는 0.
      * D-Bus 가 연결 단위로 순서를 보존하므로 이후 ProcessKeyEvent 보다 먼저 반영된다.
      * @param {number} kind
      * @param {number} keyval
@@ -1038,6 +1038,32 @@ export class UnimDbusIME {
         } catch (e) {
             // surrounding text 실패는 조용히 무시 (성능 영향 최소화)
         }
+    }
+
+    /**
+     * Surrounding text 비동기 전달 — FocusIn 계열 직후 마지막 스냅샷 재송신용(fire-and-forget).
+     * 같은 연결이라 먼저 보낸 FocusIn·SurroundingHint 뒤, 이후 ProcessKeyEvent 앞에 도착한다.
+     * 로그는 길이만(문서 내용 금지).
+     * @param {string} text
+     * @param {number} cursor - 코드포인트
+     * @param {number} anchor - 코드포인트
+     */
+    setSurroundingTextAsync(text, cursor, anchor) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'SetSurroundingText',
+            new GLib.Variant('(suu)', [text, cursor >>> 0, anchor >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `SetSurroundingText(재송신) 실패: ${e.message}`);
+                }
+            }
+        );
     }
 
     // _adjustCursorRect 제거됨 (Phase 5): popup signal 핸들러 가 GNOME ext 에서

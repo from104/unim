@@ -10,7 +10,13 @@
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
-import { unimLog, unimError } from './logging.js';
+import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
+import { hintKeyLogName } from './pointer_hints.js';
+import {
+    HINT_FIELD_FOCUS,
+    createSurroundingFacts, factsOnFocusIn, factsOnFocusOut, factsOnSurrounding,
+    factsOnHintSent, factsOnDocumentChanged, factsOnEngineKey, factsOnSensitive, decideResend,
+} from './surrounding_facts.js';
 
 /** 구버전 이모지 팝업이 IM engage 용으로 세우던 U+200B — 커밋·COMMIT 모드 대상이 아니다. */
 const ZWSP = '\u200B';
@@ -78,6 +84,25 @@ const PENDING_PURPOSE_TTL_US = 2_000_000;
 // 가드는 1회 소비되면 즉시 해제되므로 과차단 위험은 없다.
 const COMMIT_ECHO_GUARD_MS = 300;
 
+/** 마우스 버튼 눌림 비트 — 탐침이 `global.get_pointer()` 마스크에서 버튼만 뽑는 데 쓴다. */
+const POINTER_BUTTON_MASK = Clutter.ModifierType.BUTTON1_MASK |
+                            Clutter.ModifierType.BUTTON2_MASK |
+                            Clutter.ModifierType.BUTTON3_MASK;
+
+/**
+ * 탐침용: 지금 눌려 있는 마우스 버튼 비트(`0x100` = 주 버튼). 좌표는 읽어도 남기지 않는다.
+ * UNIM_DEVELOP=1 이 아니면 부르지 않는다(호출 앞에서 `isUnimDevelop()` 로 거른다).
+ * @returns {string} 예: '0x0', '0x100'
+ */
+function probePointerButtons() {
+    try {
+        const mods = global.get_pointer()[2];
+        return '0x' + ((mods & POINTER_BUTTON_MASK) >>> 0).toString(16);
+    } catch (_e) {
+        return 'err';
+    }
+}
+
 /**
  * UnimInputMethod
  *
@@ -143,6 +168,12 @@ class UnimInputMethod extends Clutter.InputMethod {
          * @type {{text: string, cursor: number, anchor: number}}
          */
         this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
+        /**
+         * 필드 세대 + 마지막 스냅샷 캐시 (surrounding_facts.js 의 순수 상태).
+         * FocusIn 계열을 보낸 직후의 재송신 판정과 ReplaceSurrounding 대조에 쓴다.
+         * @type {import('./surrounding_facts.js').SurroundingFacts}
+         */
+        this._facts = createSurroundingFacts();
 
         unimLog('IME', 'UnimInputMethod 인스턴스 생성');
     }
@@ -246,7 +277,9 @@ class UnimInputMethod extends Clutter.InputMethod {
         const typeName = eventType === Clutter.EventType.KEY_PRESS ? 'PRESS' :
                          eventType === Clutter.EventType.KEY_RELEASE ? 'RELEASE' : `OTHER(${eventType})`;
 
-        unimLog('IME', `vfunc_filter: type=${typeName}, keyval=${keyval}, keycode=${keycode}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
+        // 평문 금지(HANJA_WORD_SPEC §2.8) — 탐색·편집 키만 이름을 남기고 문자 키는 `char` 로 가린다
+        // (keyval·keycode 를 그대로 찍으면 개발 로그가 입력 내용을 복원할 수 있는 키 로거가 된다).
+        unimLog('IME', `vfunc_filter: type=${typeName}, key=${hintKeyLogName(keyval)}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
 
         // AutoTypeFix가 vkbd로 보낸 BackSpace는 IM 처리 없이 mutter에 직접 통과
         // (vkbd → mutter → IM filter 재진입 시 한글 엔진이 새 preedit을 깎는 self-feedback 차단)
@@ -280,6 +313,9 @@ class UnimInputMethod extends Clutter.InputMethod {
             this.notify_key_event(event, false);
             return true;
         }
+
+        // 엔진으로 가는 키(통과 키는 앱 문서를 바꾼다) — 캐시 재송신 금지 판정에 알린다.
+        this._facts = factsOnEngineKey(this._facts);
 
         // 키 핸들러가 직접 notify_key_event를 호출
         // (키 큐 패턴: call_sync 중 재진입 키를 큐에 저장 후 순차 처리)
@@ -328,34 +364,59 @@ class UnimInputMethod extends Clutter.InputMethod {
 
     vfunc_focus_in(_focus) {
         this._hasFocus = true;
+        this._facts = factsOnFocusIn(this._facts, GLib.get_monotonic_time() / 1000);
         unimLog('IME', `vfunc_focus_in: _hasFocus=true`);
+        if (isUnimDevelop()) {
+            const c = this._facts.cache;
+            unimProbe('focus_in',
+                `gen=${this._facts.fieldGen} cache=${c ? (c.gen === this._facts.fieldGen ? 'same_gen' : 'old_gen') : 'none'}` +
+                `${c ? ` cache_age_ms=${Math.round(GLib.get_monotonic_time() / 1000 - c.atMs)}` : ''} btn=${probePointerButtons()}`);
+        }
 
-        // 포커스 없는 동안 도착해 대기 중이던 purpose 만 flush.
-        // 무조건 Normal 송신은 하지 않는다 — Mutter 가 vfunc_update_content_purpose
-        // 를 vfunc_focus_in 보다 먼저 호출하는 순서라면(호출 순서 미확정, gnome_reset_design
-        // 근거 1) 방금 받은 Password 를 여기서 즉시 Normal 로 덮어써 비번 차단을
-        // 영구 무력화하게 된다. Normal 복귀는 vfunc_focus_out 에서만 담당(하단).
-        if (this._pendingPurpose !== null) {
-            const p = this._pendingPurpose;
-            const age = GLib.get_monotonic_time() - (this._pendingPurposeTime ?? 0);
-            this._pendingPurpose = null;
-            // TTL 2초 — 대상 필드가 포커스를 끝내 못 받고 사라진 뒤(창 닫힘 등)
-            // 남은 stale pending 이 무관한 다음 필드에 재적용되는 over-block 을
-            // 막는다(SPEC §2.7 알려진 단방향 한계). 정상 순서(purpose 직후 focus_in)
-            // 는 ms 단위라 TTL 에 걸리지 않는다.
-            if (age > PENDING_PURPOSE_TTL_US) {
-                unimLog('IME', `pending purpose ${p} 폐기 (age=${Math.round(age / 1000)}ms > TTL)`);
-                return;
-            }
-            if (p !== this._sentPurpose) {
-                this._contentTypeHandler?.(p);
-                this._sentPurpose = p;
-            }
+        this._flushPendingPurpose();
+
+        // 필드(위젯) 단위 포커스를 엔진에 알린다 — 창 FocusIn(extension.js)은 필드가 바뀌어도 오지 않는다.
+        // 구버전 데몬은 알 수 없는 kind 를 무시한다. 비동기라 키 경로를 막지 않는다.
+        // purpose flush 뒤에 보내므로 비밀번호 칸이면 엔진이 Password 를 먼저 안 상태로 받는다.
+        if (this._dbusIME?.isConnected) {
+            this._dbusIME.surroundingHintAsync(HINT_FIELD_FOCUS, 0, 0);
+            unimLog('IME', `SurroundingHint: kind=${HINT_FIELD_FOCUS} (FIELD_FOCUS)`);
+            unimProbe('field_focus_sent', `gen=${this._facts.fieldGen}`);
+            this.resendSurroundingFacts('field_focus');
+        }
+    }
+
+    /**
+     * 포커스 없는 동안 도착해 대기 중이던 purpose 만 flush.
+     *
+     * 무조건 Normal 송신은 하지 않는다 — Mutter 가 vfunc_update_content_purpose 를
+     * vfunc_focus_in 보다 먼저 호출하는 순서라면(호출 순서 미확정, gnome_reset_design
+     * 근거 1) 방금 받은 Password 를 여기서 즉시 Normal 로 덮어써 비번 차단을
+     * 영구 무력화하게 된다. Normal 복귀는 vfunc_focus_out 에서만 담당.
+     * @private
+     */
+    _flushPendingPurpose() {
+        if (this._pendingPurpose === null) return;
+        const p = this._pendingPurpose;
+        const age = GLib.get_monotonic_time() - (this._pendingPurposeTime ?? 0);
+        this._pendingPurpose = null;
+        // TTL 2초 — 대상 필드가 포커스를 끝내 못 받고 사라진 뒤(창 닫힘 등)
+        // 남은 stale pending 이 무관한 다음 필드에 재적용되는 over-block 을
+        // 막는다(SPEC §2.7 알려진 단방향 한계). 정상 순서(purpose 직후 focus_in)
+        // 는 ms 단위라 TTL 에 걸리지 않는다.
+        if (age > PENDING_PURPOSE_TTL_US) {
+            unimLog('IME', `pending purpose ${p} 폐기 (age=${Math.round(age / 1000)}ms > TTL)`);
+            return;
+        }
+        if (p !== this._sentPurpose) {
+            this._contentTypeHandler?.(p);
+            this._sentPurpose = p;
         }
     }
 
     vfunc_focus_out() {
         unimLog('IME', `vfunc_focus_out 호출됨 (stack: popup commit 디버깅)`);
+        unimProbe('focus_out', `gen=${this._facts.fieldGen}`);
         // 1. 커밋 최우선: 로컬 preedit 백업
         // ZWSP 잔재(구버전 이모지 우회책)는 커밋 대상이 아니다.
         const localPreedit = this._preeditText === ZWSP ? '' : this._preeditText;
@@ -409,6 +470,7 @@ class UnimInputMethod extends Clutter.InputMethod {
         // focus_in 에서는 지우지 않는다 — Mutter 가 set_surrounding 을
         // 먼저 보낸 순서라면 유효한 값을 지우게 된다.
         this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
+        this._facts = factsOnFocusOut(this._facts);
         // _pendingPurpose 는 지우지 않는다 — 포커스 없는 동안 이미 도착한 다음 필드의
         // purpose 일 수 있으며, 그 몫은 다음 vfunc_focus_in 이 flush 한다.
     }
@@ -502,6 +564,7 @@ class UnimInputMethod extends Clutter.InputMethod {
         // 호출자가 곧이어 데몬 reset() 을 부르면 같은 글자가 CommitText 로 되돌아온다.
         // 미리 가드를 무장해 그 메아리를 흘린다(vfunc_reset 주석 참조).
         this._armCommitEchoGuard(preedit);
+        this._noteDocumentChanged();
         try {
             this.commit(preedit);
             this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
@@ -575,8 +638,21 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_set_surrounding(text, cursor, anchor) {
+        if (isUnimDevelop()) {
+            const prev = this._lastSurrounding;
+            unimProbe('set_surrounding',
+                `gen=${this._facts.fieldGen} im_focus=${this._hasFocus ? 1 : 0} len=${Array.from(text || '').length} ` +
+                `cursor_moved=${(cursor || 0) !== prev.cursor ? 1 : 0} sel=${(cursor || 0) !== (anchor || 0) ? 1 : 0} ` +
+                `btn=${probePointerButtons()}`);
+        }
         // 최신 surrounding text + cursor/anchor를 캐시 (gedit/gnome-text-editor 호환)
         this._lastSurrounding = { text: text || '', cursor: cursor || 0, anchor: anchor || 0 };
+        // 재송신·확정 대조용 스냅샷(필드 세대 태그 포함). 비밀번호 칸이면 보관하지 않는다.
+        this._facts = factsOnSurrounding(this._facts, this._lastSurrounding, {
+            hasFocus: this._hasFocus,
+            sensitive: this.isSensitivePurpose(),
+            nowMs: GLib.get_monotonic_time() / 1000,
+        });
         if (this._dbusIME?.isConnected) {
             this._dbusIME.setSurroundingText(text || '', cursor || 0, anchor || 0);
         }
@@ -589,6 +665,64 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     getLastSurrounding() {
         return this._lastSurrounding;
+    }
+
+    /**
+     * 확정 대조용 마지막 스냅샷(필드 세대 태그 포함). 없으면 null — 비밀번호 칸·포커스 아웃 직후.
+     * @returns {import('./surrounding_facts.js').SurroundingCache|null}
+     */
+    getSurroundingCache() {
+        return this._facts.cache;
+    }
+
+    /**
+     * 엔진에 힌트를 보냈음을 기록한다 — KEY·포인터 힌트 뒤에는 스냅샷 재송신을 하지 않는다.
+     * (KeyHandler._sendHint 가 부른다.)
+     * @param {number} kind
+     */
+    noteHintSent(kind) {
+        this._facts = factsOnHintSent(this._facts, kind);
+    }
+
+    /**
+     * FIELD_FOCUS·창 FocusIn 을 보낸 직후 호출한다. 같은 필드 세대의 마지막 스냅샷이 있고 그 뒤
+     * KEY·포인터 힌트·커밋이 없었으면 `SetSurroundingText` 로 한 번 더 보내 엔진의 낡음을 푼다.
+     * 판정은 surrounding_facts.js `decideResend` (포커스 없음·비밀번호 칸·캐시 없음·세대 불일치·
+     * 낡음·묵음이면 보내지 않는다). 비동기라 키 경로를 막지 않는다. 로그는 길이만.
+     *
+     * @param {string} trigger - 'field_focus' | 'win_focus_in'
+     * @returns {boolean} 보냈는지
+     */
+    resendSurroundingFacts(trigger) {
+        const d = decideResend(this._facts, {
+            hasFocus: this._hasFocus,
+            sensitive: this.isSensitivePurpose(),
+            nowMs: GLib.get_monotonic_time() / 1000,
+        });
+        if (d.resend && !this._dbusIME?.isConnected) {
+            d.resend = false;
+            d.reason = 'disconnected';
+        }
+        unimProbe('resend', `trigger=${trigger} result=${d.resend ? 'sent' : 'skip'} reason=${d.reason}`);
+        if (!d.resend) return false;
+        const c = this._facts.cache;
+        this._dbusIME.setSurroundingTextAsync(c.text, c.cursor, c.anchor);
+        unimLog('IME', `surrounding 재송신: trigger=${trigger}, len=${Array.from(c.text).length}`);
+        return true;
+    }
+
+    /**
+     * 엔진이 소비하지 않은 키가 앱으로 간다(`notify_key_event(.., false)`·`return false`) — 그 키가
+     * 문서·커서를 바꿀 수 있으니 마지막 스냅샷을 낡음(dirty)으로 한다. 소비된 키(한자키·팝업 키·선택 키)는
+     * 부르지 않는다. 다음 `set_surrounding` 이 오면 해제된다.
+     */
+    noteKeyPassedToApp() {
+        this._noteDocumentChanged();
+    }
+
+    /** 확장이 문서를 직접 바꿨다 — 마지막 스냅샷은 더는 현재 문서가 아니다. @private */
+    _noteDocumentChanged() {
+        this._facts = factsOnDocumentChanged(this._facts);
     }
 
     vfunc_update_content_hints(hints) {
@@ -645,6 +779,8 @@ class UnimInputMethod extends Clutter.InputMethod {
      * @private
      */
     _applyContentPurpose() {
+        // focus_in 뒤 늦게 도착한 purpose 가 비밀번호·PIN 이면 이미 보관한 본문을 비운다.
+        if (this.isSensitivePurpose()) this._facts = factsOnSensitive(this._facts);
         const eff = this._effectivePurpose();
         if (!this._hasFocus) {
             this._pendingPurpose = eff;
@@ -675,6 +811,7 @@ class UnimInputMethod extends Clutter.InputMethod {
             this.clearPreedit();
         }
 
+        this._noteDocumentChanged();
         try {
             this.commit(text);
             unimLog('IME', `commitText: commit() 호출 완료 (에러 없음)`);
@@ -740,6 +877,7 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     expectSelfBackspaces(count) {
         if (count <= 0) return;
+        this._noteDocumentChanged();   // vkbd 백스페이스가 문서를 지운다
         // 한 backspace = PRESS + RELEASE 두 이벤트
         this._selfBackspaceCount += count * 2;
         unimLog('IME', `expectSelfBackspaces: +${count} (대기 이벤트=${this._selfBackspaceCount})`);
@@ -751,6 +889,7 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     deleteSurrounding(charCount) {
         if (charCount <= 0) return;
+        this._noteDocumentChanged();
         try {
             this.delete_surrounding(-(charCount), charCount);
             unimLog('IME', `deleteSurrounding: ${charCount}자 삭제`);
@@ -774,6 +913,7 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     replaceSurrounding(deleteBefore, deleteAfter, text) {
         if (!text || text.length === 0) return;
+        this._noteDocumentChanged();
         try {
             this.delete_surrounding(-deleteBefore, deleteBefore + deleteAfter);
             unimLog('IME', `replaceSurrounding: a=${deleteBefore}, b=${deleteAfter}, len=${Array.from(text).length}`);

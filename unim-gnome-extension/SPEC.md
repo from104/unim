@@ -19,6 +19,7 @@
 | `unim_input_method.js` | `Clutter.InputMethod` 서브클래스 (vfunc 오버라이드로 Mutter 연동) |
 | `key_handler.js` | 키 이벤트 필터링·분류·라우팅, call_sync 재진입용 **key queue**, (v1.6) 바이패스 키·포인터·PRIMARY 소유자 변경을 `SurroundingHint` 로 보고(§2.8) — v1.2~v1.5 의 PRIMARY 선택 보강은 퇴역(§2.8.1) |
 | `capabilities.js` | (v1.6) `SetClientCapabilities` 능력 비트 순수 계산(`computeClientCapabilities`) — 실측 스위치 `surrounding-word-replace` 값에 따라 0x4/0x5. gi 의존 없는 순수 모듈 — node 단위 시험(§2.8) |
+| `surrounding_facts.js` | (통합 계획 P3) 필드 세대·마지막 surrounding 캐시, FIELD_FOCUS·창 FocusIn 직후 캐시 재송신 판정(`decideResend`)과 `ReplaceSurroundingText` 의 expect 대조(`verifyReplaceExpectation`). gi 의존 없는 순수 모듈 — node 단위 시험 |
 | `pointer_hints.js` | (v1.6) 포인터 사건 분류(단일·Shift·500ms 더블클릭·4px 드래그·터치·보조/가운데 버튼 → `POINTER_PLAIN`/`POINTER_SELECT`)와 힌트 키 로그 이름. gi 의존 없는 순수 모듈 — node 단위 시험(§2.8). v1.2~v1.5 의 `primary_selection.js` 는 퇴역·삭제(§2.8.1) |
 | `preedit_overlay.js` | 입력 중인 글자(Preedit)를 커서 위치에 표시하는 오버레이 |
 | `hanja_popup.js` | 한자 후보 선택 팝업 UI (`St.BoxLayout` 기반) |
@@ -223,7 +224,7 @@ text-input-v3 → mutter 경로에서 GTK3·LibreOffice(gtk3/gtk4 VCL)·Firefox 
   - 포인터 사건은 IM 포커스 창 밖 클릭도 보낸다(포커스가 바뀌면 FocusOut/FocusIn 이 뒤따르고, 엔진은 FocusIn 에서 상태를 초기화한다).
   - 비밀번호/PIN 목적(`UnimInputMethod.isSensitivePurpose()`)이어도 보고는 보낸다 — 내용이 없고 엔진이 비번 필드에서 대상③ 을 이미 막는다.
 - **surrounding 전달**: Mutter `vfunc_set_surrounding` 값을 **그대로** `SetSurroundingText` 로 보낸다(가짜 anchor·가짜 텍스트 금지). 엔진이 수신을 낡음 해제로 쓴다. **포커스 이탈(`vfunc_focus_out`) 시 surrounding 캐시를 새 객체로 초기화**한다(이전 입력란 본문이 surrounding 을 안 보내는 클라이언트(VTE 등)에서 재사용되지 않게, focus_in 에서는 지우지 않음).
-- **대상③ 확정**: 시그널 `ReplaceSurroundingText(a, b, text, expect)`(`uuss`; GNOME 은 expect 를 대조하지 않는다) → `UnimInputMethod.replaceSurrounding(a, b, text)` = `delete_surrounding(-a, a+b)` → `commit_text`. 시그널은 `AutoTypefixApply` 처럼 세션 버스 글로벌 구독(자기 context path 만)으로 받는다. idle 이라 preedit 선클리어가 필요 없다. `onAutoTypeFix` 와 같은 `_hasFocus` 게이트(포커스 없으면 드롭 — 문서 무변경). Clutter 쪽은 삭제 실패를 알 수 없다 — LibreOffice 선택 상태의 삭제 거부는 엔진의 `c == 0` 방어와 거부 플래그로 막는다(HANJA_WORD_SPEC §2.4b.8).
+- **대상③ 확정**: 시그널 `ReplaceSurroundingText(a, b, text, expect)`(`uuss`; 실행 전에 마지막 surrounding 캐시로 `text[cursor−a..cursor+b] == expect` 를 대조하고 다르면 드롭, 로그 `reason=verify_mismatch` — 길이만) → `UnimInputMethod.replaceSurrounding(a, b, text)` = `delete_surrounding(-a, a+b)` → `commit_text`. 시그널은 `AutoTypefixApply` 처럼 세션 버스 글로벌 구독(자기 context path 만)으로 받는다. idle 이라 preedit 선클리어가 필요 없다. `onAutoTypeFix` 와 같은 `_hasFocus` 게이트(포커스 없으면 드롭 — 문서 무변경). Clutter 쪽은 삭제 실패를 알 수 없다 — LibreOffice 선택 상태의 삭제 거부는 엔진의 `c == 0` 방어와 거부 플래그로 막는다(HANJA_WORD_SPEC §2.4b.8).
 - **오프셋 단위**: Mutter `vfunc_set_surrounding` 의 cursor/anchor 와 데몬 엔진(Rust `chars()`)은 모두 **코드포인트** 단위다(2026-10-04 실측: 커밋 뒤 cursor 57→58 문자, len 228→231 바이트). `delete_surrounding` 의 a·b 도 코드포인트(구간은 전부 한글 완성 음절이라 BMP).
 - **선택 삭제 금지(회귀 방지, 유지)**: 팝업(한자·특수·이모지) 표시 경로는 null 이 아닌 preedit(빈·투명·ZWSP 포함)을 세우지 않는다 — GTK4 GtkTextView 가 preedit-start 에서 선택을 지운다(ce32aed). 시험이 `onShowEmoji`·`onShowHanja`·`onShowSpecial` 본문에 `updatePreedit` 호출이 없고 `updatePreedit(ZWSP)` 호출이 없음을 정적으로 검사한다.
 - **로그**: 한자키마다 엔진이 결정 이유 코드를 남긴다(HANJA_WORD_SPEC §2.8). 확장은 보낸 힌트의 kind·keyval(탐색·편집 키만 이름, 문자 키는 `char`)만 남긴다. surrounding·PRIMARY 내용은 남기지 않는다(PRIMARY 는 읽지도 않는다).
@@ -276,7 +277,7 @@ text-input-v3 → mutter 경로에서 GTK3·LibreOffice(gtk3/gtk4 VCL)·Firefox 
 | `ReportCursorRect(x,y,w,h)` | InputContext | 커서 좌표 보고 |
 | `SetSurroundingText(text, cursor, anchor)` | InputContext | 주변 텍스트 전달 |
 | `SetClientCapabilities(caps)` | InputContext | (v1.6) 프런트 능력 비트 통지(fire-and-forget, `focusIn()` 끝에서 매번). `caps` = `0x1 REPLACE_SURROUNDING`·`0x2 SELECTION_RELIABLE`·`0x4 POINTER_HINTS`(§2.8) |
-| `SurroundingHint(kind, keyval, state)` | InputContext | (v1.6) 대상③ 거부 신호 보고(fire-and-forget): 1 KEY · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN (§2.8) |
+| `SurroundingHint(kind, keyval, state)` | InputContext | (v1.6) 대상③ 거부 신호 보고(fire-and-forget): 1 KEY · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN · 6 FIELD_FOCUS(신설 — `vfunc_focus_in` 마다, 구버전 데몬은 무시) (§2.8) |
 | `GetHanjaCandidates` / `SelectHanja(idx)` / `CancelHanja` | InputContext | 한자 변환 |
 | `GetSpecialCharCandidates` / `SelectSpecialChar(idx)` / `CancelSpecialChar` | InputContext | 특수문자 변환 |
 | `Destroy` | InputContext | 컨텍스트 파괴 |
