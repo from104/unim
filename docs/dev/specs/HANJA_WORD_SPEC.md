@@ -8,6 +8,7 @@
 
 - 상태: **PM 대행 결정 반영 — 기현님 최종 확인 대기** (구현 전, develop `ba64255` 기준 설계). §0 의 Q1~Q9 는 기현님 부재중 PM 대행이 결정했고 코드·문서는 그 결정대로 **바로 구현한다**(본문은 결정이 스며든 상태). 기현님 승인이 남은 것은 `POPUP_SPEC.md` **파일 자체의 수정**(§5 반영, PLAN U14b)뿐이며, 승인 후 반영하고 이 문서의 상태를 갱신한다.
 - **v1.6 상태(2026-10-12)**: **기현님 승인(2026-10-12)·구현 반영(미커밋, 실기·L3 확인 전).** 설계(대상③ "커서가 걸친 단어", 대상 우선순위, 선택 출처 신뢰 등급, 거부 플래그, PRIMARY 퇴역)는 기현님 확정(2026-10-12). v1.6 에서 바뀐 절: 상태·§0 Q8·Q10~Q12·§1.2·§1.3·§2.1·§2.4.6·**§2.4b(신설)**·§2.5.5·§2.5.6·§2.6·§2.7·§2.8·§2.10·§2.10.1·§3.3·§4.1·§4.4·§4.5·**§4.6(신설)**·§5.10·§6·§7·§8. 같은 날 `POPUP_SPEC.md` v3.7(§3.7 규칙 2·4·5·10·11·12, §9.2)·`unim-gnome-extension/SPEC.md` §2.8 도 함께 고쳤다.
+- **v1.7 상태(2026-10-25)**: **프런트 공통화 — 기현님 승인(2026-10-25)·구현 커밋됨**(`4c73e39` 로그 `client=` 태그, `f894c0c` GNOME 확장 사실 보고자화, `3fceecc` 엔진 push 상태기계, `0e8042a` 데몬 판정 보류 배선). 목적은 대상③ 이 프런트(툴킷)마다 다르게 보이던 것을 같은 계약으로 모으는 것이다 — GNOME 만 앱 보고(push)에 기대어 "창 전환 뒤 첫 한자키·클릭 직후 한자키" 가 이모지로 떨어졌다. 바뀐 절: 상태·**§2.4b.6**(push 경로 판정 보류·캐시 재송신)·**§2.4b.7**(FIELD_FOCUS·키 없는 커서 이동 안정·보류 취소 사건)·§2.8(로그 `client=`·이유 코드)·§2.10(GNOME 행)·§4.6(kind 6·GNOME `expect_text` 대조)·§8. **GTK·Qt·TSF(caps 에 S 있음)의 판정은 바이트 동일** — 새 규칙은 caps 에 S 가 없고 P 가 있는 push 컨텍스트에서만 켜진다(대상③ 스위치 `surrounding-word-replace` 를 켠 GNOME 의 `0x5`; 기본 `0x4` 는 대상③ 이 꺼져 있어 변화 없음). 같은 날 `POPUP_SPEC.md` §9.2 (iii) 한 문장과 §11 이력 한 행, `unim-dbus/SPEC.md` §6.1 kind 6·§6.3a, `unim-gnome-extension/SPEC.md` §2.8 도 함께 고쳤다. 사용자 문서·`make help-html` 은 기능이 기본 꺼짐이라 이번 범위 밖.
 - 관련 문서: `POPUP_SPEC.md`(팝업 규격), `unim-dbus/SPEC.md`(DBus), `ROADMAP.md` ① 항목, 사용자 매뉴얼 §4.2.
 
 ---
@@ -248,7 +249,7 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
   | XIM·IMM32 | — | — | 대상③ 없음 |
 
 - **TSF 확정 전 내용 대조**: TSF 는 엔진과 같은 프로세스라 target(한글)을 안다. 편집 세션 안에서 범위 `[c−a, c+b)` 의 텍스트를 읽어 target 과 다르면 커밋하지 않는다(`reason=verify_mismatch`). 프로토콜 변경 없이 되는 fail-closed 검사다.
-- **DBus 프런트의 내용 대조(채택·구현)**: `ReplaceSurroundingText` 는 지울 한글 원문 `expect_text: s`(항상 비어 있지 않음)를 싣는다. pull 프런트(GTK3/4 모듈·Qt)는 시그널 처리 시점에 surrounding 을 다시 물어(`gtk_im_context_get_surrounding`·`ImSurroundingText`) `text[c−a..c+b] == expect_text` 일 때만 삭제·커밋한다(`reason=verify_mismatch`) — 낡음 게이트가 놓친 커서 이동을 마지막에 잡는다. GNOME 확장은 mutter 캐시만 있어 대조하지 않는다(`expect_text` 는 받되 무시). 프런트는 시그널 페이로드 타입이 `(uuss)` 가 아니면(구버전 데몬 등) 타입 문자열만 로그하고 무시한다 — 문서 무변경.
+- **DBus 프런트의 내용 대조(채택·구현)**: `ReplaceSurroundingText` 는 지울 한글 원문 `expect_text: s`(항상 비어 있지 않음)를 싣는다. pull 프런트(GTK3/4 모듈·Qt)는 시그널 처리 시점에 surrounding 을 다시 물어(`gtk_im_context_get_surrounding`·`ImSurroundingText`) `text[c−a..c+b] == expect_text` 일 때만 삭제·커밋한다(`reason=verify_mismatch`) — 낡음 게이트가 놓친 커서 이동을 마지막에 잡는다. GNOME 확장은 앱에서 문서를 당겨 올 수 없으므로 **확장이 마지막으로 받은 surrounding 캐시**로 대조한다(v1.7 — 종전 "받되 무시" 에서 변경). 캐시가 없거나, 받은 뒤 확장의 커밋·KEY 힌트·앱으로 넘긴 미소비 키가 있어 `dirty` 이거나, 범위가 어긋나거나, 완전 일치가 아니면 드롭한다(`reason=verify_mismatch`, 길이만 로그). 선택 중 큐에 쌓인 키가 앱 커서를 옮긴 경합을 막는다. 한자키 자체는 엔진으로 가는 키라 `key_sent` 는 대조에 쓰지 않는다(쓰면 대상③ 이 영영 실행되지 않는다). 프런트는 시그널 페이로드 타입이 `(uuss)` 가 아니면(구버전 데몬 등) 타입 문자열만 로그하고 무시한다 — 문서 무변경.
 - 키보드 확정(`ProcessKeyEvent`)·마우스 확정(`SelectHanja`) 모두 같은 채널을 쓴다. 응답 preedit 은 "" 이다(idle 이라 원래 없다).
 - 확정 뒤: 한자 상태·후보 목록·`recent_syllables` 를 비우고, `surrounding_stale = true`(커밋했으므로), 거부 플래그 해제(팝업 확정), AutoTypeFix `KeystrokeBuffer` 폐기(§4.1 과 같은 이유).
 - **취소**(Esc·`CancelHanja`·포커스 이탈·미지원 키): 재커밋 없음(`hanja_recommit = ""`), 문서 무변경. 미지원 키는 이어서 재처리한다.
@@ -261,10 +262,32 @@ a·b 는 보고된 surrounding 의 커서 기준이다. 앱의 실제 커서가 
 | 엔진이 커밋을 냈다(일반 커밋·교체·취소 재커밋 모두) | `SetSurroundingText` 수신(값이 같아도) |
 | 엔진이 소비하지 않고 앱으로 넘긴 키(수정자 단독 키 제외) | |
 | `SurroundingHint` 의 KEY·POINTER_PLAIN·POINTER_SELECT 수신(PRIMARY_CHANGED·SELECTION_UNKNOWN 은 낡음 아님) | |
-| FocusIn(새 입력란의 값이 아직 없다) | |
+| FocusIn(새 입력란의 값이 아직 없다) · `SurroundingHint(FIELD_FOCUS)`(v1.7 — 같은 창 안에서 입력란만 바뀐 경우) | |
 
 - pull 프런트(GTK3/4 모듈은 매 키 `retrieve-surrounding`, TSF 는 한자키 시점 읽기)는 한자키 직전에 새 값을 보내므로 늘 신선하다. **Qt 는 한자키 시점 재질의 결과를 변경 여부와 무관하게 보낸다**(현행 "변경 시만 전송" 이면 아무것도 바꾸지 않은 통과 키 뒤에 낡음이 남아 이모지로 떨어진다 — 안전 방향이지만 혼란).
-- push 경로(GNOME 확장)는 앱이 보고를 늦추거나 빠뜨린다(§2.10 — Shift+Home 미보고, 마우스 선택 지연). 보고가 오지 않으면 낡음이 남아 이모지로 간다. 앱이 평이동·클릭 뒤에 곧바로 보고하는지는 §6.5 실측 항목이다(보고하지 않는 앱에서는 대상③ 이 드물게 뜬다).
+- push 경로(GNOME 확장)는 앱이 보고를 늦추거나 빠뜨린다(§2.10 — Shift+Home 미보고, 마우스 선택 지연). 보고가 끝내 오지 않으면 낡음이 남아 이모지로 간다. 앱이 평이동·클릭 뒤에 곧바로 보고하는지는 §6.5 실측 항목이다(보고하지 않는 앱에서는 대상③ 이 드물게 뜬다). **v1.7: 보고가 조금 늦게 오는 흔한 경우는 아래 "판정 보류" 가 흡수한다.**
+
+**판정 보류 (v1.7, push 경로 전용)**: caps 에 S(`0x2`) 가 없고 P(`0x4`) 가 있는 컨텍스트(현재 GNOME — 대상③ 스위치를 켜면 R 까지 합쳐 `0x5`)에서는, 한자키 시점에 낡음 때문에 거절해야 하면 **바로 이모지로 보내지 않고 판정을 보류**한다. 한자키는 소비하되 팝업은 아직 띄우지 않고, 아래 순서로 한 번만 다시 판정한다(두 번째 보류는 없다).
+
+| 단계 | 내용 |
+|---|---|
+| 보류 시작 | 낡음 거절이면 한자키 시각 + **150ms** 를 기한으로 건다(`SURROUNDING_DEFER_WAIT_MS`). 대상③ 과 대상② **모두** 해당 — 대상②(선택 영역)는 `REPLACE`(R) 비트까지 있는 `0x5` 에서만 보류하고, 기본 `0x4` 는 종전대로 즉시 거절한다. 안정 대기(§2.4b.7 의 키 없는 이동 안정, 300ms)가 걸린 경우에는 안정 시각을 기한으로 건다 |
+| 재판정 | 둘 중 먼저 오는 쪽 — ① **보고 도착**: 보류 중 `SetSurroundingText` 가 오면 반영 직후 다시 판정한다. 낡음만 풀리고 안정 대기가 남았으면 일찍 판정하지 않고 기한을 안정 시각까지 늦춰 계속 기다린다(일찍 판정하면 `selpossible` 이모지가 된다). ② **기한 도달**: 곧장 다시 판정한다 |
+| 총 상한 | 한자키부터 **450ms**(SETTLE 300 + WAIT 150, `SURROUNDING_DEFER_TOTAL_MAX_MS`). 보고가 계속 와도 이 시각을 넘기지 않는다 |
+| 결과 | 한자 후보면 `ShowHanjaPopup`, 아니면 이모지 — 평소 한자키 응답과 같은 시그널을 **한자키를 받은 그 InputContext path** 로 낸다. 팝업 위치는 재판정 시점의 커서 |
+| 취소 | 보류 중 같은 컨텍스트에 다른 키(수정자 단독 제외)·FocusIn·FIELD_FOCUS·Reset·비밀번호 진입·KEY/포인터 힌트(POINTER_PLAIN·POINTER_SELECT)·엔진 재생성이 오면 보류를 조용히 취소한다(팝업 없음, 그 사건은 정상 처리, 로그 `defer_cancel`, §2.8). 옛 위치 기준 판정이 새 위치에 적용되지 않게 하는 fail-closed 장치다 |
+
+pull 프런트(GTK3/4·Qt)와 TSF 는 한자키 직전에 새 값을 보내므로 이 경로를 타지 않고 종전처럼 즉시 판정한다(적합성 픽스처 `tests/contract/surrounding_word_contract.json` 이 caps 5(push)·3(S)을 나란히 고정한다). 사용자 부담은 키 누름 수로 보면 이렇다 — 보류가 없던 때는 창 전환 뒤 첫 한자키가 이모지로 떨어져 "한자키 2회 + 이모지 닫기 Esc 2회 = 4키" 를 낭비했지만, 보류 뒤에는 한자키 1회에 최대 450ms 안에 한자 팝업이 뜬다(0키 낭비).
+
+**캐시 재송신 (v1.7, GNOME 확장 쪽)**: mutter 는 새 입력란의 `set_surrounding` 을 창 FocusIn·FIELD_FOCUS 보다 먼저 넘기기도 한다(엔진은 SetSurroundingText → FocusIn 순서로 받아 낡음이 서고 다음 보고까지 풀리지 않는다). 그래서 확장은 필드·창 포커스를 보낸 **직후 마지막 surrounding 을 한 번 더 보낸다**. 아래 가드를 모두 통과할 때만 보낸다(통과 못 하면 이유 코드를 로그에 남기고 보내지 않는다).
+
+| 가드 | 거절 이유 코드 | 내용 |
+|---|---|---|
+| 500ms | `focus_old`·`expired` | 필드 포커스가 500ms 이내여야 하고 스냅샷도 500ms 넘게 묵으면 안 된다 |
+| 세대 | `gen_mismatch`·`nofocus`·`nocache` | 스냅샷이 현재 포커스 필드와 같은 세대여야 한다(창 전환 중 이전 창 필드의 캐시 차단). 포커스가 없거나 캐시가 없으면 안 보낸다 |
+| dirty | `dirty` | 스냅샷을 받은 뒤 확장의 문서 변경(커밋·삭제)이나 KEY·포인터 힌트가 있었으면 안 보낸다 |
+| key_sent | `key_sent` | 스냅샷을 받은 뒤 엔진으로 키(ProcessKeyEvent)를 보냈으면 안 보낸다 |
+| 비밀번호 | `sensitive` | 비밀번호/PIN 목적이면 안 보낸다(캐시도 비우고 스냅샷을 보관하지 않는다) |
 - 낡음·거부 플래그·소진 표시는 컨텍스트 상태로 **엔진 재생성(Reset·FocusOut 재생성)을 넘어 이월**한다(입력 모드 보존과 같은 방식) — GNOME·GTK·Qt 는 클릭 때 Reset 을 보내므로 재생성에서 초기화하면 "클릭 → 한자키" 가 늘 이모지가 된다. 초기화는 FocusIn 에서만 한다.
 
 #### 2.4b.7 거부 플래그 — "선택 가능성"
@@ -278,14 +301,26 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 | 설정(보강) | 마우스 드래그(눌린 채 4px 초과 이동)·더블/세 번 클릭(직전 눌림 500ms 이내) | 확장 `POINTER_SELECT` |
 | 설정 | mutter PRIMARY `owner-changed`(`Meta.Selection`, `SELECTION_PRIMARY`) — **내용은 읽지 않는다** | 확장 `SurroundingHint(PRIMARY_CHANGED)` |
 | 설정(보강) | FocusIn — 돌아온 창에 예전 선택이 남아 있을 수 있다 | 엔진 |
+| 설정(보강, v1.7) | **FIELD_FOCUS(kind 6)** — 같은 창 안에서 입력란이 바뀜(Tab 이동·다른 칸 클릭). 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 필드 포커스마다 보낸다. FocusIn 과 같은 낡음·플래그(원인 `FieldFocus`)를 세우되 모드 복원·ATF 리셋은 하지 않는다 | 확장 `SurroundingHint(FIELD_FOCUS)` |
 | 설정(그 한자키 한정) | GTK3 모듈이 포커스 위젯을 직접 조회할 수 없음 | GTK3 모듈 `SurroundingHint(SELECTION_UNKNOWN)` |
 | **해제** | Shift 없는 탐색키(평이동 — Ctrl+←/→ 단어 이동 포함) | 엔진 / 확장 `KEY` |
 | 해제 | 텍스트 입력(엔진이 커밋을 냄 — 앱은 선택을 그 입력으로 치환한다)·Enter·Tab·BackSpace·Delete·Ctrl+X/V/Z/Y | 엔진 / 확장 `KEY` |
 | 해제 | 한자·특수문자·이모지 팝업 확정 | 엔진 |
 | 해제 | Shift 없는 단일 클릭(캐럿만 놓음) | 확장 `POINTER_PLAIN` |
+| 해제(v1.7) | **키 없는 커서 이동 안정** — 키·커밋 없이 보고된 커서가 바뀐 지 SETTLE(300ms) 지났고 그 사이 select 신호가 없음. **원인이 FocusIn·FieldFocus 인 플래그만** 푼다(로그 `flag_settled`) | 엔진(push 컨텍스트 전용) |
 | 바꾸지 않음 | 수정자 단독 키, 한자키, 팝업 밖 Esc | — |
 
 - App-pull·Widget 컨텍스트는 플래그를 판정에 쓰지 않는다(선택이 있으면 anchor 로 보고된다). `SELECTION_UNKNOWN` 만 그 한자키에 한해 본다.
+
+**키 없는 커서 이동 안정 (v1.7, push 컨텍스트 전용 — R5·R6·R8)**: 창을 바꾼 뒤 같은 칸을 클릭한 사용자는 FocusIn 플래그가 남아 한자키가 이모지로 떨어졌고, 그 선택 가능성을 풀 방법이 "글자 1자 입력 + BackSpace 1회" 뿐이었다. 클릭은 앱이 포인터 힌트 없이 커서만 옮긴 보고로 보이므로, 엔진이 그 이동을 근거로 포커스 원인 플래그를 풀어 준다.
+
+- **이동 후보(R5)**: 직전 surrounding 보고 이후 **키·커밋이 없었는데 cursor 가 바뀐** 보고가 오면 그 시각(`at`)을 후보로 기록한다. 포커스 뒤 첫 보고(캐시 재송신 포함)는 기준점일 뿐이고, 같은 값의 재송신은 이동이 아니다. 키·커밋·KEY 힌트는 후보를 무효화한다.
+- **포커스 뒤 300ms 안의 이동은 후보가 아니다(fail-closed)**: GTK3 의 select-on-focus·선택 복원처럼 앱이 스스로 커서를 옮긴 것을 클릭으로 오인하면, 입력란 전체가 선택된 채 한자로 풀려 전체 선택을 교체하는 사고가 난다. 그래서 FocusIn·FIELD_FOCUS 표시 시각(`sw_focus_at`)으로부터 SETTLE(300ms) 안의 이동은 기준점만 갱신하고 후보로 세지 않는다.
+- **안정 판정(R6)**: 한자키 시점에 후보가 있고 `now − at ≥ SETTLE(300ms)` 이며 **select 신호 veto 창 `[at−300ms, now]`** 안에 `PRIMARY_CHANGED`·`POINTER_SELECT` 가 없으면, 원인이 **FocusIn·FieldFocus 인** 플래그를 푼다. 실제 선택 신호(Shift+탐색·Ctrl+A·PRIMARY·드래그)로 선 플래그는 원인이 달라 풀리지 않는다.
+- **안정 대기(R8)**: 후보가 있는데 `now − at < SETTLE` 이면 판정을 미룬다(기한 `at + SETTLE`, §2.4b.6 판정 보류). 클릭 직후 한자키는 최대 300ms 기다린 뒤 한자 팝업이 뜬다 — 키 수로는 TextEditor 에서 "창 전환 → 같은 창 클릭 → 한자키" 가 한자키 3 + Esc 3 + 해제용 글자 1 + BS 1 = 8키 낭비였던 것이 0키가 된다.
+- **판정 순서**는 바꾸지 않는다: sensitive → nocap → nosur → selection → stale(→ 보류) → selpossible(안정 판정을 먼저 적용, 아직이면 보류) → cursor0 → norun → nomatch → ok.
+- **보류 취소 사건**: 다른 키·FocusIn·FIELD_FOCUS·FocusOut·Reset·비밀번호 진입·KEY/포인터 힌트·엔진 재생성(§2.4b.6 "취소"). 취소는 팝업 없이 조용히 끝나고 그 사건은 정상 처리된다.
+- **이유 코드(§2.8 로그)**: 판정을 미뤘으면 `defer`(원인 `stale`·`settle`·`stale_sel` 과 대기 ms), 기한이 늘었으면 `defer_extend`, 취소했으면 `defer_cancel`(`why=key|pointer|hint_key|purpose|reset|host|…`), 포커스 원인 플래그를 풀어 판정했으면 `flag_settled`(`cause=focus_in|field_focus`).
 - 사건 도착 순서가 뒤바뀌어(예: Shift+→ 의 PRIMARY 변경이 평이동 뒤에 늦게 도착) 플래그가 다시 서도 이모지로 갈 뿐이다.
 - 판정은 엔진 한 곳(SoT)에서 한다. 확장은 키를 분류하지 않고 **우회한 키의 keyval·state** 와 **포인터 사건 종류**만 보고한다(§4.6) — 키 분류 표가 엔진과 확장에 두 벌 생기지 않게.
 - 대상② 와의 관계: 신선한 App-push 선택이 보고돼 있으면 플래그와 무관하게 §2.1 의 선택 행(대상② 또는 불일치 이모지)으로 간다.
@@ -352,6 +387,7 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 - 프런트 이중 게이트(Qt): `m_contentPurpose` 가 Password/PIN 이면 `update()` 재질의 결과 대신 `("",0,0)` 만 전송한다 — 엔진이 버리더라도 비번 평문을 DBus 로 실어 보내지 않는다(TSF `key_handler.rs:417 atf_active` 식 프런트 게이트 관례).
 - 프런트·데몬 로그(v1.4): target·PRIMARY(v1.6 퇴역)·surrounding 의 **길이(코드포인트 수)·개수만** 남기고 텍스트 평문은 남기지 않는다 — GTK3·GTK4 공용 DBus 클라이언트(`GetHanjaCandidates`·`GetSpecialCharCandidates`·`HanjaCandidatesReordered`)·Qt 공용 클라이언트·GTK3 선택 복원 로그(`how=…, reason=…, sel=N자`)가 이에 따른다. 데몬 `SetSurroundingText` 로그는 엔진 워커가 처리한 뒤 길이(`len=N자`)만 찍는다. 같은 원칙을 GTK3/GTK4 모듈(`unim_mask` 가 `(N자)` 반환, 민감 필드는 `***`)·Qt5/Qt6 입력 컨텍스트·GTK/Qt 공용 클라이언트의 ProcessKeyEvent 결과·커밋·FocusOut/Reset·AutoTypeFix·CommitText 로그와 데몬 `service.rs` 의 ProcessKeyEvent·ChordIdleFlush·CancelSpecialChar·CommitEmoji·`top_row` 로그에도 적용했다. **잔여(알려진 항목)**: 엔진 코어(`src/input_engine/press_key.rs`·`candidates.rs`·`popup_dispatch.rs`, `src/hangul/*`)의 키별 추적 로그는 입력 자모·음절을 평문으로 찍는다(`UNIM_DEVELOP=1` 한정, 종전부터). 조합 추적 로그 전반의 재설계가 필요해 이번 범위에서 제외한다.
 - **대상③ 로그(v1.6, 평문 금지)**: 한자키마다 한 줄 — 결정 이유 코드(`ok`·`composing`·`selection`·`stale`·`selpossible`·`nocap`·`nosur`·`norun`·`cursor0`·`nomatch`·`sensitive`·`exhausted` — 직전 재타로 후보를 소진한 뒤의 `ProcessKey` 폴백 한자키, 이모지로 넘어간다)와 **수치만**: 구간 길이(`run=N자`), 후보 수, 고른 후보의 길이·a·b(`len=4 a=2 b=2`), 거부 플래그를 세운 마지막 사건의 **종류**(`flag=shift_nav|ctrl_a|pointer_select|primary_changed|focus_in|sel_unknown`). surrounding·target·후보 문자열은 남기지 않는다. 확정 로그는 `a·b·커밋 길이·delete 결과`만. `SurroundingHint` 수신 로그는 종류와 keyval 만(키 이름은 탐색·편집 키에 한해 기록, 문자 키는 `char` 로 뭉갠다 — 비번 필드 밖이라도 타이핑 재구성이 되지 않게). GNOME 확장은 PRIMARY 를 **읽지 않으므로** PRIMARY 내용·길이 로그 자체가 없어진다(`owner-changed` 사실과 mime 개수만).
+- **대상③ 로그 보강(v1.7)**: 판정 로그 한 줄마다 **`client=<gtk3|gtk4|qt5|qt6|gnome|tsf|xim|wayland|ibus|unknown>`** 태그를 붙인다 — 어느 경로를 탔는지 로그 한 줄로 가리기 위해서다(엔진 `client_tag`; 재생성 때 이월, 데몬이 프런트를 알려 주고 TSF 는 `tsf` 로 고정). 이유 코드에 `defer`(판정 보류 시작 — 원인 `stale`·`settle`·`stale_sel`, 대기 ms)·`defer_extend`(보고가 낡음만 풀어 기한을 안정 시각으로 늘림)·`defer_cancel`(보류 취소 — `why=` 취소 사건 종류)·`flag_settled`(키 없는 커서 이동 안정으로 FocusIn·FieldFocus 원인 플래그를 풂, §2.4b.7)를 더한다. 값은 모두 수치·종류뿐이며 텍스트 평문은 없다. 같은 커밋(`4c73e39`)에서 팝업 서비스·gui-common·wayland·xim·데몬·TSF·코어에 남아 있던 target·commit·preedit·top_row·사용자 사전 단어·ATF 교정문 평문 로그를 `N자` 로 바꾸고 코어 자모·음절 추적 로그에서 문자 내용을 걷어 냈다(위 "잔여(알려진 항목)" 의 코어 추적 로그 평문이 이 커밋으로 줄었다 — 남은 곳이 있는지는 전수 점검 전이라 그 항목은 유지한다).
 - 로그에는 target **길이만** 남긴다: 종전 `candidates.rs:37-42` `"한자 후보 발견: '{}' -> {} 개"` 는 target 을 평문으로 찍는데, target 이 최대 18자 타이핑 텍스트로 넓어지고 `UNIM_DEVELOP=1` 이면 `~/.unim-log/…` 파일에 영속한다(`logging.rs:82-88,:115-118`). XIM·터미널은 목적 통지가 없어 비번 조각이 남을 수 있다 → `'{}'` 를 `{}자` 로 바꾼다. 신규 로그("선택 단어 한자 불일치", "후보 없음")는 텍스트 없음 유지.
 - 팝업이 열린 채 비밀번호 목적이 도착하면 팝업을 닫고 **재커밋하지 않는다**(비번 필드에 원문 재삽입 금지). XIM 은 목적 통지 자체가 없어 구조적 잔여(종전 preedit 노출과 동급).
   - 순서: 한자 상태 정리(버퍼 clear + 팝업 취소로 `korean_context`·`preedit_cache` 비움)는 `set_content_purpose` 차단 분기의 **첫 줄**이어야 한다. 종전 코드는 같은 분기에서 `flush_preedit()` 을 먼저 부르는데(`surrounding.rs:38-47`), 한자 팝업은 preedit 을 유지한 채 열리므로 정리가 그 뒤에 오면 "국" 이 `commit_buffer` 로 흘러 다음 키 처리에서 비번 필드에 실린다.
@@ -370,8 +406,8 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 | GTK3 모듈 | ✔ | ✔ GtkEditable·GtkTextView 위젯 직접 조회(Widget, v1.4) | ✔ 같은 위젯 한정 / 그 밖의 위젯은 ✘(`SELECTION_UNKNOWN` → 이모지 — X11 세션의 LibreOffice 문서 창·Firefox·Thunderbird·WebKitGTK 가 여기에 든다, §2.4b.8) | R·S | `set_surrounding` 에 anchor 가 없어 **한자키 직전** `unim_push_selection_for_hanja` 가 위젯을 조회해 복원한다: `GtkEditable`(`gtk_editable_get_selection_bounds`)·`GtkTextView`(같은 줄 선택만, 줄 오프셋). 위젯 선택 문자열이 surrounding 부분 문자열과 다르면 포기. 복원값은 `SetSurroundingText` **동기 호출**(`unim_dbus_set_surrounding_text_sync`)로 보낸 뒤 Wayland(`ProcessKeyEvent`)·X11(`GetHanjaCandidates`) 두 분기가 이어진다(§2.4.5). **v1.4~v1.5 의 같은 프로세스 PRIMARY 폴백(`unim_primary_decide`)은 퇴역**(§2.10.1) — 직접 조회할 수 없는 위젯은 `SurroundingHint(SELECTION_UNKNOWN)` 을 보내 대상③ 을 막는다. 비밀번호/PIN 은 읽지도 보내지도 않는다. `unim->selection_index` 는 건드리지 않는다(선택 삭제 경로 오작동 방지). 대상③ 확정 = `gtk_im_context_delete_surrounding(-a, a+b)` → TRUE 일 때만 커밋 |
 | GTK4 모듈 | ✔ | ✔ App-pull(매 키 `retrieve-surrounding`) | ✔ | R·S | 선택 삭제 래퍼 게이트(§4.5). 대상③ 확정은 GTK3 과 같고 `is_focused` 가 아니면 드롭(문서 무변경 — 안전 방향, §4.1 와 같은 가드). **잔여 위험 → 위젯 종류 거름 채택(구현)**: `S` 는 "위젯이 `set_surrounding_with_selection` 으로 anchor 를 준다" 는 가정이다. 폐기 예정 API `gtk_im_context_set_surrounding`(anchor=cursor)만 부르는 GTK4 위젯(서드파티·LibreOffice gtk4 VCL·GtkDrawingArea 등)은 선택이 있어도 선택 없음으로 보인다. 모듈은 두 경우를 구별할 수 없으므로 한자키 시점에 클라이언트 위젯이 `GtkText`·`GtkTextView` 계열이 아니면 `SurroundingHint(SELECTION_UNKNOWN)` 을 보내 그 한자키의 대상③ 을 막는다(이모지). 하니스 시나리오 `hanja-word-cursor-unknown-widget-gtk4`(GtkDrawingArea 코어 필드)가 이 경로를 고정한다. LibreOffice 는 `c==0` 방어로 이미 막힌다 |
 | Qt5/6 | ✔ | ✔ App-pull(`ImAnchorPosition`) | ✔ | R·S | surrounding 을 `update(Qt::InputMethodQueries)` 시 갱신(커스텀 `hanja_keys` 포함, **빈 텍스트도 전송**, 비번 필드는 `("",0,0)` — §2.8) + 래퍼 게이트(§4.5). 한자키 시점 재질의만으로는 부족: `input_context.cpp:381` 은 F9·Hangul_Hanja 하드코딩 pull 경로라 다른 `hanja_keys` 는 `processKey`(:408) → 엔진 분기로 가는데, surrounding 은 focus-in 1회(:554-564, 비어 있으면 미전송)뿐이라 QLineEdit Tab 포커스의 전체 선택 스냅샷이 stale 로 남아 `has_selection()` 오판 → 커서에 엉뚱한 단어 삽입 또는 이모지·한자 모두 침묵. **v1.6: 한자키 시점 재질의 결과는 변경 여부와 무관하게 송신**(§2.4b.6). 대상③ 확정 = `QInputMethodEvent::setCommitString(text, -a, a+b)`(한글 음절은 BMP 라 UTF-16 1단위 = 1자). **`ImAnchorPosition` 질의가 무효(QVariant invalid — 위젯이 답하지 않음)면 그 한자키에 `SELECTION_UNKNOWN`** 을 보낸다(v1.6 검토 보강 — 답하지 않는 위젯의 선택은 IM 이 모른다. 현행처럼 anchor=cursor 로 채우면 `S` 가 거짓이 된다). LibreOffice qt5/qt6/kf VCL 은 `ImAnchorPosition` 을 정확히 준다(QtWidget.cxx L683-720) |
-| GNOME 확장 — 앱이 anchor 를 주는 경우 (GTK4·Qt6·Chromium text-input-v3) | ✔ | △ App-push, 신선할 때만(§2.4b.6) | ✔ 거부 플래그·낡음 게이트 아래(삭제 글자 수 실측 §6.5 (10) 뒤 활성) | R·P | text-input-v3 → mutter → `UnimInputMethod`. 앱 선택 보고가 **불규칙하고 늦다**(2026-10-04 실측: Shift+Right 는 anchor≠cursor 로 보고, Shift+Home 은 미보고, 마우스 선택은 다음 클릭 때 직전 상태가 한 번 늦게, 더블클릭 선택은 끝내 미보고). 낡음 게이트가 이 지연을 막는다. mutter 의 `request_surrounding` 은 캐시를 되풀이할 뿐이라 IM 이 당겨 올 수 없다(L149-163). 대상③ 확정 = `Clutter.InputMethod.delete_surrounding(-a, a+b)` + `commit_text`(실패를 알 수 없음). 교체 전 preedit 선클리어(`UnimInputMethod.clearPreedit()`)·`SPEC.md` §2.6 은 대상① 교체에 계속 쓰인다. `onAutoTypeFix` 의 `_hasFocus` 게이트는 새 시그널 처리에도 같게 둔다(St 팝업 클릭 시 유지 여부는 §6.5) |
-| GNOME 확장 — anchor 를 못 주는 앱 (GTK3·LibreOffice gtk3/gtk4 VCL·Firefox) | ✔ (LibreOffice 는 preedit 포함 관측 학습 §2.2.3) | ✘ — 선택이 있어도 anchor=cursor | ✔ 거부 플래그·낡음 게이트·`c==0` 방어 아래(§6.5 (10) 뒤 활성) | R·P | 이 앱들에서는 **문장 중간 선택 변환이 없다** — 커서를 단어에 두고 한자키(대상③). 선택한 채 한자키는 거부 플래그로 이모지. 정확한 선택이 꼭 필요해지면 AT-SPI 질의 PoC(§7) |
+| GNOME 확장 — 앱이 anchor 를 주는 경우 (GTK4·Qt6·Chromium text-input-v3) | ✔ | △ App-push, 신선할 때만(§2.4b.6) | ✔ 거부 플래그·낡음 게이트 아래(삭제 글자 수 실측 §6.5 (10) 뒤 활성) | R·P | text-input-v3 → mutter → `UnimInputMethod`. 앱 선택 보고가 **불규칙하고 늦다**(2026-10-04 실측: Shift+Right 는 anchor≠cursor 로 보고, Shift+Home 은 미보고, 마우스 선택은 다음 클릭 때 직전 상태가 한 번 늦게, 더블클릭 선택은 끝내 미보고). 낡음 게이트가 이 지연을 막는다. mutter 의 `request_surrounding` 은 캐시를 되풀이할 뿐이라 IM 이 당겨 올 수 없다(L149-163). **v1.7: 사실 보고자로 정리** — 입력란이 바뀔 때마다 `SurroundingHint(FIELD_FOCUS)` 를 보내고(창 FocusIn 이 오지 않는 필드 전환 포함), 필드·창 포커스 직후 마지막 surrounding 을 한 번 더 보내며(캐시 재송신 — 500ms·세대·dirty·key_sent 가드, §2.4b.6), `ReplaceSurroundingText` 의 `expect_text` 를 **확장이 마지막으로 받은 surrounding 캐시로 대조**한다(종전 "받되 무시" 에서 변경 — 캐시가 dirty 면 드롭, §4.6). 엔진은 이 보고로 낡음·이동 안정을 판정하고 모자라면 판정을 보류한다(§2.4b.6·§2.4b.7 — caps `0x5` 한정). 대상③ 확정 = `Clutter.InputMethod.delete_surrounding(-a, a+b)` + `commit_text`(실패를 알 수 없음). 교체 전 preedit 선클리어(`UnimInputMethod.clearPreedit()`)·`SPEC.md` §2.6 은 대상① 교체에 계속 쓰인다. `onAutoTypeFix` 의 `_hasFocus` 게이트는 새 시그널 처리에도 같게 둔다(St 팝업 클릭 시 유지 여부는 §6.5) |
+| GNOME 확장 — anchor 를 못 주는 앱 (GTK3·LibreOffice gtk3/gtk4 VCL·Firefox) | ✔ (LibreOffice 는 preedit 포함 관측 학습 §2.2.3) | ✘ — 선택이 있어도 anchor=cursor | ✔ 거부 플래그·낡음 게이트·`c==0` 방어 아래(§6.5 (10) 뒤 활성) | R·P | 이 앱들에서는 **문장 중간 선택 변환이 없다** — 커서를 단어에 두고 한자키(대상③). 선택한 채 한자키는 거부 플래그로 이모지. 정확한 선택이 꼭 필요해지면 AT-SPI 질의 PoC(§7). v1.7 의 필드 포커스 보고·캐시 재송신·`expect_text` 캐시 대조·판정 보류는 위 행과 같게 적용된다 |
 | 순수 Wayland (input-method-v2) | ✔ | ✔/✘ 앱에 따라(위 두 행과 같은 구분), App-push 신선할 때만 | **✘ 보류** | R | 바이트 판별(§4.2) + `SurroundingText` → `SetSurroundingText`. IM 이 포인터·PRIMARY 사건을 볼 수단이 없어 GTK3·LibreOffice·Firefox 앱의 마우스 선택을 거를 수 없다 → `P` 를 선언하지 못해 대상③ 이 꺼진다(§2.4b.1-2). ext/wlr data-control 의 primary 변경 신호를 IM 이 받을 수 있는지 실측(§6.5) 뒤 재검토. 확정 채널 구현 시 바이트 = a×3·b×3(구간은 전부 완성 음절) |
 | XIM | ✔ | ✘(idle=이모지) — 선택 전달 수단 없음 | ✘ — surrounding 없음 | — | 교체 채널은 자가 주입 BackSpace N+1(`handler.rs` `PopupEvent::AutoTypeFix`)을 **한 번에 1개씩 직렬 주입**한다 — 일괄 주입하면 libX11 의 단일 FABRICATED 플래그 때문에 되돌린 BS 가 재필터돼 확정 뒤에 도착한다(2026-09 docker L3 실측 `대한大韓` → 직렬화로 해소). 교체 도착 시 preedit 표시 선클리어(마우스 확정 잔상 방지 — `handle_popup_event` 에는 `user_ic` 가 없으므로 `CommitText` 분기처럼 `last_focused_ic_info` 로 IC 를 재구성해 `server.preedit_draw(&mut ic, "")`, NOTHING/POSITION IC 는 PeWindow 숨김 경로. 구현 비용이 크면 선클리어를 포기하고 "마우스 확정 시 잔상 잔여(키보드 확정은 정상)" 로 비고 정정). 스팟 점프 Reset([Q9](a)) |
 | Windows TSF | ✔ | ✔ App-pull(`GetSelection`) | ✔ | 엔진 setter R·S | cross-compile 검증만(§4.4). 엔진 생성 직후 `set_hanja_word_replace_capable(true)`·(v1.6) `set_surrounding_word_caps(R·S)`. 대상③ 은 `read_hanja_surrounding` 이 커서 **뒤**도 읽어야 한다(§4.4) |
@@ -510,8 +546,8 @@ InputContext(`org.atit.unim.InputContext`)에 메서드 2·시그널 1 을 더�
 | 종류 | 이름 | 시그니처 | 의미 |
 |---|---|---|---|
 | 메서드 | `SetClientCapabilities` | `caps: u` → — | 컨텍스트 능력 선언. FocusIn 전후 아무 때나, 바뀔 때만 보내도 된다. 보내지 않으면 0(대상③ 꺼짐, 종전과 바이트 동일). 비트: `0x1 REPLACE_SURROUNDING`(프런트가 `ReplaceSurroundingText` 를 처리한다) · `0x2 SELECTION_RELIABLE`(보고하는 anchor 가 한자키 시점의 실제 선택 — App-pull·Widget, §2.4.6) · `0x4 POINTER_HINTS`(포인터·PRIMARY 사건을 `SurroundingHint` 로 보고한다). 대상③ 허용 = 0x1 이 있고 0x2 또는 0x4 가 있음 |
-| 메서드 | `SurroundingHint` | `kind: u, keyval: u, state: u` → — | 엔진이 직접 보지 못한 사건 보고(응답 없이 보내도 된다). `kind`: `1 KEY`(프런트가 엔진을 거치지 않고 앱으로 넘긴 키 — keyval·state 로 엔진이 §2.4b.7 표대로 분류) · `2 POINTER_PLAIN`(Shift 없는 단일 클릭) · `3 POINTER_SELECT`(Shift+클릭·드래그·더블/세 번 클릭) · `4 PRIMARY_CHANGED`(PRIMARY 소유자 변경 — 내용 없음) · `5 SELECTION_UNKNOWN`(이번 한자키 한정, 포커스 위젯의 선택을 알 수 없음). `kind≠1` 이면 keyval·state 는 0 |
-| 시그널 | `ReplaceSurroundingText` | `delete_before: u, delete_after: u, commit_text: s, expect_text: s` (`uuss`) | 대상③ 확정. 프런트는 커서 기준 앞 `delete_before`·뒤 `delete_after` 글자를 지우고 `commit_text` 를 커밋한다. `expect_text`(지울 한글 원문, 비어 있지 않음)를 pull 프런트(GTK3/4·Qt)는 삭제 직전 문서 재조회와 완전 일치 대조하고 어긋나면 커밋하지 않는다(GNOME·TSF 는 대조 생략 — TSF 는 편집 세션 안에서 자체 대조). 삭제 실패를 알 수 있으면 커밋하지 않는다(§2.4b.5). popup-owner path 로 발행하고 `HidePopup` 을 잇는다 |
+| 메서드 | `SurroundingHint` | `kind: u, keyval: u, state: u` → — | 엔진이 직접 보지 못한 사건 보고(응답 없이 보내도 된다). `kind`: `1 KEY`(프런트가 엔진을 거치지 않고 앱으로 넘긴 키 — keyval·state 로 엔진이 §2.4b.7 표대로 분류) · `2 POINTER_PLAIN`(Shift 없는 단일 클릭) · `3 POINTER_SELECT`(Shift+클릭·드래그·더블/세 번 클릭) · `4 PRIMARY_CHANGED`(PRIMARY 소유자 변경 — 내용 없음) · `5 SELECTION_UNKNOWN`(이번 한자키 한정, 포커스 위젯의 선택을 알 수 없음) · `6 FIELD_FOCUS`(v1.7 — 입력란이 바뀜. 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 필드 포커스마다 보낸다. FocusIn 과 같은 낡음·거부 플래그(원인 `FieldFocus`)를 세우되 모드 복원·ATF 리셋은 하지 않으며, push 컨텍스트(caps 에 S 없음·P 있음)에서만 효력이 있고 그 밖에는 무시. 구버전 데몬은 알 수 없는 kind 로 무시). `kind≠1` 이면 keyval·state 는 0. 알 수 없는 kind 는 무시하고 로그 |
+| 시그널 | `ReplaceSurroundingText` | `delete_before: u, delete_after: u, commit_text: s, expect_text: s` (`uuss`) | 대상③ 확정. 프런트는 커서 기준 앞 `delete_before`·뒤 `delete_after` 글자를 지우고 `commit_text` 를 커밋한다. `expect_text`(지울 한글 원문, 비어 있지 않음)를 pull 프런트(GTK3/4·Qt)는 삭제 직전 문서 재조회와 완전 일치 대조하고 어긋나면 커밋하지 않는다(GNOME 은 v1.7 부터 확장의 surrounding 캐시로 대조 — dirty 면 드롭; TSF 는 편집 세션 안에서 자체 대조). 삭제 실패를 알 수 있으면 커밋하지 않는다(§2.4b.5). popup-owner path 로 발행하고 `HidePopup` 을 잇는다 |
 
 프런트별 실행:
 
@@ -520,13 +556,14 @@ InputContext(`org.atit.unim.InputContext`)에 메서드 2·시그널 1 을 더�
 | GTK3 모듈 | R·S | `expect_text` 대조 뒤 `gtk_im_context_delete_surrounding(ctx, -a, a+b)` → TRUE 면 `commit` | 한자키 직전 위젯 조회 불가 시 `SELECTION_UNKNOWN` |
 | GTK4 모듈 | R·S | 같음(대조 포함), `is_focused` 아니면 드롭 | 한자키 시점 위젯이 `GtkText`·`GtkTextView` 계열이 아니면 `SELECTION_UNKNOWN` (D4) |
 | Qt5/6 | R·S | `QInputMethodEvent::setCommitString(text, -a, a+b)` 한 이벤트 | 한자키 시점 `ImAnchorPosition` 무효면 `SELECTION_UNKNOWN` |
-| GNOME 확장 | R·P | `UnimInputMethod.delete_surrounding(-a, a+b)` → `commit_text`(교체 전 preedit 없음 — idle) | 우회한 탐색·편집·단축키는 `KEY`(조합 flush 뒤), stage `captured-event` 의 버튼 눌림·이동으로 `POINTER_PLAIN`/`POINTER_SELECT`, `global.display.get_selection()` `owner-changed`(`SELECTION_PRIMARY`)로 `PRIMARY_CHANGED` |
+| GNOME 확장 | R·P | 캐시 대조(`expect_text`, v1.7) 뒤 `UnimInputMethod.delete_surrounding(-a, a+b)` → `commit_text`(교체 전 preedit 없음 — idle) | 입력란이 바뀔 때마다 `FIELD_FOCUS`(v1.7). 우회한 탐색·편집·단축키는 `KEY`(조합 flush 뒤), stage `captured-event` 의 버튼 눌림·이동으로 `POINTER_PLAIN`/`POINTER_SELECT`, `global.display.get_selection()` `owner-changed`(`SELECTION_PRIMARY`)로 `PRIMARY_CHANGED` |
 | 순수 Wayland | R(보류 — 선언하지 않음) | `delete_surrounding_text(a×3, b×3)` + `commit_string` + `commit(serial)` | 수단 없음(§2.10) |
 | XIM·IMM32 | — | — | — |
 | TSF(인프로세스) | 엔진 setter R·S | 범위 `[c−a, c+b)` 를 읽어 target 과 같을 때만 치환(§4.4·§2.4b.5) | — |
 
 - 엔진 페이로드: `HanjaReplacement { delete_chars: a, delete_after_chars: b, preedit_chars: 0, text }`. 데몬은 `delete_after_chars` 유무가 아니라 **대상 종류**(`HanjaSource::SurroundingWord`)로 채널을 고른다(§4.1).
 - 상호배제: 대상③ 확정 프레임도 AutoTypeFix 검사를 건너뛰고 `KeystrokeBuffer` 를 폐기한다(§4.1 과 같음).
+- **판정 보류 배선(v1.7)**: push 컨텍스트(caps `0x5`)의 한자키가 보류되면 `ProcessKeyEvent` 는 `consumed=true`·팝업 시그널 없음으로 즉시 돌아오고, 데몬 서비스의 tokio 타이머가 기한에 `DeferDue` 를, 보류 중 도착한 `SetSurroundingText` 는 응답형(`SetSurroundingTextDeferred`)으로 워커에 보내 반영 직후 재판정한다. 결과는 한자키를 받은 InputContext path 로 `ShowHanjaPopup`/`ShowEmojiPopupV2`(+`PopupRender`)를 낸다. 프런트(GNOME 확장 포함)는 **무변경** — 팝업 표시가 시그널 구동이고 키는 항상 `ProcessKeyEvent` 로 가므로 늦게 온 팝업에도 숫자·방향·Esc 가 정상 라우팅된다. 상세: `unim-dbus/SPEC.md` §6.3a.
 - 기존 `DeleteSurroundingText(i,u)` 시그널(SmartBackspace 실험용, 프런트 미배선)은 쓰지 않는다 — 삭제와 커밋이 두 시그널로 갈라지면 사이에 다른 이벤트가 끼어든다.
 
 ---
@@ -746,3 +783,4 @@ Mutter `vfunc_set_surrounding` 호출 빈도·오프셋 단위(바이트/문자 
 | 2026-10-12 | v1.6 검토 | 문서 검토 보강(미커밋) — §2.4b.3 예 표를 실제 사전 기준으로 정정(어교·한민 추가), §2.4b.5 프로토콜별 실패 의미 표·TSF 확정 전 내용 대조·DBus `expect_text` 안(결정 대기), §2.4b.8 경로별 정리(X11 GTK3 모듈 LibreOffice = 대상③ ✘), §2.10 GTK4 폐기 API 잔여 위험·Qt `ImAnchorPosition` 무효 시 `SELECTION_UNKNOWN`, GNOME 경로 대상③ 은 삭제 글자 수 실측(§6.5 (10)) 뒤 활성, §6.5 (10)~(12) |
 | 2026-10-12 | v1.6 구현 반영 | 구현 직후 검증 반영 — §4.6 시그니처를 구현 계약으로 정정(`ReplaceSurroundingText(uuss)` = delete_before·delete_after·commit_text·expect_text, `SetClientCapabilities(u)` 비트 0x1/0x2/0x4, `SurroundingHint(uuu)` kind 1..5), §2.4b.5 `expect_text` 내용 대조 "결정 대기" → 채택·구현(타입 불일치 페이로드는 프런트가 무시), **D4** §2.10 GTK4 잔여 위험 → 위젯 종류 거름(GtkText·GtkTextView 외 `SELECTION_UNKNOWN`) 채택 + 하니스 `hanja-word-cursor-unknown-widget-gtk4`, **D1** §2.8 이유 코드 `exhausted` 추가, **D2** GNOME AutoTypeFix 는 가상 BackSpace 라 §6.5 (10) 실측을 대체할 수 없음(별도 실측 필요) 정정. R1(`국|어교육` 행): 기현님 결정(2026-10-12) — 규칙 순서 유지, 예시 표를 사전 그대로(어교 포함)로 정정 |
 | 2026-10-15 | v1.6 실측 준비 | 기현님 승인 — 실측 준비. GNOME 확장의 하드코딩 상수 `SURROUNDING_WORD_REPLACE_ENABLED` 를 GSettings 키 `surrounding-word-replace`(기본 false, prefs 미노출, 켜면 caps 0x5 · 끄면 0x4, 실시간 재선언)로 교체, 데몬에 `[REPLACE_VERIFY]` 교체 검증 로그(관측 전용 — 발행 직전 surrounding 과 다음 `SetSurroundingText` 를 코드포인트 비교, verdict ok/over/under/mismatch/unknown/timeout), §6.5 (10) 실측 절차·판정 기준·기록 표 추가 |
+| 2026-10-25 | v1.7 | **프런트 공통화 — 기현님 승인(2026-10-25), 구현 커밋 `4c73e39`·`f894c0c`·`3fceecc`·`0e8042a`** — 대상③ 이 툴킷마다 다르게 보이던 것(GNOME 만 창 전환·클릭 직후 한자키가 이모지로 떨어짐)을 공통 계약으로 모음. §2.4b.6 push 경로(caps 에 S 없고 P 있음 — 스위치 켠 GNOME `0x5`)에서 낡음 거절을 바로 이모지로 보내지 않고 **판정 보류**(150ms, 보고 도착 시 재판정, 안정 대기면 연장, 한자키부터 총 450ms 상한; 대상③·대상② 모두, caps `0x5` 한정, 취소 사건 명시)·필드·창 포커스 뒤 확장의 **캐시 재송신**(500ms·세대·dirty·key_sent 가드). §2.4b.7 `SurroundingHint` **kind 6 FIELD_FOCUS**·**키 없는 커서 이동 안정**(SETTLE 300ms, select 신호 veto 창 `[at−300, now]`, 원인 FocusIn·FieldFocus 플래그만 해제, 포커스 뒤 300ms 안의 이동은 후보 아님)·이유 코드 `defer`·`defer_cancel`·`flag_settled`. §2.8 판정 로그 `client=` 태그·사용자 텍스트 평문 로그 제거. §2.10 GNOME 행·§4.6 GNOME 확장이 `expect_text` 를 확장 캐시로 대조(종전 "무시" 에서 변경, dirty 면 드롭). **GTK·Qt·TSF(S 있음) 판정은 바이트 동일**(적합성 픽스처 `tests/contract/surrounding_word_contract.json` 이 고정). 같은 날 `POPUP_SPEC.md` §9.2 (iii) 한 문장·§11 이력 한 행 갱신 |
