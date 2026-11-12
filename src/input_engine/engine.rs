@@ -204,6 +204,10 @@ pub struct InputEngine {
     pub(super) sw_move_at: Option<u64>,
     /// 마지막 select 신호 시각(R6 창 판정).
     pub(super) sw_last_select_ms: Option<u64>,
+    /// 선택 가능 표시의 원인 비트 누적(push 전용, `SURROUNDING_HINT_PRIMARY_EMPTY` 판단용).
+    pub(super) sel_cause_bits: u8,
+    /// 마지막 surrounding 보고가 비어 있지 않은 문맥이었는가(push 전용) — nosur 판정 보류(S3) 조건.
+    pub(super) sw_had_report: bool,
     /// 판정을 미룬 한자키의 기한(R7·R8). 이월하지 않는다(R10).
     pub(super) sw_pending_defer: Option<u64>,
     /// 보류가 시작된 시각(= 그 한자키의 `now_ms`) — 총 대기 상한 계산용(`poll_deferred_hanja`).
@@ -399,6 +403,8 @@ impl InputEngine {
             sw_now_ms: 0,
             sw_last_report: None,
             sw_move_at: None,
+            sel_cause_bits: 0,
+            sw_had_report: false,
             sw_last_select_ms: None,
             sw_pending_defer: None,
             sw_defer_start: 0,

@@ -274,6 +274,13 @@ pub const SURROUNDING_HINT_SELECTION_UNKNOWN: u32 = 5;
 /// 입력란(필드) 포커스 — 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 필드가 바뀔 때 보낸다.
 /// push 컨텍스트에서만 효력이 있다(FocusIn 과 같은 표시, 단 모드 복원·ATF 리셋은 없음).
 pub const SURROUNDING_HINT_FIELD_FOCUS: u32 = 6;
+/// PRIMARY 선택이 비어 있음 — push 프런트(GNOME)가 한자키 직전에 보낸다. 원인이 `PRIMARY_CHANGED` 단독인
+/// 선택 가능 표시만 풀어, 클릭으로 선택이 해제된 뒤의 한자키가 선택 거부(selpossible)로 막히지 않게 한다.
+/// push 컨텍스트에서만 효력이 있다.
+pub const SURROUNDING_HINT_PRIMARY_EMPTY: u32 = 7;
+/// 앱 표면 눌림 — push 프런트(GNOME)가 IM reset 시점에 본 눌림. 눌린 곳이 글 영역인지는 모른다(스크롤바·헤더바일 수
+/// 있음). 낡음 표시·보류 취소를 하고 포커스 원인(FocusIn·FieldFocus)의 선택 가능 표시만 푼다. push 컨텍스트에서만 효력이 있다.
+pub const SURROUNDING_HINT_POINTER_APP: u32 = 8;
 
 /// R6 — 키 없는 커서 이동 뒤 이 시간(ms)이 지나야 FocusIn·FieldFocus 원인 플래그를 푼다.
 pub const SURROUNDING_SETTLE_MS: u64 = 300;
@@ -292,6 +299,10 @@ pub struct SurroundingWordCarry {
     pub(super) stale: bool,
     pub(super) selection_possible: bool,
     pub(super) flag_cause: u8,
+    /// push 전용 — 선택 가능 표시를 세운 원인 비트의 누적(`SelFlagCause::bit`). 표시를 풀 때 0.
+    pub(super) sel_cause_bits: u8,
+    /// push 전용 — 마지막 surrounding 보고가 비어 있지 않은 문맥이었는가(1비트). 포커스 때 false.
+    pub(super) had_report: bool,
     pub(super) exhausted: bool,
     /// push 전용 — 마지막 "키 없는 커서 이동" 후보 시각(ms). 포커스 때 비워진다.
     pub(super) move_at: Option<u64>,

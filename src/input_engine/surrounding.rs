@@ -124,6 +124,10 @@ impl InputEngine {
             return;
         }
         self.sw_note_report(cursor_pos);
+        if self.sw_push() {
+            // S3 — 문맥을 가진 보고를 마지막으로 받았을 때만 빈 문맥(nosur)을 일시적 공백으로 보고 보류한다.
+            self.sw_had_report = !text.is_empty();
+        }
         self.observe_preedit_inclusion(&text, cursor_pos, anchor_pos);
         self.surrounding_text = text;
         self.surrounding_cursor = cursor_pos;

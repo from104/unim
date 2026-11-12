@@ -10,7 +10,7 @@ use super::types::{
     InputResult, SurroundingWordCarry, HANJA_MAX_KEY_CHARS, SURROUNDING_CAP_POINTER_HINTS,
     SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE, SURROUNDING_DEFER_WAIT_MS,
     SURROUNDING_HINT_FIELD_FOCUS, SURROUNDING_HINT_KEY, SURROUNDING_HINT_POINTER_PLAIN, SURROUNDING_HINT_POINTER_SELECT,
-    SURROUNDING_HINT_PRIMARY_CHANGED, SURROUNDING_HINT_SELECTION_UNKNOWN,
+    SURROUNDING_HINT_PRIMARY_CHANGED, SURROUNDING_HINT_POINTER_APP, SURROUNDING_HINT_PRIMARY_EMPTY, SURROUNDING_HINT_SELECTION_UNKNOWN,
 };
 use crate::hangul::char::HangulCharExt;
 use crate::keycode::{KeyCode, ModifierState};
@@ -55,6 +55,14 @@ impl SelFlagCause {
             6 => Self::SelUnknown,
             7 => Self::FieldFocus,
             _ => Self::None,
+        }
+    }
+
+    /// 원인 누적 비트(`sel_cause_bits`) — `None` 은 0.
+    pub(super) fn bit(self) -> u8 {
+        match self {
+            Self::None => 0,
+            other => 1 << other.as_u8(),
         }
     }
 
@@ -245,11 +253,13 @@ impl InputEngine {
     fn set_sel_flag(&mut self, cause: SelFlagCause) {
         self.selection_possible = true;
         self.selection_flag_cause = cause;
+        self.sel_cause_bits |= cause.bit();
     }
 
     pub(super) fn clear_sel_flag(&mut self) {
         self.selection_possible = false;
         self.selection_flag_cause = SelFlagCause::None;
+        self.sel_cause_bits = 0;
     }
 
     fn apply_sel_effect(&mut self, e: SelKeyEffect) {
@@ -307,6 +317,46 @@ impl InputEngine {
                     unim_log!("ENGINE", "SurroundingHint: kind={} (field_focus) — push 아님, 무시", kind);
                 }
             }
+            SURROUNDING_HINT_PRIMARY_EMPTY => {
+                // 원인이 PRIMARY 변화 단독일 때만 푼다 — 키·포인터 선택·포커스 표시가 섞였으면 그대로 둔다.
+                // 낡음·보류·select 신호 시각은 건드리지 않는다(한자키 직전에 오는 힌트, R6 veto 는 보수적으로 유지).
+                if self.sw_push()
+                    && self.selection_possible
+                    && self.sel_cause_bits == SelFlagCause::PrimaryChanged.bit()
+                {
+                    self.clear_sel_flag();
+                    unim_log!("ENGINE", "SurroundingHint: kind={} (primary_empty) → flag_cleared", kind);
+                } else {
+                    unim_log!(
+                        "ENGINE",
+                        "SurroundingHint: kind={} (primary_empty) → kept cause_bits={:#x}",
+                        kind,
+                        self.sel_cause_bits
+                    );
+                }
+            }
+            SURROUNDING_HINT_POINTER_APP => {
+                if !self.sw_push() {
+                    unim_log!("ENGINE", "SurroundingHint: kind={} (pointer_app) — push 아님, 무시", kind);
+                    return;
+                }
+                // 눌린 곳이 글 영역인지 모른다 — 문서가 바뀔 수 있다는 낡음·보류 취소만 하고, 선택 가능 표시는
+                // 포커스 원인(FocusIn·FieldFocus)뿐일 때만 푼다. 선택의 생김·풀림은 PRIMARY(kind 4·7)에 맡긴다.
+                self.surrounding_stale = true;
+                self.sw_cancel_defer("pointer");
+                let focus_bits = SelFlagCause::FocusIn.bit() | SelFlagCause::FieldFocus.bit();
+                if self.sel_cause_bits != 0 && self.sel_cause_bits & !focus_bits == 0 {
+                    self.clear_sel_flag();
+                    unim_log!("ENGINE", "SurroundingHint: kind={} (pointer_app) → cleared", kind);
+                } else {
+                    unim_log!(
+                        "ENGINE",
+                        "SurroundingHint: kind={} (pointer_app) → kept cause_bits={:#x}",
+                        kind,
+                        self.sel_cause_bits
+                    );
+                }
+            }
             SURROUNDING_HINT_SELECTION_UNKNOWN => {
                 self.selection_unknown_once = true;
                 unim_log!("ENGINE", "SurroundingHint: kind={} (selection_unknown)", kind);
@@ -330,6 +380,7 @@ impl InputEngine {
         self.surrounding_word_exhausted = false;
         self.selection_unknown_once = false;
         self.sw_last_report = None;
+        self.sw_had_report = false;
         self.sw_move_at = None;
         self.sw_focus_at = Some(self.sw_now_ms);
         self.sw_cancel_defer(why);
@@ -416,6 +467,7 @@ impl InputEngine {
     /// 비밀번호 진입 등으로 push 상태 전체를 버린다.
     pub(super) fn sw_drop_push_state(&mut self) {
         self.sw_last_report = None;
+        self.sw_had_report = false;
         self.sw_move_at = None;
     }
 
@@ -512,6 +564,8 @@ impl InputEngine {
             stale: self.surrounding_stale,
             selection_possible: self.selection_possible,
             flag_cause: self.selection_flag_cause.as_u8(),
+            sel_cause_bits: self.sel_cause_bits,
+            had_report: self.sw_had_report,
             exhausted: self.surrounding_word_exhausted,
             move_at: self.sw_move_at,
             last_select_ms: self.sw_last_select_ms,
@@ -529,6 +583,8 @@ impl InputEngine {
         self.surrounding_stale = c.stale;
         self.selection_possible = c.selection_possible;
         self.selection_flag_cause = SelFlagCause::from_u8(c.flag_cause);
+        self.sel_cause_bits = c.sel_cause_bits;
+        self.sw_had_report = c.had_report;
         self.surrounding_word_exhausted = c.exhausted;
         // 기준점(`sw_last_report`)·보류(`sw_pending_defer`)는 이월하지 않는다 — Reset 은 둘 다 비운다.
         self.sw_move_at = c.move_at;
@@ -641,6 +697,13 @@ impl InputEngine {
         let cursor = self.surrounding_cursor as usize;
         let anchor = self.surrounding_anchor as usize;
         if n == 0 || cursor > n || anchor > n {
+            if push && allow_defer && self.sw_had_report {
+                // S3 — 직전 보고가 비어 있지 않던 필드의 빈 문맥은 Reset·재생성 직후의 일시적 공백일 수 있어 새 보고를 기다린다.
+                return SwJudge::Defer {
+                    deadline_ms: self.sw_now_ms.saturating_add(SURROUNDING_DEFER_WAIT_MS),
+                    reason: "nosur",
+                };
+            }
             return reject("nosur", 0);
         }
         if cursor != anchor {
