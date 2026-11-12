@@ -3505,7 +3505,7 @@ impl InputContextHandler {
     }
 
     /// 프런트가 엔진 밖에서 관측한 사건 보고 — 응답 없이 보낸다.
-    /// `kind`: 1 KEY·2 POINTER_PLAIN·3 POINTER_SELECT·4 PRIMARY_CHANGED·5 SELECTION_UNKNOWN.
+    /// `kind`: 1 KEY·2 POINTER_PLAIN·3 POINTER_SELECT·4 PRIMARY_CHANGED·5 SELECTION_UNKNOWN·6 FIELD_FOCUS·7 PRIMARY_EMPTY·8 POINTER_APP.
     /// `kind != 1` 이면 keyval·state 는 0. 알 수 없는 kind 는 엔진이 무시하고 로그를 남긴다.
     async fn surrounding_hint(&self, kind: u32, keyval: u32, state: u32) -> zbus::fdo::Result<()> {
         self.engine_tx

@@ -993,7 +993,7 @@ fn apply_surrounding_text(
     anchor_pos: u32,
 ) -> Option<usize> {
     // 교체 검증: 발행 뒤 첫 보고를 원래 surrounding 과 비교(관측 전용 — 엔진 저장과 무관).
-    if let Some(line) = replace_verify.on_surrounding(context_id, &text, Instant::now()) {
+    if let Some(line) = replace_verify.on_surrounding(context_id, &text, cursor_pos, Instant::now()) {
         unim_log!("ENGINE_WORKER", "{}", line);
     }
     let stored = if let Some(engine) = contexts.get_mut(&context_id) {
@@ -1535,7 +1535,9 @@ fn run_engine_worker(
                 undo_states.remove(&id);
                 recent_corrections.remove(&id);
                 last_key_presses.remove(&id);
-                replace_verify.cancel(id);
+                if let Some(line) = replace_verify.cancel(id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
                 context_frontends.remove(&id);
                 // 알림 게이트: 컨텍스트별 1회·비밀번호 칸 기록 정리 (규칙 4 맵은 여기서만 지운다).
                 notify.gate.on_destroy(id);
@@ -2234,7 +2236,7 @@ fn run_engine_worker(
                             );
                             // 교체 검증용 스냅샷(발행 직전 surrounding — 메모리 전용, 로그 평문 없음).
                             let (st, sc, _) = engine.surrounding_text();
-                            replace_verify.issue(
+                            if let Some(line) = replace_verify.issue(
                                 context_id,
                                 context_frontends
                                     .get(&context_id)
@@ -2246,7 +2248,9 @@ fn run_engine_worker(
                                 r.delete_after_chars,
                                 &r.text,
                                 Instant::now(),
-                            );
+                            ) {
+                                unim_log!("ENGINE_WORKER", "{}", line);
+                            }
                             sw_repl = Some(crate::service::ReplaceSurrounding {
                                 delete_before: r.delete_chars,
                                 delete_after: r.delete_after_chars,
@@ -2461,7 +2465,9 @@ fn run_engine_worker(
                 window_id,
                 response,
             } => {
-                replace_verify.cancel(context_id);
+                if let Some(line) = replace_verify.cancel(context_id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
                 let refocus = last_focused_context_id == Some(context_id);
                 let prev_focus = last_focused_context_id
@@ -2502,7 +2508,9 @@ fn run_engine_worker(
                 context_id,
                 response,
             } => {
-                replace_verify.cancel(context_id);
+                if let Some(line) = replace_verify.cancel(context_id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
                 // AutoTypeFix: 포커스 아웃 시 word_buffer, undo 상태, 재트리거 기록 초기화
                 keystroke_buffers.remove(&context_id);
                 undo_states.remove(&context_id);
@@ -2669,7 +2677,7 @@ fn run_engine_worker(
                     // 대상③ 마우스 확정 — 교체 검증 스냅샷(시그널은 popup-owner path 로 나간다).
                     if let crate::service::SelectHanjaOutcome::ReplaceSurrounding(rs) = &outcome {
                         let (st, sc, _) = engine.surrounding_text();
-                        replace_verify.issue(
+                        if let Some(line) = replace_verify.issue(
                             target_id,
                             context_frontends
                                 .get(&target_id)
@@ -2681,7 +2689,9 @@ fn run_engine_worker(
                             rs.delete_after,
                             &rs.commit_text,
                             Instant::now(),
-                        );
+                        ) {
+                            unim_log!("ENGINE_WORKER", "{}", line);
+                        }
                     }
                     if replaced {
                         // 교체 채널 확정 후 ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기(§4.1).
