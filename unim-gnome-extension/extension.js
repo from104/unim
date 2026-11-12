@@ -250,6 +250,7 @@ export default class UnimExtension extends Extension {
                     cancelHanja:         ()  => this._dbusIME.popupCancelHanja(),
                     cancelSpecial:       ()  => this._dbusIME.popupCancelSpecial(),
                 });
+                this._inputMethod.setPopupVisibleQuery(() => this._popupView?.isVisible === true);
                 unimLog('EXTENSION', 'PopupView 활성 (GNOME Wayland)');
             } else {
                 this._popupView = null;
@@ -434,6 +435,7 @@ export default class UnimExtension extends Extension {
 
         // PopupView 정리 — GNOME Wayland 환경에서 extension 이 직접 렌더한 popup.
         // popup-service 측 dismiss 는 CancelHanja/CancelSpecialChar RPC 로 별도 처리됨.
+        this._inputMethod?.setPopupVisibleQuery(null);
         if (this._popupView) {
             this._popupView.destroy();
             this._popupView = null;
@@ -446,6 +448,7 @@ export default class UnimExtension extends Extension {
 
         // InputMethod Wrapper 정리
         if (this._inputMethod) {
+            this._inputMethod.destroyPoke();   // 빈 preedit 왕복(S0b)의 타이머·idle 소스 제거
             this._inputMethod.setActive(false);
             this._inputMethod = null;
         }

@@ -26,6 +26,10 @@ export const HINT_POINTER_PLAIN = 2;
 export const HINT_POINTER_SELECT = 3;
 export const HINT_PRIMARY_CHANGED = 4;
 export const HINT_SELECTION_UNKNOWN = 5;
+/** PRIMARY 에 선택이 없다(mimetype 0개, 마지막 변화 뒤 충분히 지남) — 엔진이 PRIMARY 단독 원인의 선택 플래그를 푼다. */
+export const HINT_PRIMARY_EMPTY = 7;
+/** 앱 표면 눌림(vfunc_reset 경로) — 선택 여부는 알 수 없으므로 낡음만 알린다. 선택 판단은 PRIMARY(4·7)가 맡는다. */
+export const HINT_POINTER_APP = 8;
 
 /**
  * @typedef {object} PointerState

@@ -155,8 +155,24 @@ for (const f of extFiles) {
     // prefs.js 는 별도 프로세스(Adw)이고 St 를 쓰지 않는다 — 전 파일에 같은 규칙을 적용한다.
     const text = read(f);
     for (const pat of FORBIDDEN.slice(0, 3)) {
+        // 유일한 예외(기현님 승인, 대상③ S0a): key_handler.js 의 탐침이 PRIMARY mimetype '개수'만 센다.
+        // 아래 전용 검사가 그 한 곳의 형태(.length 만 사용)를 고정한다.
+        if (f === 'key_handler.js' && pat === FORBIDDEN[1]) continue;
         eq(`${f}: 금지 패턴 '${pat}' 없음`, text.includes(pat), false);
     }
+}
+// get_mimetypes 예외의 형태 고정: 정확히 한 곳, `_primaryMimeCount` 안, 결과는 length 로만 쓴다(이름·내용 금지).
+{
+    const gm = FORBIDDEN[1];
+    eq('key_handler.js: mimetype 조회는 정확히 한 곳', khSrc.split(gm).length - 1, 1);
+    const body = bodyOf(khSrc, '_primaryMimeCount() {');
+    eq('_primaryMimeCount 본문을 찾음', body !== null, true);
+    eq('mimetype 조회는 _primaryMimeCount 안에만 있다', body !== null && body.includes(gm), true);
+    eq('mimetype 결과는 개수(.length)만 반환, 이름·내용 사용 없음',
+        body !== null && /return mimes \? mimes\.length : 0;/.test(body) &&
+        !/mimes\[|mimes\.(map|join|forEach|find|includes|slice)/.test(body), true);
+    eq('다른 파일은 get_mimetypes 를 쓰지 않는다',
+        extFiles.filter((f) => f !== 'key_handler.js' && read(f).includes(gm)), []);
 }
 eq('key_handler.js 에 get_text 호출 없음(PRIMARY 내용 읽기 금지)', /\.get_text\s*\(/.test(khSrc), false);
 eq('key_handler.js 가 St 를 import 하지 않는다', khSrc.includes(FORBIDDEN[3]), false);
@@ -530,6 +546,255 @@ eq('창 FocusIn 직후 재송신(extension.js)',
         /unimProbe\([^;]*\$\{[^}]*(text|Text|preedit|commit)\b[^}]*\}/
             .test((imSrc + extSrc + khSrc).replace(/Array\.from\([^)]*\)\.length/g, 'LEN')), false);
     eq('탐침이 버튼 마스크를 읽는다(global.get_pointer)', imSrc.includes('global.get_pointer()') && khSrc.includes('global.get_pointer()'), true);
+}
+// ── 대상③ S0a·S0b: 빈 preedit 왕복 판정(순수 함수) + 배선 정적 검사 ────────────────
+{
+    const { isLibreOfficeWmClass, cacheStateName, decidePoke, POKE_TIMEOUT_MS } = sf;
+    eq('왕복 타임아웃 250ms', POKE_TIMEOUT_MS, 250);
+    // LO wm_class 판정 표
+    const lo = [
+        ['libreoffice-writer', true], ['libreoffice-calc', true], ['libreoffice-startcenter', true],
+        ['LibreOffice', true], ['soffice', true], ['soffice.bin', true], ['SOFFICE', true],
+        ['firefox', false], ['org.gnome.TextEditor', false], ['gedit', false], ['', false],
+        ['my-libreoffice', false], [' libreoffice', false], ['office', false],
+        [null, false], [undefined, false], [42, false],
+    ];
+    for (const [cls, want] of lo) eq(`LO wm_class: ${JSON.stringify(cls)}`, isLibreOfficeWmClass(cls), want);
+
+    // 캐시 상태 이름
+    const base = { fieldGen: 3, fieldFocusAtMs: 0, cache: null };
+    const cache = (o = {}) => ({ text: 'x', cursor: 0, anchor: 0, gen: 3, atMs: 0, dirty: false, keySent: false, ...o });
+    eq('cacheState: 캐시 없음 → none', cacheStateName(base), 'none');
+    eq('cacheState: 다른 세대 → none', cacheStateName({ ...base, cache: cache({ gen: 2 }) }), 'none');
+    eq('cacheState: dirty', cacheStateName({ ...base, cache: cache({ dirty: true }) }), 'dirty');
+    eq('cacheState: keysent', cacheStateName({ ...base, cache: cache({ keySent: true }) }), 'keysent');
+    eq('cacheState: dirty 가 keysent 보다 먼저', cacheStateName({ ...base, cache: cache({ dirty: true, keySent: true }) }), 'dirty');
+    eq('cacheState: fresh', cacheStateName({ ...base, cache: cache() }), 'fresh');
+
+    // 발동 조건 표
+    const ok = { hasFocus: true, preeditEmpty: true, sensitive: false, popupVisible: false,
+                 isLibreOffice: true, inFlight: false, cacheState: 'none' };
+    eq('왕복: 모두 충족(캐시 none)', decidePoke(ok), { poke: true, reason: 'ok' });
+    eq('왕복: 캐시 dirty 면 발동', decidePoke({ ...ok, cacheState: 'dirty' }).poke, true);
+    eq('왕복: 캐시 keysent 면 발동', decidePoke({ ...ok, cacheState: 'keysent' }).poke, true);
+    eq('왕복: 캐시 fresh 면 불필요', decidePoke({ ...ok, cacheState: 'fresh' }), { poke: false, reason: 'cache_fresh' });
+    eq('왕복: 포커스 없음', decidePoke({ ...ok, hasFocus: false }), { poke: false, reason: 'nofocus' });
+    eq('왕복: 조합 중(preedit 있음)', decidePoke({ ...ok, preeditEmpty: false }), { poke: false, reason: 'preedit' });
+    eq('왕복: 비밀번호·PIN 칸', decidePoke({ ...ok, sensitive: true }), { poke: false, reason: 'sensitive' });
+    eq('왕복: 팝업이 보임', decidePoke({ ...ok, popupVisible: true }), { poke: false, reason: 'popup' });
+    eq('왕복: LO 가 아님', decidePoke({ ...ok, isLibreOffice: false }), { poke: false, reason: 'notlo' });
+    eq('왕복: 이미 진행 중', decidePoke({ ...ok, inFlight: true }), { poke: false, reason: 'inflight' });
+    eq('왕복: 여러 조건 동시 실패 시 앞선 이유', decidePoke({ ...ok, hasFocus: false, sensitive: true }).reason, 'nofocus');
+}
+{
+    const { pokeCancelledByPreedit, isLibreOfficeWmClass, cacheStateName, decidePoke } = sf;
+    // 배선 — develop 모드 게이트, 취소 지점, 소스 정리
+    const poke = bodyOf(imSrc, 'pokeSurroundingReport(before) {');
+    eq('pokeSurroundingReport 본문을 찾음', poke !== null, true);
+    eq('pokeSurroundingReport: develop 게이트 없음(S2 — LO 한정은 decidePoke 가 맡는다)',
+        poke !== null && !poke.includes('isUnimDevelop'), true);
+    eq('pokeSurroundingReport: 일반 로그는 poke start / poke end why= 뿐',
+        poke !== null && poke.includes("unimLog('IME', 'poke start')") &&
+        (bodyOf(imSrc, '_endPoke(why) {') ?? '').includes("unimLog('IME', `poke end why=${why}`)") &&
+        (bodyOf(imSrc, '_cancelPoke(why) {') ?? '').includes("unimLog('IME', `poke end why=${why}`)"), true);
+    eq('pokeSurroundingReport: 발동 판정은 decidePoke', poke !== null && poke.includes('decidePoke('), true);
+    eq('pokeSurroundingReport: 시작은 빈 문자열 preedit',
+        poke !== null && poke.includes("set_preedit_text('', 0, 0, Clutter.PreeditResetMode.CLEAR)"), true);
+    eq('pokeSurroundingReport: 250ms 타임아웃 소스를 건다(POKE_TIMEOUT_MS)',
+        poke !== null && poke.includes('GLib.timeout_add(GLib.PRIORITY_DEFAULT, POKE_TIMEOUT_MS'), true);
+    const rep = bodyOf(imSrc, '_onPokeReport() {');
+    eq('보고 도착 뒤 null 복귀는 별도 주기(GLib.idle_add)에서 — 같은 주기에 보내지 않는다',
+        rep !== null && rep.includes('GLib.idle_add(') && !rep.includes('set_preedit_text'), true);
+    const end = bodyOf(imSrc, '_endPoke(why) {');
+    eq('_endPoke: null 로 되돌린다', end !== null && end.includes('set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR)'), true);
+    const cancel = bodyOf(imSrc, '_cancelPoke(why) {');
+    eq('_cancelPoke: null 을 따로 보내지 않는다(실제 preedit 이 덮어쓴다)', cancel !== null && !cancel.includes('set_preedit_text'), true);
+    const clr = bodyOf(imSrc, '_clearPokeSources(poke) {');
+    eq('_clearPokeSources: timeout·idle 소스 모두 제거', clr !== null && (clr.match(/GLib\.source_remove\(/g) ?? []).length === 2, true);
+    eq('destroyPoke 가 소스를 정리', (bodyOf(imSrc, 'destroyPoke() {') ?? '').includes('_clearPokeSources('), true);
+    eq('extension.js: IME 끌 때 destroyPoke 호출', extSrc.includes('this._inputMethod.destroyPoke()'), true);
+    eq('extension.js: PopupView 보임 조회를 IM 에 연결', extSrc.includes('setPopupVisibleQuery(() => this._popupView?.isVisible === true)'), true);
+    const hooks = [
+        ['vfunc_focus_out() {', "_cancelPoke('focus_out')"],
+        ['vfunc_reset() {', "_cancelPoke('reset')"],
+        ['commitText(text) {', "_cancelPoke('commit')"],
+    ];
+    for (const [m, call] of hooks) eq(`${m.replace(/\W+$/, '')}: 왕복 취소`, (bodyOf(imSrc, m) ?? '').includes(call), true);
+    // updatePreedit: 빈 갱신은 왕복을 취소하지 않고(done 병합 방지), 비어 있지 않은 갱신만 취소한다
+    for (const [txt, want] of [['', false], [null, false], [undefined, false], ['ㅎ', true], ['\u200B', true], ['한', true]])
+        eq(`pokeCancelledByPreedit(${JSON.stringify(txt)})`, pokeCancelledByPreedit(txt), want);
+    const upd = bodyOf(imSrc, 'updatePreedit(text) {') ?? '';
+    eq('updatePreedit: 판정은 pokeCancelledByPreedit', upd.includes('pokeCancelledByPreedit('), true);
+    eq('updatePreedit: 취소는 _poke 가 있을 때만 + preedit 사유', /if \(this\._poke\) \{[^]*?_cancelPoke\('preedit'\)/.test(upd), true);
+    eq('updatePreedit: 빈 갱신은 취소 호출 앞에서 반환(null 미전송)',
+        upd.indexOf('return;') > 0 && upd.indexOf('return;') < upd.indexOf("_cancelPoke('preedit')"), true);
+    eq('updatePreedit: 빈 갱신 반환이 set_preedit_text 보다 앞', upd.indexOf('return;') < upd.indexOf('set_preedit_text'), true);
+    eq('vfunc_set_surrounding: 보고를 데몬에 전달한 뒤 왕복 보고 처리',
+        /setSurroundingText\(text \|\| '', cursor \|\| 0, anchor \|\| 0\);\s*\}\s*[^]*?this\._onPokeReport\(\);/.test(bodyOf(imSrc, 'vfunc_set_surrounding(text, cursor, anchor) {') ?? ''), true);
+    // 한자키 직전 호출 3곳 + develop 게이트
+    eq('한자키 processKey 직전 _beforeHanjaProcessKey 3곳', (khSrc.match(/this\._beforeHanjaProcessKey\(/g) ?? []).length, 3);
+    const before = bodyOf(khSrc, '_beforeHanjaProcessKey(keyval, before) {');
+    eq('_beforeHanjaProcessKey: 한자키일 때만(develop 게이트 없음 — S2·S5)',
+        before !== null && /^\{\s*if \(!this\._hanjaKeysyms\.has\(keyval\)\) return;/.test(before), true);
+    eq('_beforeHanjaProcessKey: hanja_key 탐침 후 왕복', before !== null &&
+        before.indexOf("unimProbe('hanja_key'") > 0 && before.indexOf("unimProbe('hanja_key'") < before.indexOf('pokeSurroundingReport(before)'), true);
+    eq('hint_sent 탐침은 develop 게이트 안에서 버튼 상태를 읽는다',
+        /if \(isUnimDevelop\(\)\) unimProbe\('hint_sent', `kind=\$\{kind\} btn=/.test(khSrc), true);
+    eq('primary_owner 탐침은 develop 게이트 안', /if \(isUnimDevelop\(\)\) \{[^}]*?unimProbe\('primary_owner'/.test(khSrc), true);
+    eq('reset 탐침(vfunc_reset·cursor-jump) 배선', imSrc.includes("unimProbe('reset'") &&
+        imSrc.includes('this._probeReset(false)') && imSrc.includes('this._probeReset(true)'), true);
+    for (const ev of ['hanja_key', 'primary_owner', 'poke_start', 'poke_report', 'poke_end', 'poke_skip'])
+        eq(`탐침 사건 ${ev}`, (imSrc + khSrc).includes(`unimProbe('${ev}'`), true);
+    eq('wm_class 이름을 로그에 보간하지 않는다', /unimProbe\([^;]*(wm_class|wmClass)/.test(imSrc + khSrc), false);
+    // ── 한자키 직전 캐시 상태 스냅샷 (검증 수정: 한자키 자신이 keySent 를 세우기 전의 상태로 판정) ──
+    {
+        const { factsOnFocusIn, factsOnSurrounding, factsOnEngineKey, createSurroundingFacts } = sf;
+        const surr = (f) => factsOnSurrounding(f, { text: 'x', cursor: 1, anchor: 1 }, { hasFocus: true, sensitive: false, nowMs: 10 });
+        // vfunc_filter_key_event 와 같은 순서: 스냅샷(세기 전) → factsOnEngineKey → 키 핸들러(스냅샷 사용)
+        const hanjaKey = (f) => ({ snapshot: cacheStateName(f), after: factsOnEngineKey(f) });
+        const loCtx = { hasFocus: true, preeditEmpty: true, sensitive: false, popupVisible: false, isLibreOffice: true, inFlight: false };
+        let f = factsOnFocusIn(createSurroundingFacts(), 0);
+        f = surr(f);
+        let h = hanjaKey(f);
+        eq('신선한 보고 직후 한자키: 스냅샷 cache=fresh', h.snapshot, 'fresh');
+        eq('  (같은 키 뒤 라이브 상태는 keysent — 라이브로 판정하면 안 되는 이유)', cacheStateName(h.after), 'keysent');
+        eq('신선한 보고 직후 한자키: poke_skip why=cache_fresh', decidePoke({ ...loCtx, cacheState: h.snapshot }), { poke: false, reason: 'cache_fresh' });
+        eq('  (라이브 상태로 판정하면 skip 이 발동하지 못한다)', decidePoke({ ...loCtx, cacheState: cacheStateName(h.after) }).poke, true);
+        // 보고 → 화살표 키 → 한자키: keysent
+        f = surr(f);
+        f = factsOnEngineKey(f);                       // 화살표 키
+        h = hanjaKey(f);
+        eq('보고 → 화살표 → 한자키: 스냅샷 cache=keysent', h.snapshot, 'keysent');
+        eq('보고 → 화살표 → 한자키: 왕복 발동', decidePoke({ ...loCtx, cacheState: h.snapshot }).poke, true);
+        // 보고 없음 → none
+        h = hanjaKey(factsOnFocusIn(createSurroundingFacts(), 0));
+        eq('보고 없이 한자키: 스냅샷 cache=none, 왕복 발동', [h.snapshot, decidePoke({ ...loCtx, cacheState: h.snapshot }).poke], ['none', true]);
+    }
+    // 스냅샷 배선: vfunc 가 factsOnEngineKey 직전에 develop 게이트 안에서 기록, 핸들러·왕복이 사용, 공유 상태 불변
+    {
+        const vf = bodyOf(imSrc, 'vfunc_filter_key_event(event) {') ?? '';
+        const iSnap = vf.indexOf('this._probeCacheBeforeKey = cacheStateName(this._facts)');
+        const iFacts = vf.indexOf('this._facts = factsOnEngineKey(this._facts)');
+        eq('vfunc: 키가 세어지기 전 스냅샷 기록(develop 게이트)',
+            iSnap > 0 && iSnap < iFacts && /if \(isUnimDevelop\(\)\) this\._probeCacheBeforeKey = /.test(vf), true);
+        eq('vfunc: factsOnEngineKey 호출은 그대로 한 번(공유 상태 불변)', (vf.match(/factsOnEngineKey\(/g) ?? []).length, 1);
+        eq('probeHanjaKeyState 가 스냅샷을 사용', (bodyOf(imSrc, 'probeHanjaKeyState(before) {') ?? '').includes('_cacheStateForHanjaKey(before)'), true);
+        eq('pokeSurroundingReport 가 스냅샷으로 판정', (bodyOf(imSrc, 'pokeSurroundingReport(before) {') ?? '').includes('cacheState = this._cacheStateForHanjaKey(before)'), true);
+        eq('큐 항목이 스냅샷을 싣는다(cacheBefore)', khSrc.includes('cacheBefore: this._inputMethod.cacheStateBeforeKey'), true);
+        eq('큐 처리는 근사(approx) 표시', khSrc.includes('approx: true'), true);
+        eq('hanja_key 탐침이 snap= 출처를 찍는다', khSrc.includes('snap=${st.snap}'), true);
+    }
+}
+// ── 대상③ S4: 앱 창 눌림 판정 ─────────────────────────────────────────────────
+{
+    const { decideAppPress, buttonFromMask, APP_PRESS_DEDUP_MS, BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK } = sf;
+    const { HINT_POINTER_APP } = mod;
+    eq('버튼 마스크 상수(Clutter 와 같은 값)', [BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK], [0x100, 0x200, 0x400]);
+    eq('중복 거르기 창은 더블클릭 간격(121ms 실측)보다 짧다', APP_PRESS_DEDUP_MS < 121, true);
+    for (const [m, b] of [[0x0, 0], [0x100, 1], [0x200, 2], [0x400, 3], [0x300, 1], [0x600, 2], [0x101, 1], [0x1, 0]])
+        eq(`buttonFromMask(0x${m.toString(16)})`, buttonFromMask(m), b);
+    const ok = { direct: false, btnMask: 0x100, overWin: true, popup: false, lastMask: 0 };
+    eq('앱 눌림: 모두 충족', decideAppPress(ok), { send: true, reason: 'ok' });
+    eq('앱 눌림: 실측 — btn=0x100 over_win=1 direct=0', decideAppPress({ ...ok, btnMask: 0x100 }).send, true);
+    eq('앱 눌림: 가운데 버튼도 보낸다', decideAppPress({ ...ok, btnMask: 0x200 }).send, true);
+    eq('앱 눌림: 보조 버튼도 판정은 통과(kind 8 은 낡음만 알린다)', decideAppPress({ ...ok, btnMask: 0x400 }).send, true);
+    eq('앱 눌림: 직접 호출 제외', decideAppPress({ ...ok, direct: true }), { send: false, reason: 'direct' });
+    eq('앱 눌림: 버튼 없음(키보드 유래 reset)', decideAppPress({ ...ok, btnMask: 0 }), { send: false, reason: 'nobtn' });
+    eq('앱 눌림: 수정자 비트만 있고 버튼 없음', decideAppPress({ ...ok, btnMask: 0x1 }).reason, 'nobtn');
+    eq('앱 눌림: 앱 창 밖(셸 UI 는 captured 가 센다)', decideAppPress({ ...ok, overWin: false }), { send: false, reason: 'notwin' });
+    eq('앱 눌림: 팝업 클릭 제외', decideAppPress({ ...ok, popup: true }), { send: false, reason: 'popup' });
+    eq('앱 눌림: 같은 눌림의 중복 reset', decideAppPress({ ...ok, lastMask: 0x100 }), { send: false, reason: 'dup' });
+    eq('앱 눌림: 다른 버튼이면 새 눌림', decideAppPress({ ...ok, btnMask: 0x200, lastMask: 0x100 }).send, true);
+    eq('앱 눌림: 창이 지나 lastMask=0 이면(더블클릭 둘째) 새 눌림', decideAppPress({ ...ok, lastMask: 0 }).send, true);
+    eq('앱 눌림: 여러 조건 동시 실패 시 앞선 이유', decideAppPress({ ...ok, direct: true, btnMask: 0 }).reason, 'direct');
+
+    // 시간 계산 포함 판정 (shouldReportAppPress)
+    const { shouldReportAppPress, FACT_HINT_POINTER_APP, createSurroundingFacts, factsOnSurrounding, factsOnHintSent } = sf;
+    const sk = { ...ok, nowMs: 1000, lastMs: -Infinity, lastMask: 0 };
+    delete sk.lastMask; sk.lastMask = 0;
+    eq('shouldReport: 첫 눌림', shouldReportAppPress(sk), { send: true, reason: 'ok' });
+    eq('shouldReport: 같은 눌림 20ms 뒤 중복 reset', shouldReportAppPress({ ...sk, lastMs: 980, lastMask: 0x100 }).reason, 'dup');
+    eq('shouldReport: 39ms 는 중복', shouldReportAppPress({ ...sk, lastMs: 961, lastMask: 0x100 }).reason, 'dup');
+    eq('shouldReport: 40ms 는 새 눌림', shouldReportAppPress({ ...sk, lastMs: 960, lastMask: 0x100 }).send, true);
+    eq('shouldReport: 더블클릭 둘째(121ms) 는 새 눌림', shouldReportAppPress({ ...sk, lastMs: 879, lastMask: 0x100 }).send, true);
+    eq('shouldReport: 다른 버튼은 창 안이라도 새 눌림', shouldReportAppPress({ ...sk, btnMask: 0x200, lastMs: 990, lastMask: 0x100 }).send, true);
+    eq('shouldReport: 앱 창 밖·팝업·직접은 시간과 무관하게 제외',
+        [{ overWin: false }, { popup: true }, { direct: true }].map((o) => shouldReportAppPress({ ...sk, ...o }).send), [false, false, false]);
+
+    // kind 8: 분류하지 않고, 스냅샷은 낡게 만든다
+    eq('앱 눌림 kind 는 8, pointer_hints 와 같다', [HINT_POINTER_APP, FACT_HINT_POINTER_APP], [8, 8]);
+    eq('앱 눌림 힌트는 스냅샷을 낡게 만든다(SUPERSEDING)', (() => {
+        let f = createSurroundingFacts();
+        f = factsOnSurrounding(f, { text: 'ab', cursor: 1, anchor: 1 }, { hasFocus: true, sensitive: false, nowMs: 0 });
+        return factsOnHintSent(f, FACT_HINT_POINTER_APP).cache.dirty;
+    })(), true);
+
+    // 배선
+    const np = bodyOf(imSrc, '_noteAppPress() {') ?? '';
+    eq('_noteAppPress: 판정은 shouldReportAppPress, direct=false', np.includes('shouldReportAppPress(') && np.includes('direct: false'), true);
+    eq('_noteAppPress: 셸 모달 중에는 앱 창 안으로 보지 않는다', np.includes('Main.modalCount === 0'), true);
+    eq('_noteAppPress: 분류 정보를 넘기지 않는다', np.includes('this._appPressHandler()'), true);
+    eq('_noteAppPress: 팝업은 reset 핸들러가 닫기 전에 묻는다', (bodyOf(imSrc, 'vfunc_reset() {') ?? '').indexOf('_noteAppPress()') <
+        (bodyOf(imSrc, 'vfunc_reset() {') ?? '').indexOf('this._resetHandler'), true);
+    eq('cursor-jump 직접 경로는 앱 눌림을 보내지 않는다', !(imSrc.slice(imSrc.indexOf('외부 cursor 점프 감지'), imSrc.indexOf('외부 cursor 점프 감지') + 1200)).includes('_noteAppPress'), true);
+    const ra = bodyOf(khSrc, '_reportAppPress() {') ?? '';
+    eq('_reportAppPress: kind 8 을 한 번 보낸다', ra.includes('this._sendHint(HINT_POINTER_APP)') && (ra.match(/_sendHint\(/g) ?? []).length === 1, true);
+    eq('_reportAppPress: classifyPointer·_pointerState 를 건드리지 않는다', !ra.includes('classifyPointer') && !ra.includes('_pointerState'), true);
+    eq('KeyHandler 가 앱 눌림 핸들러를 IM 에 연결', khSrc.includes('this._inputMethod.setAppPressHandler('), true);
+}
+// ── 대상③ S5: PRIMARY 비어 있음 판정 ───────────────────────────────────────────
+{
+    const { decidePrimaryEmpty, PRIMARY_EMPTY_MIN_MS, FACT_HINT_KEY, createSurroundingFacts, factsOnSurrounding, factsOnHintSent } = sf;
+    const { HINT_PRIMARY_EMPTY } = mod;
+    eq('PRIMARY_EMPTY 는 7', HINT_PRIMARY_EMPTY, 7);
+    eq('최소 경과 100ms', PRIMARY_EMPTY_MIN_MS, 100);
+    const ok = { mimes: 0, sinceOwnerMs: 840, ownerFocusWin: 7, focusWin: 7 };
+    eq('PRIMARY 비어 있음: 모두 충족', decidePrimaryEmpty(ok), { send: true, reason: 'ok' });
+    // 실측 사례 (2026-11-13)
+    eq('실측: gedit·LO 선택 해제 클릭 뒤(mimes 0, since 840)', decidePrimaryEmpty({ ...ok, sinceOwnerMs: 840 }).send, true);
+    eq('실측: TextEditor owner null 직후 mimes=0 claim 뒤 840ms', decidePrimaryEmpty({ ...ok, mimes: 0, sinceOwnerMs: 840 }).send, true);
+    for (const n of [2, 10, 13]) eq(`실측: 드래그·더블클릭 선택 뒤 mimes=${n}`, decidePrimaryEmpty({ ...ok, mimes: n }), { send: false, reason: 'mimes' });
+    eq('실측: 드래그 중 ~50ms 교대(null/claim)', decidePrimaryEmpty({ ...ok, sinceOwnerMs: 50 }), { send: false, reason: 'recent' });
+    eq('경계: 99ms 는 아직', decidePrimaryEmpty({ ...ok, sinceOwnerMs: 99 }).reason, 'recent');
+    eq('경계: 100ms 는 허용', decidePrimaryEmpty({ ...ok, sinceOwnerMs: 100 }).send, true);
+    eq('mimetype 조회 실패(-1)는 비어 있음이 아니다', decidePrimaryEmpty({ ...ok, mimes: -1 }), { send: false, reason: 'mimes' });
+    eq('mimetype 1개도 선택으로 본다', decidePrimaryEmpty({ ...ok, mimes: 1 }).send, false);
+    eq('owner-changed 를 본 적 없음(-1)', decidePrimaryEmpty({ ...ok, sinceOwnerMs: -1 }), { send: false, reason: 'noowner' });
+    eq('포커스 창을 모름', decidePrimaryEmpty({ ...ok, focusWin: null }), { send: false, reason: 'nowin' });
+    eq('owner-changed 가 다른 창이 포커스를 가진 동안 일어남', decidePrimaryEmpty({ ...ok, ownerFocusWin: 3 }), { send: false, reason: 'otherwin' });
+    eq('owner-changed 때 포커스 창을 몰랐음(null)', decidePrimaryEmpty({ ...ok, ownerFocusWin: null }).send, false);
+    eq('민감 목적(비밀번호)에서는 보내지 않는다', decidePrimaryEmpty({ ...ok, sensitive: true }), { send: false, reason: 'sensitive' });
+    eq('팝업 표시 중에는 보내지 않는다', decidePrimaryEmpty({ ...ok, popup: true }), { send: false, reason: 'popup' });
+    eq('여러 조건 동시 실패 시 앞선 이유', decidePrimaryEmpty({ ...ok, sensitive: true, mimes: 5 }).reason, 'sensitive');
+    eq('SUPERSEDING 이 아니다: PRIMARY_EMPTY 힌트는 캐시를 낡게 만들지 않는다', (() => {
+        let f = createSurroundingFacts();
+        f = factsOnSurrounding(f, { text: 'ab', cursor: 1, anchor: 1 }, { hasFocus: true, sensitive: false, nowMs: 0 });
+        return factsOnHintSent(f, HINT_PRIMARY_EMPTY).cache.dirty;
+    })(), false);
+    eq('KEY 힌트는 여전히 캐시를 낡게 만든다(대조군)', (() => {
+        let f = createSurroundingFacts();
+        f = factsOnSurrounding(f, { text: 'ab', cursor: 1, anchor: 1 }, { hasFocus: true, sensitive: false, nowMs: 0 });
+        return factsOnHintSent(f, FACT_HINT_KEY).cache.dirty;
+    })(), true);
+
+    // 배선
+    const mp = bodyOf(khSrc, '_maybeSendPrimaryEmpty() {') ?? '';
+    eq('_maybeSendPrimaryEmpty: 판정은 decidePrimaryEmpty, 보내는 건 HINT_PRIMARY_EMPTY', mp.includes('decidePrimaryEmpty(') && mp.includes('_sendHint(HINT_PRIMARY_EMPTY)'), true);
+    eq('_maybeSendPrimaryEmpty: 민감 목적·팝업을 넘긴다', mp.includes('isSensitivePurpose()') && mp.includes('isPopupShown()'), true);
+    const bh = bodyOf(khSrc, '_beforeHanjaProcessKey(keyval, before) {') ?? '';
+    eq('_beforeHanjaProcessKey: 한자키만, PRIMARY_EMPTY 가 poke 보다 먼저',
+        bh.includes('_hanjaKeysyms.has(keyval)') && bh.indexOf('_maybeSendPrimaryEmpty()') > 0 &&
+        bh.indexOf('_maybeSendPrimaryEmpty()') < bh.indexOf('pokeSurroundingReport('), true);
+    eq('_beforeHanjaProcessKey: poke 는 develop 게이트 밖', !/if \(isUnimDevelop\(\)\) \{[^}]*pokeSurroundingReport/.test(bh), true);
+    eq('한자키 processKey 직전 세 곳이 모두 _beforeHanjaProcessKey 를 부른다',
+        (khSrc.match(/this\._beforeHanjaProcessKey\(/g) ?? []).length, 3);
+    const wo = bodyOf(khSrc, '_watchPrimaryOwner() {') ?? '';
+    eq('_watchPrimaryOwner: 시각·포커스 창 id 를 모든 모드에서 기록', wo.includes('this._primaryOwnerAtMs =') && wo.includes('this._primaryOwnerFocusWin = this._focusWinId()'), true);
+    const mc = bodyOf(khSrc, '_primaryMimeCount() {') ?? '';
+    eq('PRIMARY 는 개수만 읽는다(get_mimetypes → length, 내용 읽기 API 없음)', mc.includes('.get_mimetypes(') && mc.includes('mimes.length') &&
+        !/get_mimetype_content|transfer_async|\.get_content\(|read_async/.test(khSrc), true);
+    eq('주석: 개수만 조회, 내용·이름은 읽지 않는다', khSrc.includes('mimetype **개수만** 조회하고 내용·이름은 읽지 않는다'), true);
+    eq('SUPERSEDING_HINTS 에 PRIMARY_EMPTY(7) 없음', /SUPERSEDING_HINTS = new Set\(\[[^\]]*\]\)/.exec(read('surrounding_facts.js'))[0].includes('7'), false);
 }
 // 평문 로그 전수 (이 확장의 사용자 텍스트·키 로그는 길이/종류만)
 eq('TypeFIX 완료 로그: replacement 평문 없음', extSrc.includes("replacement='${replacement}'"), false);

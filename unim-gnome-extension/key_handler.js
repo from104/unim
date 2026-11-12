@@ -14,8 +14,9 @@ import Meta from 'gi://Meta';
 import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
 import {
     createPointerState, classifyPointer, hintKeyLogName,
-    HINT_KEY, HINT_PRIMARY_CHANGED,
+    HINT_KEY, HINT_PRIMARY_CHANGED, HINT_PRIMARY_EMPTY, HINT_POINTER_APP,
 } from './pointer_hints.js';
+import { decidePrimaryEmpty } from './surrounding_facts.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 /** 바이패스할 수정자 키들 */
 const MODIFIER_KEYSYMS = new Set([
@@ -227,6 +228,10 @@ export class KeyHandler {
         this._probeMotionCount = 0;
         /** @type {number} global.display.get_selection() owner-changed 시그널 ID */
         this._selectionOwnerId = 0;
+        /** @type {number} 마지막 PRIMARY owner-changed 시각(ms, 단조 시계). 본 적 없으면 0 (S5 판정·탐침) */
+        this._primaryOwnerAtMs = 0;
+        /** @type {number|null} 그 owner-changed 때 포커스 창 id (S5: 포커스 창이 포커스를 가진 동안의 사건인지) */
+        this._primaryOwnerFocusWin = null;
     }
 
     /**
@@ -293,6 +298,9 @@ export class KeyHandler {
             this._inputMethod.setKeyHandler((keyval, keycode, state, event) =>
                 this._handleVfuncKey(keyval, keycode, state, event));
 
+            // 앱 창 안 클릭(stage 가 못 보는 눌림) — mutter 의 vfunc_reset 이 알려 준다(S4).
+            this._inputMethod.setAppPressHandler(() => this._reportAppPress());
+
             // bare Alt_R(토글 후보) 비소비 통지 — vfunc 경로에서 return false 로
             // Mutter 네이티브 처리를 보존하되 데몬에 fire-and-forget 으로 통지한다.
             this._inputMethod.setToggleKeyNotifier((keyval, keycode, state) => {
@@ -337,7 +345,9 @@ export class KeyHandler {
         //    동일 키가 재진입될 수 있음 → 큐에 저장하여 순차 처리 (키 누락 방지)
         if (this._processingKey) {
             try {
-                this._keyQueue.push({keyval, keycode, state, event: event.copy()});
+                // cacheBefore: 이 키가 vfunc 에서 세어지기 전의 캐시 상태(탐침 전용, develop 모드에서만 값이 있음)
+                this._keyQueue.push({keyval, keycode, state, event: event.copy(),
+                                     cacheBefore: this._inputMethod.cacheStateBeforeKey?.() ?? null});
             } catch (e) {
                 // event.copy() 실패 시 기존 동작 유지 (키 소비)
                 unimError('KEY', `이벤트 복사 실패, 키 소비: ${e.message}`);
@@ -384,6 +394,7 @@ export class KeyHandler {
         }
 
         // 6. ProcessKeyEvent 호출 (재진입 가드)
+        this._beforeHanjaProcessKey(keyval, {cache: this._inputMethod.cacheStateBeforeKey?.() ?? null});
         this._processingKey = true;
         let result;
         try {
@@ -462,9 +473,25 @@ export class KeyHandler {
             this._inputMethod?.noteHintSent?.(kind);
             unimLog('KEY', `SurroundingHint: kind=${kind}` +
                            (kind === HINT_KEY ? ` key=${hintKeyLogName(keyval)}` : ''));
-            unimProbe('hint_sent', `kind=${kind}`);
+            if (isUnimDevelop()) unimProbe('hint_sent', `kind=${kind} btn=${this._probeButtons()}`);
         } catch (e) {
             unimError('KEY', `SurroundingHint 송신 오류: ${e.message}`);
+        }
+    }
+
+    /**
+     * 탐침용 버튼 비트(`0x100` = 주 버튼). 좌표는 남기지 않는다. UNIM_DEVELOP=1 일 때만 부른다.
+     * @returns {string}
+     * @private
+     */
+    _probeButtons() {
+        try {
+            const mods = global.get_pointer()[2];
+            return '0x' + ((mods & (Clutter.ModifierType.BUTTON1_MASK |
+                                    Clutter.ModifierType.BUTTON2_MASK |
+                                    Clutter.ModifierType.BUTTON3_MASK)) >>> 0).toString(16);
+        } catch (_e) {
+            return 'err';
         }
     }
 
@@ -543,20 +570,116 @@ export class KeyHandler {
     }
 
     /**
+     * 앱 표면 눌림 1건을 `HINT_POINTER_APP` 으로 한 번 보고한다. 눌린 곳이 본문인지 스크롤바·헤더바인지,
+     * 선택이 생기는지 알 수 없으므로 PLAIN/SELECT 로 분류하지 않는다 — `_pointerState`(셸 UI captured 경로의
+     * 다중 클릭 판정)도 건드리지 않는다. 선택 판단은 PRIMARY 힌트(4·7)가 맡는다.
+     * @private
+     */
+    _reportAppPress() {
+        this._sendHint(HINT_POINTER_APP);
+    }
+
+    /**
      * PRIMARY 소유자 변경을 감시한다 — 선택이 생겼거나 바뀌었다는 신호일 뿐이다.
-     * 내용·mime 은 조회하지 않는다.
+     * PRIMARY 는 mimetype **개수만** 조회하고 내용·이름은 읽지 않는다 (`_primaryMimeCount`).
+     * 변경 시각·그때 포커스 창을 기록해 두면 한자키 직전 PRIMARY_EMPTY 판정(S5)이 쓴다.
      * @private
      */
     _watchPrimaryOwner() {
         if (this._selectionOwnerId) return;
         try {
             const sel = global.display.get_selection();
-            this._selectionOwnerId = sel.connect('owner-changed', (_sel, selectionType) => {
-                if (selectionType === Meta.SelectionType.SELECTION_PRIMARY)
+            this._selectionOwnerId = sel.connect('owner-changed', (_sel, selectionType, owner) => {
+                if (selectionType === Meta.SelectionType.SELECTION_PRIMARY) {
+                    this._primaryOwnerAtMs = GLib.get_monotonic_time() / 1000;
+                    this._primaryOwnerFocusWin = this._focusWinId();
                     this._sendHint(HINT_PRIMARY_CHANGED);
+                    if (isUnimDevelop()) {
+                        unimProbe('primary_owner',
+                            `null=${owner ? 0 : 1} mimes=${this._primaryMimeCount()}`);
+                    }
+                }
             });
         } catch (e) {
             unimError('KEY', `PRIMARY 소유자 감시 설치 실패(선택 신호 둔감): ${e.message}`);
+        }
+    }
+
+    /**
+     * PRIMARY 가 광고하는 mimetype **개수**. 내용·mime 이름은 읽지도 찍지도 않는다
+     * (HANJA_WORD_SPEC §2.10.1). 실패하면 -1 (판정은 0 일 때만 "비어 있음" 으로 본다).
+     * @returns {number}
+     * @private
+     */
+    _primaryMimeCount() {
+        try {
+            const mimes = global.display.get_selection()
+                .get_mimetypes(Meta.SelectionType.SELECTION_PRIMARY);
+            return mimes ? mimes.length : 0;
+        } catch (_e) {
+            return -1;
+        }
+    }
+
+    /**
+     * 포커스 창 id (없으면 null). 셸 모달 중에는 focus_window 가 직전 앱 창으로 남으므로 null 로 본다.
+     * @returns {number|null}
+     * @private
+     */
+    _focusWinId() {
+        try {
+            if (Main.modalCount > 0) return null;
+            const w = global.display.focus_window;
+            return w ? w.get_id() : null;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    /**
+     * 한자키 직전: PRIMARY 에 선택이 없다고 볼 직접 증거가 있으면 `PRIMARY_EMPTY` 를 보낸다(S5).
+     * 엔진은 PRIMARY 변화 하나만 원인인 선택 플래그만 푼다. 판정은 `decidePrimaryEmpty`.
+     * `SUPERSEDING_HINTS` 에 없는 kind 라 스냅샷 캐시를 낡게 만들지 않는다.
+     * @private
+     */
+    _maybeSendPrimaryEmpty() {
+        const d = decidePrimaryEmpty({
+            mimes: this._primaryMimeCount(),
+            sinceOwnerMs: this._primaryOwnerAtMs > 0
+                ? Math.round(GLib.get_monotonic_time() / 1000 - this._primaryOwnerAtMs) : -1,
+            ownerFocusWin: this._primaryOwnerFocusWin,
+            focusWin: this._focusWinId(),
+            sensitive: this._inputMethod.isSensitivePurpose(),
+            popup: this._inputMethod.isPopupShown(),
+        });
+        if (isUnimDevelop()) unimProbe('primary_empty', `send=${d.send ? 1 : 0} why=${d.reason}`);
+        if (d.send) this._sendHint(HINT_PRIMARY_EMPTY);
+    }
+
+    /**
+     * 한자키를 엔진에 넘기기 직전 호출한다 — PRIMARY_EMPTY 힌트(S5)를 먼저 보내고, LibreOffice 창이면
+     * 빈 preedit 왕복(S2)으로 surrounding 보고를 끌어낸다. develop 모드면 탐침 `hanja_key` 도 찍는다.
+     * 한자키가 아니면 아무 일도 하지 않는다. 로그에는 상태 이름·개수·ms 만 남는다.
+     * @param {number} keyval
+     * @param {{cache: string|null, approx?: boolean}} [before] - 이 키가 캐시에 세어지기 전의 상태
+     *   스냅샷(vfunc 경로). 없으면(captured-event 폴백은 factsOnEngineKey 를 거치지 않는다) 라이브 상태.
+     * @private
+     */
+    _beforeHanjaProcessKey(keyval, before) {
+        if (!this._hanjaKeysyms.has(keyval)) return;
+        try {
+            if (isUnimDevelop()) {
+                const st = this._inputMethod.probeHanjaKeyState(before);
+                const sinceOwner = this._primaryOwnerAtMs > 0
+                    ? Math.round(GLib.get_monotonic_time() / 1000 - this._primaryOwnerAtMs) : -1;
+                unimProbe('hanja_key',
+                    `lo=${st.lo} cache=${st.cache} snap=${st.snap} cache_age_ms=${st.cacheAgeMs} preedit_len=${st.preeditLen} ` +
+                    `primary_mimes=${this._primaryMimeCount()} since_owner_ms=${sinceOwner}`);
+            }
+            this._maybeSendPrimaryEmpty();
+            this._inputMethod.pokeSurroundingReport(before);
+        } catch (e) {
+            unimError('KEY', `한자키 직전 처리 오류: ${e.message}`);
         }
     }
 
@@ -647,6 +770,8 @@ export class KeyHandler {
             return;
         }
 
+        // 큐에서 늦게 처리되는 키 — 스냅샷은 도착 시점 값이라 근사(approx)다.
+        this._beforeHanjaProcessKey(entry.keyval, {cache: entry.cacheBefore ?? null, approx: true});
         this._processingKey = true;
         let result;
         try {
@@ -975,6 +1100,7 @@ export class KeyHandler {
         }
 
         // 6. ProcessKeyEvent 호출 (재진입 가드)
+        this._beforeHanjaProcessKey(keyval);
         this._processingKey = true;
         let result;
         try {

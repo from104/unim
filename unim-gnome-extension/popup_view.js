@@ -174,6 +174,11 @@ export class PopupView {
         this._installOutsideClickHandler();
     }
 
+    /** 팝업이 지금 보이는지 (빈 preedit 왕복 판정 등 읽기 전용 조회). */
+    get isVisible() {
+        return this._visible;
+    }
+
     /** HidePopup signal 핸들러. kind 별 cancel RPC 도 함께 호출하여 engine 상태 정리.
      *  GTK popup-service `window.connect_hide(|| cancel_hanja_via_dbus())` 동등.
      *
