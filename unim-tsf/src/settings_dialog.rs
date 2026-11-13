@@ -841,7 +841,7 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
     y += row_h + gap * 2;
 
     // ── 접근성 (I7) ──────────────────────────────────────────────────────────
-    // 한/영 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음)으로 무시각 확인.
+    // 한/영 전환 시 차등 비프음(한글=높은 음 2번, 영문=낮은 음 1번)으로 무시각 확인.
     create_static(page, "[ 접근성 ]", lm, y, 200, row_h);
     y += row_h + 2;
     create_checkbox(page, "한/영 전환 소리 알림(비프)", ID_CHK_TOGGLE_BEEP,

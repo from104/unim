@@ -1216,9 +1216,9 @@ pub struct EngineConfig {
     pub notify: NotifyConfig,
     /// 한/영 전환 시 짧은 비프음으로 현재 모드를 알린다 (접근성, 기본 false).
     ///
-    /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이로
-    /// 확인할 수 있게 한다. 한글 모드는 높은 음(880Hz), 영문 모드는 낮은 음(440Hz)으로
-    /// 차등한다. Windows·Linux 모두 지원 — Windows 는 TSF lang_bar, Linux 는
+    /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이와
+    /// 횟수로 확인할 수 있게 한다. 한글 모드는 높은 음(880Hz) 2번, 영문 모드는 낮은 음
+    /// (440Hz) 1번이다. AutoTypeFix 토글도 같은 규칙(켜짐 2번·꺼짐 1번)이다. Windows·Linux 모두 지원 — Windows 는 TSF lang_bar, Linux 는
     /// unim-daemon 이 paplay/pw-cat/aplay 로 합성 WAV 를 재생한다. 기본 false 로 현행
     /// 무음 동작을 바이트동일 보존한다.
     /// (능동 스크린리더 통지 NotifyWinEvent 는 본 옵션과 무관하게 항상 발생.)

@@ -2415,7 +2415,7 @@ fn run_engine_worker(
                     // 여기서 소유·persist 한 config 를 직렬화하므로 stale 위험이 없다.
                     resp.atf_config_json = serde_json::to_string(&config).ok();
 
-                    // [ATF 토글 비프] 켜짐(상승음)/꺼짐(하강음)을 청각으로 통지한다(접근성).
+                    // [ATF 토글 비프] 켜짐(높은 음 2번)/꺼짐(낮은 음 1번)을 청각으로 통지한다(접근성).
                     if config.engine.toggle_announce_beep {
                         crate::beep::announce_atf_toggle(new_value);
                     }

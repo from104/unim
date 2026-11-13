@@ -295,8 +295,8 @@ msgstr "'One-handed': Sebeolsik Sun-arae layout + non-modifier toggle key + moac
 msgid "한/영 전환 소리 알림"
 msgstr "Korean/English Switch Sound"
 
-msgid "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다."
-msgstr "Announces the current mode with a short beep when switching Korean/English (Korean = high tone, English = low tone). Lets you confirm the mode without looking at the screen."
+msgid "한/영을 전환할 때 짧은 비프음(한글=높은 음 2번, 영문=낮은 음 1번)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다."
+msgstr "Announces the current mode with a short beep when switching Korean/English (Korean = two high beeps, English = one low beep). Lets you confirm the mode without looking at the screen."
 
 msgid "조합키 자동반복 억제"
 msgstr "Suppress Composition-key Auto-repeat"

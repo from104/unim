@@ -1,8 +1,9 @@
 //! 리눅스 접근성 비프 통지.
 //!
-//! 시각장애 사용자가 화면 없이도 한/영 모드 전환·AutoTypeFix 토글을 소리 높낮이로
-//! 확인할 수 있게 한다. Windows TSF(`unim-tsf/src/lang_bar.rs`)의 의미론(한글 높은
-//! 음/영문 낮은 음)과 동일한 청각 피드백을 리눅스 데몬 경로에 제공한다.
+//! 시각장애 사용자가 화면 없이도 한/영 모드 전환·AutoTypeFix 토글을 소리 높낮이와
+//! 횟수로 확인할 수 있게 한다. Windows TSF(`unim-tsf/src/lang_bar.rs`)의 의미론(한글·
+//! 켜짐 = 높은 음 2번, 영문·꺼짐 = 낮은 음 1번)과 동일한 청각 피드백을 리눅스 데몬
+//! 경로에 제공한다.
 //!
 //! 신규 크레이트 의존은 0 — 순수 `std` 로 16-bit mono 44.1kHz WAV 를 메모리 합성하고,
 //! PATH 에서 탐지한 외부 재생기(`paplay` → `pw-cat` → `aplay`)에 stdin 파이프로 넘긴다.
@@ -118,13 +119,21 @@ fn play(wav: Vec<u8>) {
     }
 }
 
+/// `ms` 밀리초에 해당하는 샘플 수.
+fn ms_to_samples(ms: u32) -> u32 {
+    (SAMPLE_RATE as u64 * ms as u64 / 1000) as u32
+}
+
 /// 16-bit mono 44.1kHz PCM WAV 를 메모리 합성한다.
 ///
-/// `freq_hz` 사인파를 `duration_ms` 만큼 채우고, 앞뒤 약 5ms 선형 페이드로 시작·끝
-/// 클릭음을 없앤다. 반환값은 완전한 RIFF/WAVE 스트림(44바이트 헤더 + PCM 데이터)이다.
-fn synth_wav(freq_hz: f32, duration_ms: u32) -> Vec<u8> {
-    let num_samples = (SAMPLE_RATE as u64 * duration_ms as u64 / 1000) as u32;
-    let fade_samples = (SAMPLE_RATE as u64 * 5 / 1000) as u32; // ~5ms
+/// `freq_hz` 사인파 `tone_ms` 짜리 음을 `count` 번 울리고, 음 사이에 `gap_ms` 무음을
+/// 둔다. 각 음은 앞뒤 약 5ms 선형 페이드로 시작·끝 클릭음을 없앤다. 반환값은 완전한
+/// RIFF/WAVE 스트림(44바이트 헤더 + PCM 데이터)이다.
+fn synth_wav(freq_hz: f32, tone_ms: u32, count: u32, gap_ms: u32) -> Vec<u8> {
+    let tone_samples = ms_to_samples(tone_ms);
+    let gap_samples = ms_to_samples(gap_ms);
+    let num_samples = tone_samples * count + gap_samples * count.saturating_sub(1);
+    let fade_samples = ms_to_samples(5); // ~5ms
     let amplitude = 0.35_f32; // 클리핑 여유
 
     let data_bytes = num_samples * 2; // 16-bit mono
@@ -150,37 +159,55 @@ fn synth_wav(freq_hz: f32, duration_ms: u32) -> Vec<u8> {
 
     // ---- 샘플 ----
     let omega = std::f32::consts::TAU * freq_hz;
-    for n in 0..num_samples {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let mut s = (omega * t).sin() * amplitude;
-        // 앞뒤 선형 페이드
-        if fade_samples > 0 {
-            if n < fade_samples {
-                s *= n as f32 / fade_samples as f32;
-            }
-            let tail = num_samples - n - 1;
-            if tail < fade_samples {
-                s *= tail as f32 / fade_samples as f32;
-            }
+    for i in 0..count {
+        if i > 0 {
+            // 음 사이 무음
+            buf.resize(buf.len() + gap_samples as usize * 2, 0);
         }
-        let v = (s * i16::MAX as f32) as i16;
-        buf.extend_from_slice(&v.to_le_bytes());
+        for n in 0..tone_samples {
+            let t = n as f32 / SAMPLE_RATE as f32;
+            let mut s = (omega * t).sin() * amplitude;
+            // 앞뒤 선형 페이드
+            if fade_samples > 0 {
+                if n < fade_samples {
+                    s *= n as f32 / fade_samples as f32;
+                }
+                let tail = tone_samples - n - 1;
+                if tail < fade_samples {
+                    s *= tail as f32 / fade_samples as f32;
+                }
+            }
+            let v = (s * i16::MAX as f32) as i16;
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
     }
     buf
 }
 
-/// 한/영 모드 통지 비프. 한글=880Hz(높은 음), 영문=440Hz(낮은 음), 90ms.
+/// 한/영 모드 통지 비프 1음 길이 (ms).
+const MODE_TONE_MS: u32 = 90;
+/// 한/영 모드 통지 비프 음 사이 무음 (ms).
+const MODE_GAP_MS: u32 = 70;
+/// AutoTypeFix 토글 통지 비프 1음 길이 (ms).
+const ATF_TONE_MS: u32 = 70;
+/// AutoTypeFix 토글 통지 비프 음 사이 무음 (ms).
+const ATF_GAP_MS: u32 = 60;
+
+/// 한/영 모드 통지 비프. 한글=880Hz(높은 음) 2번, 영문=440Hz(낮은 음) 1번.
 ///
-/// Windows TSF(`unim-tsf/src/lang_bar.rs`)의 한/영 통지 의미론과 동일하다.
+/// 높낮이를 잘 구별하지 못해도 횟수로 알 수 있다. Windows TSF
+/// (`unim-tsf/src/lang_bar.rs`)의 한/영 통지 의미론과 동일하다.
 pub fn announce_mode(is_korean: bool) {
-    let freq = if is_korean { 880.0 } else { 440.0 };
-    play(synth_wav(freq, 90));
+    let (freq, count) = if is_korean { (880.0, 2) } else { (440.0, 1) };
+    play(synth_wav(freq, MODE_TONE_MS, count, MODE_GAP_MS));
 }
 
-/// AutoTypeFix 토글 통지 비프. 켜짐=1318Hz(상승), 꺼짐=659Hz(하강), 70ms.
+/// AutoTypeFix 토글 통지 비프. 켜짐=1318Hz(높은 음) 2번, 꺼짐=659Hz(낮은 음) 1번.
+///
+/// 한/영 비프(880/440Hz)와 음역·길이를 달리해 ATF 토글임을 구별한다.
 pub fn announce_atf_toggle(on: bool) {
-    let freq = if on { 1318.0 } else { 659.0 };
-    play(synth_wav(freq, 70));
+    let (freq, count) = if on { (1318.0, 2) } else { (659.0, 1) };
+    play(synth_wav(freq, ATF_TONE_MS, count, ATF_GAP_MS));
 }
 
 #[cfg(test)]
@@ -197,7 +224,7 @@ mod tests {
     /// RIFF/WAVE/fmt/data 매직·PCM 포맷 파라미터가 올바른지 (오디오 장치 불필요).
     #[test]
     fn wav_header_is_valid_riff() {
-        let wav = synth_wav(440.0, 90);
+        let wav = synth_wav(440.0, 90, 1, 0);
         assert_eq!(&wav[0..4], b"RIFF");
         assert_eq!(&wav[8..12], b"WAVE");
         assert_eq!(&wav[12..16], b"fmt ");
@@ -213,7 +240,7 @@ mod tests {
     #[test]
     fn wav_sample_length_matches_duration() {
         let ms = 90;
-        let wav = synth_wav(880.0, ms);
+        let wav = synth_wav(880.0, ms, 1, 0);
         let expected_bytes = (SAMPLE_RATE * ms / 1000) * 2;
         assert_eq!(wav.len() as u32, 44 + expected_bytes, "총 길이 = 헤더 44 + data");
         assert_eq!(u32_le(&wav, 40), expected_bytes, "data 청크 크기 필드");
@@ -223,6 +250,28 @@ mod tests {
     /// 모드 비프(90ms)와 ATF 비프(70ms)는 길이가 다르다.
     #[test]
     fn mode_and_atf_wav_lengths_differ() {
-        assert!(synth_wav(880.0, 90).len() > synth_wav(1318.0, 70).len());
+        assert!(
+            synth_wav(880.0, MODE_TONE_MS, 1, MODE_GAP_MS).len()
+                > synth_wav(1318.0, ATF_TONE_MS, 1, ATF_GAP_MS).len()
+        );
+    }
+
+    /// 여러 번 울리면 음 사이에만 무음이 들어간다: 2음 = 음 2개 + 무음 1개.
+    #[test]
+    fn multi_beep_length_is_tones_plus_gaps() {
+        let one = ms_to_samples(MODE_TONE_MS) * 2;
+        let gap = ms_to_samples(MODE_GAP_MS) * 2;
+        let wav = synth_wav(880.0, MODE_TONE_MS, 2, MODE_GAP_MS);
+        assert_eq!(wav.len() as u32, 44 + one * 2 + gap);
+        assert_eq!(u32_le(&wav, 40), one * 2 + gap, "data 청크 크기 필드");
+    }
+
+    /// 음 사이 구간은 완전한 무음(0)이다.
+    #[test]
+    fn multi_beep_gap_is_silent() {
+        let wav = synth_wav(880.0, MODE_TONE_MS, 2, MODE_GAP_MS);
+        let start = 44 + ms_to_samples(MODE_TONE_MS) as usize * 2;
+        let end = start + ms_to_samples(MODE_GAP_MS) as usize * 2;
+        assert!(wav[start..end].iter().all(|&b| b == 0));
     }
 }

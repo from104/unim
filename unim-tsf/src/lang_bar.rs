@@ -525,9 +525,9 @@ impl LangBarState {
     ///     객체는 OS(ctfmon)가 소유해 우리가 직접 HWND 를 못 잡으므로, 입력 포커스가
     ///     있는 전경 창을 대상으로 상태 변화를 알려 스크린리더가 즉시 갱신·낭독하게
     ///     한다. (수동 통지인 랭바 szDescription/툴팁과 달리 능동적.)
-    /// (b) `announce_beep` 가 true 면 한/영 차등 비프음(한글=높은 음, 영문=낮은 음)
-    ///     으로 무시각 확인을 제공한다. Beep 은 동기 블로킹이므로 입력 스레드 지연을
-    ///     피하기 위해 별도 스레드에서 울린다.
+    /// (b) `announce_beep` 가 true 면 한/영 차등 비프음(한글=높은 음 2번, 영문=낮은
+    ///     음 1번)으로 무시각 확인을 제공한다. Beep 은 동기 블로킹이므로 입력 스레드
+    ///     지연을 피하기 위해 별도 스레드에서 울린다.
     fn announce_mode_change(&self, is_korean: bool, announce_beep: bool) {
         unsafe {
             let hwnd = GetForegroundWindow();
@@ -539,20 +539,18 @@ impl LangBarState {
             }
         }
         if announce_beep {
-            // 한글=높은 음(880Hz), 영문=낮은 음(440Hz), 각 90ms. 별도 스레드에서
-            // 울려 TSF STA(키 입력) 스레드가 블로킹되지 않게 한다.
-            let (freq, dur) = if is_korean { (880u32, 90u32) } else { (440u32, 90u32) };
-            std::thread::spawn(move || unsafe {
-                let _ = Beep(freq, dur);
-            });
+            // 한글=높은 음(880Hz) 2번, 영문=낮은 음(440Hz) 1번, 각 90ms·사이 70ms.
+            // 리눅스 데몬(`unim-dbus/src/beep.rs`)과 같은 값이다.
+            let (freq, count) = if is_korean { (880u32, 2) } else { (440u32, 1) };
+            beep_n(freq, 90, count, 70);
         }
     }
 
     /// AutoTypeFix 토글 단축키(전체/순방향/역방향)를 무시각 사용자에게 능동 통지한다.
     ///
     /// `announce_mode_change`(한/영)와 동일 패턴이나 비프 음역을 달리해(한/영 880/440Hz
-    /// 와 구별) ATF 토글임을 청각적으로 구별하게 한다: 켜짐=고음(1318Hz)/꺼짐=저음
-    /// (659Hz), 각 70ms. 세 종류(enabled/forward/reverse)는 on/off 차등만 두고 kind 별
+    /// 와 구별) ATF 토글임을 청각적으로 구별하게 한다: 켜짐=고음(1318Hz) 2번/꺼짐=저음
+    /// (659Hz) 1번, 각 70ms·사이 60ms. 세 종류(enabled/forward/reverse)는 on/off 차등만 두고 kind 별
     /// 구별은 하지 않는다(과도 신호 방지). `announce_beep` 는 `toggle_announce_beep`
     /// 설정을 존중한다(한/영 비프와 동일 게이트). Beep 은 별도 스레드에서 울려 TSF STA
     /// (키 입력) 스레드를 블로킹하지 않는다.
@@ -565,10 +563,8 @@ impl LangBarState {
             }
         }
         if announce_beep {
-            let (freq, dur) = if on { (1318u32, 70u32) } else { (659u32, 70u32) };
-            std::thread::spawn(move || unsafe {
-                let _ = Beep(freq, dur);
-            });
+            let (freq, count) = if on { (1318u32, 2) } else { (659u32, 1) };
+            beep_n(freq, 70, count, 60);
         }
     }
 }
@@ -956,4 +952,21 @@ impl ITfSource_Impl for UnimLangBarButton_Impl {
             Err(windows::core::HRESULT(0x80040200_u32 as i32).into())
         }
     }
+}
+
+/// `freq` Hz 비프를 `dur_ms` 길이로 `count` 번 울린다(음 사이 `gap_ms` 쉼).
+///
+/// `Beep` 은 동기 블로킹이므로 별도 스레드에서 울려 TSF STA(키 입력) 스레드를
+/// 블로킹하지 않는다.
+fn beep_n(freq: u32, dur_ms: u32, count: u32, gap_ms: u64) {
+    std::thread::spawn(move || {
+        for i in 0..count {
+            if i > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(gap_ms));
+            }
+            unsafe {
+                let _ = Beep(freq, dur_ms);
+            }
+        }
+    });
 }

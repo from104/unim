@@ -395,7 +395,7 @@ help_ck_korean_chord_window_ms: "모아치기 화음 윈도우 (ms, 0=OFF). supp
 help_ck_commit_unit: "조합 확정 단위 (syllable, word, smart). 단어 단위는 터미널·XIM 비대상, 스마트는 word-mode-apps 목록 앱만 단어 조합."
 help_ck_hanja_output_format: "한자 출력 형식 (hanja, hangul-hanja, hanja-hangul). 漢字 / 한자(漢字) / 漢字(한자)"
 help_ck_word_mode_apps: "단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등)."
-help_ck_toggle_announce_beep: "한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음)."
+help_ck_toggle_announce_beep: "한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음 2번, 영문=낮은 음 1번)."
 help_ck_ignore_key_repeat: "조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows·Linux 공통 집행."
 help_ck_notify_enabled: "상황 알림(토스트) 전체 켜기/끄기 (true, false). 자동 교정·비밀번호 칸 등 상황을 짧게 알린다."
 help_ck_notify_duration_ms: "알림 표시 시간 (500~5000 ms). GNOME 알림 배너에는 적용되지 않음(셸 고정 시간)."

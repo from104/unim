@@ -395,7 +395,7 @@ help_ck_korean_chord_window_ms: "Moachigi chord window (ms, 0=OFF). supports_moa
 help_ck_commit_unit: "Commit unit (syllable, word, smart). Word unit does not apply to terminals/XIM; smart composes by word only for apps listed in word-mode-apps."
 help_ck_hanja_output_format: "Hanja output format (hanja, hangul-hanja, hanja-hangul): 漢字 / 한자(漢字) / 漢字(한자)"
 help_ck_word_mode_apps: "Word-mode app list (comma-separated, exact executable name match). Apps that get word-unit composition under the Smart commit unit (Windows: winword.exe, Linux: soffice, etc.)."
-help_ck_toggle_announce_beep: "Korean/English toggle sound notification (true, false). Accessibility — a differentiated beep on toggle (Korean=high tone, English=low tone)."
+help_ck_toggle_announce_beep: "Korean/English toggle sound notification (true, false). Accessibility — a differentiated beep on toggle (Korean=two high beeps, English=one low beep)."
 help_ck_ignore_key_repeat: "Suppress composition key auto-repeat (true, false). Accessibility (mobility impairment) — prevents repeat-fire/toggle jitter when a key is held. Enforced on both Windows and Linux."
 help_ck_notify_enabled: "Enable/disable situation notifications (toast) (true, false). Briefly reports auto-fix, password fields, etc."
 help_ck_notify_duration_ms: "Notification duration (500-5000 ms). Not applied to GNOME notification banners (fixed by the shell)."

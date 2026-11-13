@@ -719,7 +719,7 @@ unim-cli config set auto-typefix-toggle-keys ""
 <li>GNOME(Wayland)에서는 <code>Ctrl+Left</code> 같은 Ctrl/Alt/Super 조합도 동작한다 — UNIM 확장이 토글 조합을 엔진으로 전달한다(확장 업데이트 후 재로그인 필요).</li>
 <li>Windows(TSF)에서도 조합 표기가 리눅스와 동일하게 동작한다 — 기본값 <code>Shift+F8</code> 그대로 쓰면 된다.</li>
 <li>전체가 꺼진 상태에서 순방향만 토글로 켜도 실제 교정은 전체를 다시 켜야 발동한다(전체가 마스터 스위치). 순방향/역방향 토글은 각 방향의 플래그만 바꾼다.</li>
-<li>접근성 참고: <code>toggle-announce-beep</code> 설정을 켜면 이 토글도 한/영 전환과 같은 차등 비프(켜짐=상승음/꺼짐=하강음)로 상태를 알려 준다 — <strong>Windows·Linux 공통</strong>이다(리눅스는 daemon 이 <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> 중 PATH 에서 찾은 재생기로 소리를 낸다. 셋 다 없으면 무음 no-op). 기본값은 꺼짐 — <a href="#user-guide--41-한영-모드-전환">4.1 접근성 안내</a> 참고.</li>
+<li>접근성 참고: <code>toggle-announce-beep</code> 설정을 켜면 이 토글도 한/영 전환과 같은 차등 비프(켜짐=높은 음 2번/꺼짐=낮은 음 1번)로 상태를 알려 준다 — <strong>Windows·Linux 공통</strong>이다(리눅스는 daemon 이 <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> 중 PATH 에서 찾은 재생기로 소리를 낸다. 셋 다 없으면 무음 no-op). 기본값은 꺼짐 — <a href="#user-guide--41-한영-모드-전환">4.1 접근성 안내</a> 참고.</li>
 </ul>
 </blockquote>
 <h5 id="user-guide--비밀번호-필드-자동-보호">비밀번호 필드 자동 보호</h5>

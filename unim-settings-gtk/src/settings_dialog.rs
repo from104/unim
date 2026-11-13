@@ -827,8 +827,8 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
 
 /// I7: 접근성 그룹 — 한/영 전환 소리 알림(비프) 토글.
 ///
-/// 시각장애 사용자가 화면 없이도 한/영 토글 후 현재 모드를 소리 높낮이(한글=높은
-/// 음, 영문=낮은 음)로 확인할 수 있게 한다. Windows TSF 전용 기능이지만 설정은
+/// 시각장애 사용자가 화면 없이도 한/영 토글 후 현재 모드를 소리 높낮이와 횟수
+/// (한글=높은 음 2번, 영문=낮은 음 1번)로 확인할 수 있게 한다. Windows TSF 전용 기능이지만 설정은
 /// 단일 config.yaml 을 공유하므로 모든 프런트엔드에서 편집 가능하게 노출한다.
 fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()

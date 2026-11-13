@@ -978,7 +978,7 @@ export component SettingsWindow inherits Window {
                         Rectangle { height: Tokens.space-2; }
                         SettingRow {
                             title: @tr("한/영 전환 소리 알림");
-                            description: @tr("한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.");
+                            description: @tr("한/영을 전환할 때 짧은 비프음(한글=높은 음 2번, 영문=낮은 음 1번)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.");
                             Switch {
                                 checked <=> root.toggle-announce-beep;
                                 accessible-label: @tr("한/영 전환 소리 알림");

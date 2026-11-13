@@ -633,7 +633,7 @@ enum ConfigKey {
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
     #[value(name = "word-mode-apps", help = h("help_ck_word_mode_apps"))]
     WordModeApps,
-    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음).
+    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음 2번, 영문=낮은 음 1번).
     #[value(
         name = "toggle-announce-beep",
         help = h("help_ck_toggle_announce_beep")

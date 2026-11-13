@@ -437,7 +437,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 </blockquote>
 <blockquote>
 <p><strong>Accessibility — screen readers and the toggle sound</strong>: on Windows, a Korean/English switch <strong>is announced to screen readers (NVDA, Narrator)</strong>, and the text you are composing along with the candidate window are exposed so a screen reader can read them.</p>
-<p>On top of that you can enable a <strong>mode-switch sound</strong> — a higher pitch for Korean, a lower one for English. It <strong>defaults to off</strong> (a deliberate choice to avoid false positives); turn it on under <strong>General → Accessibility</strong> in the settings window (§5). If you type without watching the screen, turning it on is recommended.</p>
+<p>On top of that you can enable a <strong>mode-switch sound</strong> — two high beeps for Korean, one low beep for English. It <strong>defaults to off</strong> (a deliberate choice to avoid false positives); turn it on under <strong>General → Accessibility</strong> in the settings window (§5). If you type without watching the screen, turning it on is recommended.</p>
 </blockquote>
 <blockquote>
 <p><strong>Toggling with Right Alt</strong>: on keyboards without a Hangul key (many US-layout laptops), <strong>right Alt</strong> switches Korean/English. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove <code>RightAlt</code> from the <code>toggle_keys</code> list in your settings.</p>
@@ -711,7 +711,7 @@ Digit 1   만세 大韓民國| 만만세
 <li>On GNOME (Wayland), Ctrl/Alt/Super combinations such as <code>Ctrl+Left</code> work too — the UNIM extension forwards toggle combos to the engine (re-login after updating the extension).</li>
 <li>On Windows (TSF), combination specs behave exactly as on Linux — the default <code>Shift+F8</code> works as-is.</li>
 <li>Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.</li>
-<li>Accessibility note: with <code>toggle-announce-beep</code> enabled, this toggle also announces its state with a differential beep (rising pitch = on / falling pitch = off), just like the Korean/English switch sound — <strong>on both Windows and Linux</strong> (on Linux the daemon plays the tone via whichever of <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a>.</li>
+<li>Accessibility note: with <code>toggle-announce-beep</code> enabled, this toggle also announces its state with a differential beep (two high beeps = on / one low beep = off), just like the Korean/English switch sound — <strong>on both Windows and Linux</strong> (on Linux the daemon plays the tone via whichever of <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a>.</li>
 </ul>
 </blockquote>
 <h5 id="user-guide--password-field-auto-protection">Password-field auto-protection</h5>

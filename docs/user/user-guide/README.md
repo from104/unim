@@ -360,7 +360,7 @@ Apps handle input differently, so a problem can show up in just one of them. Nar
 <!-- @platform:windows -->
 > **Accessibility — screen readers and the toggle sound**: on Windows, a Korean/English switch **is announced to screen readers (NVDA, Narrator)**, and the text you are composing along with the candidate window are exposed so a screen reader can read them.
 >
-> On top of that you can enable a **mode-switch sound** — a higher pitch for Korean, a lower one for English. It **defaults to off** (a deliberate choice to avoid false positives); turn it on under **General → Accessibility** in the settings window (§5). If you type without watching the screen, turning it on is recommended.
+> On top of that you can enable a **mode-switch sound** — two high beeps for Korean, one low beep for English. It **defaults to off** (a deliberate choice to avoid false positives); turn it on under **General → Accessibility** in the settings window (§5). If you type without watching the screen, turning it on is recommended.
 <!-- @endplatform -->
 
 <!-- @platform:linux -->
@@ -744,7 +744,7 @@ In the Slint settings app (`unim-settings`, including Windows) the three fields 
 > - On GNOME (Wayland), Ctrl/Alt/Super combinations such as `Ctrl+Left` work too — the UNIM extension forwards toggle combos to the engine (re-login after updating the extension).
 > - On Windows (TSF), combination specs behave exactly as on Linux — the default `Shift+F8` works as-is.
 > - Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.
-> - Accessibility note: with `toggle-announce-beep` enabled, this toggle also announces its state with a differential beep (rising pitch = on / falling pitch = off), just like the Korean/English switch sound — **on both Windows and Linux** (on Linux the daemon plays the tone via whichever of `paplay`/`pw-cat`/`aplay` it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in [4.1](#41-koreanenglish-mode-toggle).
+> - Accessibility note: with `toggle-announce-beep` enabled, this toggle also announces its state with a differential beep (two high beeps = on / one low beep = off), just like the Korean/English switch sound — **on both Windows and Linux** (on Linux the daemon plays the tone via whichever of `paplay`/`pw-cat`/`aplay` it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in [4.1](#41-koreanenglish-mode-toggle).
 
 #### Password-field auto-protection
 
