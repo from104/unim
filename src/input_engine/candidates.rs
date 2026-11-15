@@ -33,6 +33,9 @@ impl InputEngine {
             return InputResult::consumed();
         }
 
+        // 새 팝업을 여는 한자키 — 사용자 사전 스냅샷을 여기서만 갱신한다(SPEC §3.3).
+        self.refresh_hanja_user_layer();
+
         let spec = match self.resolve_hanja_target() {
             Resolve::Target(spec) => spec,
             Resolve::NoMatchSelection => {
@@ -43,7 +46,7 @@ impl InputEngine {
             Resolve::SurroundingWord(cands) => {
                 // 대상③ — 첫 후보로 팝업을 연다. 이어지는 한자키 재타가 순환한다.
                 let first = Self::sw_spec(&cands[0]);
-                let candidates = self.hanja_dict.search(&first.key);
+                let candidates = self.hanja_search(&first.key);
                 if candidates.is_empty() {
                     unim_log!("ENGINE", "한자/특수문자 후보 없음");
                     return InputResult::consumed();
@@ -64,7 +67,7 @@ impl InputEngine {
             }
         };
 
-        let candidates = self.hanja_dict.search(&spec.key);
+        let candidates = self.hanja_search(&spec.key);
         if !candidates.is_empty() {
             self.open_hanja_popup(spec, candidates);
             return InputResult::hanja_candidates();
@@ -124,11 +127,13 @@ impl InputEngine {
         let bookmarks = &self.hanja_bookmarks;
         candidates.sort_by_key(|e| !bookmarks.is_bookmarked(&target, &e.hanja));
         // target 은 최대 18자 타이핑 텍스트라 평문을 남기지 않는다 — 길이만(§2.8).
+        // 사용자 사전 항목은 개수만 남긴다(평문 금지).
         unim_log!(
             "ENGINE",
-            "한자 후보 발견: {}자 -> {} 개",
+            "한자 후보 발견: {}자 -> {} 개 (사용자 {}개)",
             target.chars().count(),
-            candidates.len()
+            candidates.len(),
+            self.hanja_user.get(&target).len()
         );
         let hanja_pairs = self.hanja_display_pairs(&candidates);
         let bookmark_flags: Vec<bool> = candidates
@@ -282,7 +287,7 @@ impl InputEngine {
         // 방금 해제된 한자가 0번 자리에 그대로 머물렀다 — 자연 위치로 점프 못함.
         // dict 에서 빈도순을 매번 다시 받아 정렬 기반을 리셋한다.
         let target = self.hanja_target.clone();
-        let mut fresh = self.hanja_dict.search(&target);
+        let mut fresh = self.hanja_search(&target);
         let bookmarks_ref = &self.hanja_bookmarks;
         fresh.sort_by_key(|e| !bookmarks_ref.is_bookmarked(&target, &e.hanja));
         self.hanja_candidates = fresh;

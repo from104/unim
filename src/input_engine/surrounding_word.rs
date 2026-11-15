@@ -771,7 +771,7 @@ impl InputEngine {
             let jmax = e.min(i + HANJA_MAX_KEY_CHARS);
             for j in jmin..=jmax {
                 let key: String = chars[i..j].iter().collect();
-                if !self.hanja_dict.contains(&key) {
+                if !self.hanja_contains(&key) {
                     continue;
                 }
                 let grade = if j == c {

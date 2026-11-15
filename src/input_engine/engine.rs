@@ -129,6 +129,12 @@ pub struct InputEngine {
     pub(super) korean_layout: KoreanLayout,
     /// 한자 사전 (Arc로 래핑하여 공유)
     pub(super) hanja_dict: std::sync::Arc<crate::hanja::HanjaDictionary>,
+    /// 한자 사용자 사전 층 스냅샷 — 새 팝업을 여는 한자키에서만 갱신한다
+    /// (HANJA_USERDICT_SPEC §3.3). 조회는 `hanja_lookup.rs` 의 헬퍼로만.
+    pub(super) hanja_user: std::sync::Arc<crate::hanja::HanjaUserIndex>,
+    /// 시험 전용: true 면 `refresh_hanja_user_layer` 가 전역 층을 읽지 않는다.
+    #[cfg(test)]
+    pub(super) hanja_user_pinned: bool,
     /// 한자 즐겨찾기 저장소 (영구 저장)
     pub(super) hanja_bookmarks: crate::hanja::HanjaBookmarkStore,
     /// 현재 한자 후보 목록
@@ -374,6 +380,13 @@ impl InputEngine {
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
             hanja_dict,
+            // 단위 시험은 전역 층(override)과 격리하려고 빈 층으로 고정해 시작한다.
+            #[cfg(test)]
+            hanja_user: std::sync::Arc::new(crate::hanja::HanjaUserIndex::empty()),
+            #[cfg(not(test))]
+            hanja_user: crate::hanja::user_dict::shared_index(),
+            #[cfg(test)]
+            hanja_user_pinned: true,
             hanja_bookmarks: crate::hanja::HanjaBookmarkStore::load_default(),
             hanja_candidates: Vec::new(),
             hanja_mode: false,
@@ -1177,7 +1190,7 @@ impl InputEngine {
     /// `build_korean_context` 빌더로 컨텍스트를 다시 만들어 즉시 반영한다.
     /// hot-reload 경로(`engine_worker`)에서 `reload_if_changed` 직후 호출.
     ///
-    /// 다른 상태(`hanja_dict`/`hanja_bookmarks`/`input_category` 등)는 보존.
+    /// 다른 상태(`hanja_dict`/`hanja_user`/`hanja_bookmarks`/`input_category` 등)는 보존.
     pub fn rebuild_korean_context(&mut self, config: &Config) {
         self.flush_preedit();
 

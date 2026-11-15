@@ -276,7 +276,7 @@ impl InputEngine {
                 continue;
             }
             let key: String = suf.iter().collect();
-            if !self.hanja_dict.contains(&key) {
+            if !self.hanja_contains(&key) {
                 continue;
             }
             if l > p {
@@ -479,7 +479,7 @@ impl InputEngine {
         }
         let next = self.hanja_sw_idx + 1;
         if let Some(c) = self.hanja_sw_cands.get(next).cloned() {
-            let candidates = self.hanja_dict.search(&c.key);
+            let candidates = self.hanja_search(&c.key);
             if !candidates.is_empty() {
                 self.hanja_sw_idx = next;
                 unim_log!("ENGINE", "대상③ 다음 후보: {}/{}", next + 1, self.hanja_sw_cands.len());
@@ -544,7 +544,7 @@ impl InputEngine {
             return Resolve::NoMatchSelection;
         }
         let key: String = core.iter().collect();
-        if !self.hanja_dict.contains(&key) {
+        if !self.hanja_contains(&key) {
             return Resolve::NoMatchSelection;
         }
         Resolve::Target(HanjaTargetSpec {
@@ -590,10 +590,10 @@ impl InputEngine {
                 continue;
             }
             let new_key: String = pool[n - l2..].iter().collect();
-            if l2 >= 2 && !self.hanja_dict.contains(&new_key) {
+            if l2 >= 2 && !self.hanja_contains(&new_key) {
                 continue;
             }
-            let candidates = self.hanja_dict.search(&new_key);
+            let candidates = self.hanja_search(&new_key);
             if candidates.is_empty() {
                 continue;
             }

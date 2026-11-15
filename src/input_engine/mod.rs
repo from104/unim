@@ -11,6 +11,7 @@ mod candidates;
 mod chord_buffer;
 pub mod chord_compose;
 mod engine;
+mod hanja_lookup;
 mod hanja_word;
 mod popup_dispatch;
 mod press_key;
@@ -55,6 +56,8 @@ mod tests_toggle;
 mod tests_atf_hotkey;
 #[cfg(test)]
 mod tests_hanja_word;
+#[cfg(test)]
+mod tests_hanja_userdict;
 #[cfg(test)]
 mod tests_surrounding_contract;
 #[cfg(test)]
