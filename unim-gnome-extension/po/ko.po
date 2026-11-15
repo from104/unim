@@ -30,8 +30,8 @@ msgstr "Selection is empty, invalid, or already registered."
 
 #: extension.js:719
 #, javascript-format
-msgid "Registered '%s' to the reverse user dictionary."
-msgstr "Registered '%s' to the reverse user dictionary."
+msgid "Registered '%s' to the reverse auto-correction dictionary."
+msgstr "Registered '%s' to the reverse auto-correction dictionary."
 
 #: prefs.js:21
 msgid "UNIM"
@@ -134,12 +134,12 @@ msgid "ㅗ디ㅣㅐ → hello"
 msgstr "ㅗ디ㅣㅐ → hello"
 
 #: prefs.js:132
-msgid "사용자 사전 등록"
-msgstr "사용자 사전 등록"
+msgid "자동 교정 사전 등록"
+msgstr "자동 교정 사전 등록"
 
 #: prefs.js:133
-msgid "선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다."
-msgstr "선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다."
+msgid "선택한 한글을 영문으로 변환해 역방향 자동 교정 사전에 추가합니다."
+msgstr "선택한 한글을 영문으로 변환해 역방향 자동 교정 사전에 추가합니다."
 
 #: prefs.js:138
 msgid "선택 영역 등록"
@@ -202,5 +202,5 @@ msgid "Conversion complete"
 msgstr "변환 완료"
 
 #: extension.js
-msgid "Registered to the reverse user dictionary."
-msgstr "역방향 사용자 사전에 등록했습니다."
+msgid "Registered to the reverse auto-correction dictionary."
+msgstr "역방향 자동 교정 사전에 등록했습니다."

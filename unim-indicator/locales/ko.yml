@@ -12,7 +12,7 @@ settings_toast_deleted: "삭제됨 ✓"
 page_general_title: "일반"
 page_typefix_title: "오타 교정"
 page_blacklist_title: "교정 억제 단어"
-page_userdict_title: "사용자 사전"
+page_userdict_title: "자동 교정 사전"
 
 # 일반 > 자판 및 키맵
 group_layouts_keymap: "자판 및 키맵"
@@ -70,8 +70,8 @@ row_typefix_reverse_window: "트리거 윈도우 (초)"
 row_typefix_reverse_window_subtitle: "역방향 교정이 유효로 간주하는 최근 입력 시간"
 row_typefix_skip_complete: "온전한 음절 매칭 시 억제"
 row_typefix_skip_complete_subtitle: "버퍼의 한글이 모두 완성 음절이면 교정하지 않음"
-row_typefix_userdict: "사용자 사전 사용"
-row_typefix_userdict_subtitle: "등록된 CLI 명령 등은 길이·사전 검사를 우회하여 즉시 교정 — '사용자 사전' 페이지에서 관리"
+row_typefix_userdict: "자동 교정 사전 사용"
+row_typefix_userdict_subtitle: "등록된 CLI 명령 등은 길이·사전 검사를 우회하여 즉시 교정 — '자동 교정 사전' 페이지에서 관리"
 
 # 오타 교정 > 마스터
 group_typefix_master: "전체 기능"
@@ -112,8 +112,8 @@ blacklist_btn_confirm: "확정"
 blacklist_kind_forward: "순방향(영→한)"
 blacklist_kind_reverse: "역방향(한→영)"
 
-# 사용자 사전 페이지
-userdict_group_title: "역방향 사용자 사전"
+# 자동 교정 사전 페이지
+userdict_group_title: "역방향 자동 교정 사전"
 userdict_group_desc: "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. CLI 명령어(예: git, ls, kubectl)나 짧은 고유명사를 등록하세요."
 userdict_group_desc_count: "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. CLI 명령어나 짧은 고유명사를 등록하세요. (%{count}개 등록)"
 userdict_btn_add_tooltip: "단어 추가"
@@ -184,7 +184,7 @@ row_typefix_reverse_enable_tooltip: "한글 모드에서 영어 식별자(예: g
 row_typefix_eng_threshold_tooltip: "이 개수 이상의 한글 글자가 쌓여야 역방향 교정 검사를 시작합니다. 기본값 3 권장 — 1~2이면 짧은 단어(예: 'ㅎ') 오탐 증가."
 row_typefix_reverse_window_tooltip: "입력 후 이 시간 내에 들어온 자모만 역방향 교정 후보로 삼습니다. 3~5초 권장."
 row_typefix_skip_complete_tooltip: "ON 강력 권장. 완성된 한글 음절('가', '나')이 우연히 영어 단어로 해석되는 오탐을 방지합니다. OFF는 세벌식 미조합 자모 교정 테스트용."
-row_typefix_userdict_tooltip: "ON: 등록된 CLI 명령어(git, ls, kubectl 등)는 길이·사전 검사를 건너뛰고 즉시 교정. OFF: 사전 자동 발견 우선. '사용자 사전' 페이지에서 단어 관리."
+row_typefix_userdict_tooltip: "ON: 등록된 CLI 명령어(git, ls, kubectl 등)는 길이·사전 검사를 건너뛰고 즉시 교정. OFF: 사전 자동 발견 우선. '자동 교정 사전' 페이지에서 단어 관리."
 
 # 오타 교정 > 마스터
 row_typefix_master_tooltip: "예: 영문 모드인 줄 모르고 'gksrmf'를 친 경우 → 순방향(forward)이 '한글'로 자동 교체. ON이면 순방향·역방향 모두 활성. OFF면 이 페이지의 모든 교정이 멈춥니다."

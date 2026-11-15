@@ -75,8 +75,8 @@
 
     <key type="as" name="shortcut-register-userdict">
       <default>['&lt;Super&gt;e']</default>
-      <summary>Register Selection to Reverse User Dictionary</summary>
-      <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix user dictionary.</description>
+      <summary>Register Selection to Reverse Auto-correction Dictionary</summary>
+      <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix auto-correction dictionary.</description>
     </key>
 
     <!-- 이모지 팝업 단축키 설정은 제공하지 않는다.

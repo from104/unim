@@ -931,8 +931,8 @@ export default class UnimExtension extends Extension {
 
             this._notifyFeatureResult(
                 _('UNIM Dictionary'),
-                _("Registered '%s' to the reverse user dictionary.").format(word),
-                _('Registered to the reverse user dictionary.')
+                _("Registered '%s' to the reverse auto-correction dictionary.").format(word),
+                _('Registered to the reverse auto-correction dictionary.')
             );
         } catch (e) {
             unimError('EXTENSION', `UserDict DBus 오류: ${e.message}`);

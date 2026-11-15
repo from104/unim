@@ -12,7 +12,7 @@ settings_toast_deleted: "Deleted"
 page_general_title: "General"
 page_typefix_title: "Auto TypeFix"
 page_blacklist_title: "Suppression List"
-page_userdict_title: "User Dictionary"
+page_userdict_title: "Auto-correction Dictionary"
 
 # General > Layouts and keymap
 group_layouts_keymap: "Layouts & Keymap"
@@ -70,8 +70,8 @@ row_typefix_reverse_window: "Trigger window (sec)"
 row_typefix_reverse_window_subtitle: "Recent input window considered valid for reverse correction"
 row_typefix_skip_complete: "Skip when all syllables complete"
 row_typefix_skip_complete_subtitle: "Do not correct if buffered Hangul are all complete syllables"
-row_typefix_userdict: "Use user dictionary"
-row_typefix_userdict_subtitle: "Registered CLI commands etc. bypass length/dictionary checks for instant correction — manage on the 'User Dictionary' page"
+row_typefix_userdict: "Use auto-correction dictionary"
+row_typefix_userdict_subtitle: "Registered CLI commands etc. bypass length/dictionary checks for instant correction — manage on the 'Auto-correction Dictionary' page"
 
 # TypeFix > Master
 group_typefix_master: "Master Toggle"
@@ -113,7 +113,7 @@ blacklist_kind_forward: "Forward (EN→KO)"
 blacklist_kind_reverse: "Reverse (KO→EN)"
 
 # Userdict page
-userdict_group_title: "Reverse user dictionary"
+userdict_group_title: "Reverse auto-correction dictionary"
 userdict_group_desc: "Inputting these words in Korean mode auto-corrects to English. Register CLI commands (git, ls, kubectl) or short proper nouns."
 userdict_group_desc_count: "Inputting these words in Korean mode auto-corrects to English. Register CLI commands or short proper nouns. (%{count} registered)"
 userdict_btn_add_tooltip: "Add word"
@@ -184,7 +184,7 @@ row_typefix_reverse_enable_tooltip: "Auto-replaces Hangul jamo sequences that sp
 row_typefix_eng_threshold_tooltip: "Reverse only runs after this many Hangul characters accumulate. Default 3 recommended — values of 1–2 increase false positives on short inputs like 'ㅎ'."
 row_typefix_reverse_window_tooltip: "Only jamo entered within this recent window count as reverse correction candidates. 3–5s recommended."
 row_typefix_skip_complete_tooltip: "Strongly recommended ON. Prevents complete Hangul syllables ('가', '나') from being misread as English words. Turn OFF only for testing Sebeolsik uncomposed jamo correction."
-row_typefix_userdict_tooltip: "ON: registered CLI commands (git, ls, kubectl) bypass length/dictionary checks for instant correction. OFF: auto-discovery mode. Manage entries on the 'User Dictionary' page."
+row_typefix_userdict_tooltip: "ON: registered CLI commands (git, ls, kubectl) bypass length/dictionary checks for instant correction. OFF: auto-discovery mode. Manage entries on the 'Auto-correction Dictionary' page."
 
 # TypeFix > Master
 row_typefix_master_tooltip: "E.g. typing 'gksrmf' in English mode by mistake → forward replaces with '한글'. ON enables both forward and reverse. OFF stops all auto-correction on this page."

@@ -982,7 +982,7 @@ unsafe fn build_page_typefix(page: HWND, config: &Config) {
     create_checkbox(page, "재트리거 학습 억제 (rollback detection)", ID_CHK_ATF_ROLLBACK,
         lm + 20, y, chk_w, row_h, atf.rollback_detection);
     y += row_h + gap;
-    create_checkbox(page, "사용자 사전 사용", ID_CHK_ATF_USER_DICT,
+    create_checkbox(page, "자동 교정 사전 사용", ID_CHK_ATF_USER_DICT,
         lm + 20, y, chk_w, row_h, atf.user_dict_enabled);
     y += row_h + gap * 2;
 
@@ -1163,7 +1163,7 @@ unsafe fn build_page_userdict(page: HWND, userdict: &UserDictionary) {
     let edit_w = full_w - lbl_w - 8;
     let list_h = PAGE_H - 170;
 
-    create_static(page, "[ 사용자 사전 (역방향 교정 허용 단어 목록) ]", lm, y, full_w, row_h);
+    create_static(page, "[ 자동 교정 사전 (역방향 교정 허용 단어 목록) ]", lm, y, full_w, row_h);
     y += row_h + gap;
 
     // ListBox
@@ -1236,7 +1236,7 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
     tab_insert(hwnd_tab, 0, "일반");
     tab_insert(hwnd_tab, 1, "오타 교정");
     tab_insert(hwnd_tab, 2, "억제 단어");
-    tab_insert(hwnd_tab, 3, "사용자 사전");
+    tab_insert(hwnd_tab, 3, "자동 교정 사전");
     tab_insert(hwnd_tab, 4, "알림");
 
     // ── 탭1 페이지 컨테이너 ──────────────────────────────────────────────────
