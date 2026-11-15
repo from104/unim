@@ -32,6 +32,8 @@ use unim::unim_log;
 
 rust_i18n::i18n!("locales");
 
+mod hanja_dict;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Help text helpers (i18n via rust-i18n)
 //
@@ -272,7 +274,7 @@ enum ConfigCommands {
 /// `blacklist` 를 최상위로 옮긴 신설 그룹 (2026-09-07, 기현님 지시).
 #[derive(Subcommand, Debug)]
 enum DictCommands {
-    /// Manage reverse user dictionary (placeholder)
+    /// Manage reverse auto-correction dictionary (placeholder)
     #[command(
         about = h("help_cfg_userdict_about"),
         long_about = h("help_cfg_userdict_long"),
@@ -290,9 +292,138 @@ enum DictCommands {
         #[command(subcommand)]
         action: BlacklistCommand,
     },
+    /// Manage the Hanja user dictionary (words missing from the built-in dictionary)
+    #[command(
+        about = h("help_hd_about"),
+        long_about = h("help_hd_long"),
+    )]
+    Hanja {
+        #[command(subcommand)]
+        action: HanjaDictCommand,
+    },
 }
 
-/// 역방향 사용자 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
+/// 한자 사용자 사전(`hanja-userdict.yaml`) 관리 서브커맨드.
+/// 위치 인자(현재 쌍)와 옵션(새 값 `--hangul`/`--hanja`)은 필드 id 가 달라 충돌하지 않는다.
+#[derive(Subcommand, Debug)]
+enum HanjaDictCommand {
+    /// List entries (optionally only one Hangul reading)
+    #[command(
+        about = h("help_hd_list_about"),
+        long_about = h("help_hd_list_long"),
+    )]
+    List {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: Option<String>,
+    },
+    /// Add an entry
+    #[command(
+        about = h("help_hd_add_about"),
+        long_about = h("help_hd_add_long"),
+    )]
+    Add {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_short"),
+            long_help = h("help_hd_arg_hanja_long"),
+        )]
+        hanja: String,
+        #[arg(
+            long,
+            help = h("help_hd_arg_meaning_short"),
+            long_help = h("help_hd_arg_meaning_long"),
+        )]
+        meaning: Option<String>,
+    },
+    /// Edit an entry
+    #[command(
+        about = h("help_hd_edit_about"),
+        long_about = h("help_hd_edit_long"),
+    )]
+    Edit {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_short"),
+            long_help = h("help_hd_arg_hanja_long"),
+        )]
+        hanja: String,
+        #[arg(
+            long = "hangul",
+            help = h("help_hd_arg_new_hangul_short"),
+            long_help = h("help_hd_arg_new_hangul_long"),
+        )]
+        new_hangul: Option<String>,
+        #[arg(
+            long = "hanja",
+            help = h("help_hd_arg_new_hanja_short"),
+            long_help = h("help_hd_arg_new_hanja_long"),
+        )]
+        new_hanja: Option<String>,
+        #[arg(
+            long,
+            help = h("help_hd_arg_meaning_short"),
+            long_help = h("help_hd_arg_meaning_edit_long"),
+        )]
+        meaning: Option<String>,
+    },
+    /// Remove one entry, or every entry of a Hangul reading
+    #[command(
+        about = h("help_hd_remove_about"),
+        long_about = h("help_hd_remove_long"),
+    )]
+    Remove {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_opt_short"),
+            long_help = h("help_hd_arg_hanja_opt_long"),
+        )]
+        hanja: Option<String>,
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_dict_yes_short"),
+            long_help = h("help_dict_yes_long"),
+        )]
+        yes: bool,
+    },
+    /// Delete all entries (or set aside an unreadable file)
+    #[command(
+        about = h("help_hd_clear_about"),
+        long_about = h("help_hd_clear_long"),
+    )]
+    Clear {
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_hd_clear_yes_short"),
+            long_help = h("help_hd_clear_yes_long"),
+        )]
+        yes: bool,
+    },
+    /// Show the dictionary file path
+    #[command(
+        about = h("help_hd_path_about"),
+        long_about = h("help_hd_path_long"),
+    )]
+    Path,
+}
+
+/// 역방향 자동 교정 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
 #[derive(Subcommand, Debug)]
 enum UserDictCommand {
     /// List dictionary words (placeholder)
@@ -576,7 +707,7 @@ enum ConfigKey {
         help = h("help_ck_auto_typefix_observation_timeout_secs")
     )]
     AutoTypeFixObservationTimeoutSecs,
-    /// 자동 오타 교정: 역방향 사용자 사전 활성화 (true, false)
+    /// 자동 오타 교정: 역방향 자동 교정 사전 활성화 (true, false)
     #[value(
         name = "auto-typefix-user-dict",
         help = h("help_ck_auto_typefix_user_dict")
@@ -2210,9 +2341,33 @@ fn handle_dict(command: Option<DictCommands>) {
     match command {
         Some(DictCommands::UserDict { action }) => dispatch_user_dict(action),
         Some(DictCommands::Blacklist { action }) => handle_blacklist(action),
+        Some(DictCommands::Hanja { action }) => dispatch_hanja_dict(action),
         None => {
             println!("{}", t!("dict_no_subcommand_hint"));
         }
+    }
+}
+
+fn dispatch_hanja_dict(action: HanjaDictCommand) {
+    match action {
+        HanjaDictCommand::List { hangul } => hanja_dict::run_list(hangul),
+        HanjaDictCommand::Add {
+            hangul,
+            hanja,
+            meaning,
+        } => hanja_dict::run_add(hangul, hanja, meaning),
+        HanjaDictCommand::Edit {
+            hangul,
+            hanja,
+            new_hangul,
+            new_hanja,
+            meaning,
+        } => hanja_dict::run_edit(hangul, hanja, new_hangul, new_hanja, meaning),
+        HanjaDictCommand::Remove { hangul, hanja, yes } => {
+            hanja_dict::run_remove(hangul, hanja, yes)
+        }
+        HanjaDictCommand::Clear { yes } => hanja_dict::run_clear(yes),
+        HanjaDictCommand::Path => hanja_dict::run_path(),
     }
 }
 
