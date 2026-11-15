@@ -252,7 +252,7 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
   | TSF `ITfRange` `ShiftStart(−a)`·`ShiftEnd(+b)` → `SetText` | 문자(UTF-16) | Shift 가 돌려준 실제 이동량이 a·b 와 다름, 범위 획득 실패 | — (아래 검증으로 막는다) |
   | XIM·IMM32 | — | — | 대상③ 없음 |
 
-- **TSF 확정 전 내용 대조**: TSF 는 엔진과 같은 프로세스라 target(한글)을 안다. 편집 세션 안에서 범위 `[c−a, c+b)` 의 텍스트를 읽어 target 과 다르면 커밋하지 않는다(`reason=verify_mismatch`). 프로토콜 변경 없이 되는 fail-closed 검사다.
+- **TSF 확정 전 내용 대조**: TSF 는 엔진과 같은 프로세스라 target(한글)을 안다. 편집 세션 안에서 범위 `[c−a, c+b)` 의 텍스트를 읽어 target 과 다르면 커밋하지 않는다(`reason=verify_mismatch`). 프로토콜 변경 없이 되는 fail-closed 검사다. 커서 뒤가 있으면(`b>0`) 확정을 두 세션으로 나눈다 — ① 범위를 대조하고 캐럿만 단어 끝(c+b)으로 옮긴 뒤 ② 캐럿 앞 `a+b` 자를 다시 대조하고 치환한다. Chrome(Blink)은 캐럿을 걸친 범위의 `SetText` 에서 캐럿 뒤 부분을 반영하지 않기 때문이다(실측 2026-11-16, 「학|교」 → 「학교(學校)교」). ①의 캐럿 이동이 무시되면 ②의 대조가 어긋나 문서는 그대로다.
 - **DBus 프런트의 내용 대조(채택·구현)**: `ReplaceSurroundingText` 는 지울 한글 원문 `expect_text: s`(항상 비어 있지 않음)를 싣는다. pull 프런트(GTK3/4 모듈·Qt)는 시그널 처리 시점에 surrounding 을 다시 물어(`gtk_im_context_get_surrounding`·`ImSurroundingText`) `text[c−a..c+b] == expect_text` 일 때만 삭제·커밋한다(`reason=verify_mismatch`) — 낡음 게이트가 놓친 커서 이동을 마지막에 잡는다. GNOME 확장은 앱에서 문서를 당겨 올 수 없으므로 **확장이 마지막으로 받은 surrounding 캐시**로 대조한다(v1.7 — 종전 "받되 무시" 에서 변경). 캐시가 없거나, 받은 뒤 확장의 커밋·KEY 힌트·앱으로 넘긴 미소비 키가 있어 `dirty` 이거나, 범위가 어긋나거나, 완전 일치가 아니면 드롭한다(`reason=verify_mismatch`, 길이만 로그). 선택 중 큐에 쌓인 키가 앱 커서를 옮긴 경합을 막는다. 한자키 자체는 엔진으로 가는 키라 `key_sent` 는 대조에 쓰지 않는다(쓰면 대상③ 이 영영 실행되지 않는다). 프런트는 시그널 페이로드 타입이 `(uuss)` 가 아니면(구버전 데몬 등) 타입 문자열만 로그하고 무시한다 — 문서 무변경.
 - 키보드 확정(`ProcessKeyEvent`)·마우스 확정(`SelectHanja`) 모두 같은 채널을 쓴다. 응답 preedit 은 "" 이다(idle 이라 원래 없다).
 - 확정 뒤: 한자 상태·후보 목록·`recent_syllables` 를 비우고, `surrounding_stale = true`(커밋했으므로), 거부 플래그 해제(팝업 확정), AutoTypeFix `KeystrokeBuffer` 폐기(§4.1 과 같은 이유).
