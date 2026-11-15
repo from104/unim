@@ -203,6 +203,11 @@ impl HanjaUserDict {
 
     /// `load` 와 같되 `version > 1` 도 최선으로 읽어 돌려준다(엔진 조회용).
     fn load_lenient(path: &Path) -> Result<Self, LoadError> {
+        // 디렉터리는 플랫폼마다 결과가 다르다(리눅스 EISDIR, Windows 는 0바이트로 읽힐 수 있음) →
+        // 읽기 전에 막아 어느 쪽이든 I/O 오류로 통일한다.
+        if path.is_dir() {
+            return Err(LoadError::Io(std::io::Error::other("path is a directory")));
+        }
         let bytes = match fs::read(path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
