@@ -2441,12 +2441,45 @@ fn confirm_multi_removal(targets: &[impl std::fmt::Display], yes: bool) -> Multi
     }
 }
 
+/// 읽을 수 없는(깨진·더 새 버전) 단어 목록 파일 안내. 저장은 코어가 막으므로 파일은 그대로다.
+fn dict_file_unreadable_notice(path: Option<std::path::PathBuf>) {
+    let p = path.map(|p| p.display().to_string()).unwrap_or_default();
+    eprintln!("{}: {}", t!("error_label"), t!("dict_file_unreadable", path = p));
+}
+
+/// 깨진 파일을 확인 후 `.broken-날짜` 로 보관하고 빈 목록으로 시작한다(`dict hanja clear` 와 같은 방식).
+fn dict_file_quarantine(path: Option<std::path::PathBuf>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Err(t!("error_path_not_found").to_string());
+    };
+    let ok = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(t!("dict_file_broken_confirm").to_string())
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if !ok {
+        println!("{}", t!("exit_canceled"));
+        return Ok(());
+    }
+    let kept = unim::atomic_io::quarantine(&path)
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!(
+        "{}",
+        t!("dict_file_quarantined", path = kept.display().to_string())
+    );
+    Ok(())
+}
+
 // ============================================================================
 // User Dictionary 서브커맨드 (PR #6)
 // ============================================================================
 
 fn user_dict_list() {
     let ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        process::exit(1);
+    }
     if ud.is_empty() {
         println!("{}", t!("user_dict_empty"));
         if let Some(path) = UserDictionary::default_path() {
@@ -2471,6 +2504,10 @@ fn user_dict_list() {
 /// (하나라도 실패 — 형식 오류·중복 — 하면 false, 호출부는 이때 비영 종료).
 fn user_dict_add_many(words: &[String], note: Option<String>) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        return false;
+    }
     let mut changed = false;
     let mut all_ok = true;
     for word in words {
@@ -2507,6 +2544,10 @@ fn user_dict_add_many(words: &[String], note: Option<String>) -> bool {
 /// 하나라도 성공했을 때 한 번만 수행한다. 반환값은 전부 성공했는지 여부.
 fn user_dict_remove_many(words: &[String]) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        return false;
+    }
     let mut changed = false;
     let mut all_ok = true;
     for word in words {
@@ -2533,6 +2574,9 @@ fn user_dict_remove_many(words: &[String]) -> bool {
 
 fn user_dict_clear() -> Result<(), String> {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        return dict_file_quarantine(UserDictionary::default_path());
+    }
     if ud.is_empty() {
         println!("{}", t!("user_dict_empty"));
         return Ok(());
@@ -2601,6 +2645,10 @@ fn handle_blacklist(action: BlacklistCommand) {
 
 fn blacklist_list() {
     let bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        dict_file_unreadable_notice(Blacklist::default_path());
+        process::exit(1);
+    }
     if bl.entries.is_empty() {
         println!("{}", t!("blacklist_empty"));
         if let Some(path) = Blacklist::default_path() {
@@ -2630,6 +2678,10 @@ fn blacklist_list() {
 /// 반환값은 전부 성공했는지 여부.
 fn blacklist_remove_many(indices: &[usize]) -> bool {
     let mut bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        dict_file_unreadable_notice(Blacklist::default_path());
+        return false;
+    }
     let original_len = bl.entries.len();
     let mut all_ok = true;
     let mut to_remove: Vec<usize> = Vec::new();
@@ -2683,6 +2735,9 @@ fn blacklist_remove_many(indices: &[usize]) -> bool {
 
 fn blacklist_clear() -> Result<(), String> {
     let mut bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        return dict_file_quarantine(Blacklist::default_path());
+    }
     if bl.entries.is_empty() {
         println!("{}", t!("blacklist_empty"));
         return Ok(());

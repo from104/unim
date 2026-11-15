@@ -156,6 +156,9 @@ pub struct Blacklist {
     last_modified: Option<SystemTime>,
     #[serde(skip)]
     last_checked: Option<SystemTime>,
+    /// 파일이 존재하나 읽을 수 없어 빈 목록으로 동작 중 — 저장 거부.
+    #[serde(skip)]
+    unreadable: bool,
 }
 
 impl Default for Blacklist {
@@ -165,6 +168,7 @@ impl Default for Blacklist {
             entries: Vec::new(),
             last_modified: None,
             last_checked: None,
+            unreadable: false,
         }
     }
 }
@@ -186,22 +190,40 @@ impl Blacklist {
         crate::paths::config_dir().map(|p| p.join("unim").join("typefix-blacklist.yaml"))
     }
 
-    /// 지정된 경로에서 로드. 파일이 없거나 파싱 실패 시 빈 Blacklist.
+    /// 파일이 있으나 읽을 수 없어(파싱 실패·미지원 버전) 읽기 전용 빈 목록으로 동작 중인지.
+    pub fn is_unreadable(&self) -> bool {
+        self.unreadable
+    }
+
+    /// 깨진 파일을 `<path>.broken-YYYYMMDD-HHMMSS` 로 옮긴다. 이후 새로 로드하면 빈 목록으로 시작.
+    pub fn quarantine(path: &Path) -> std::io::Result<PathBuf> {
+        crate::atomic_io::quarantine(path)
+    }
+
+    /// 지정된 경로에서 로드. 파일이 없으면 빈 Blacklist. 파싱 실패 시 빈 목록 + 저장 금지.
     pub fn load_from_path(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Ok(content) => match serde_yaml::from_str::<Blacklist>(&content) {
-                Ok(mut bl) => {
-                    bl.last_modified = get_mtime(path);
-                    bl.last_checked = Some(SystemTime::now());
-                    bl
+        use crate::atomic_io::{read_yaml, YamlRead};
+        let mut bl = match read_yaml::<Blacklist>(path, "typefix-blacklist", true) {
+            YamlRead::Missing => Self::default(),
+            YamlRead::Parsed(bl) if bl.version <= 1 => bl,
+            YamlRead::Parsed(_) => {
+                crate::unim_log!(
+                    "ENGINE",
+                    "typefix-blacklist 지원하지 않는 버전 — 읽기 전용(빈 목록)으로 동작"
+                );
+                Self {
+                    unreadable: true,
+                    ..Self::default()
                 }
-                Err(e) => {
-                    eprintln!("[UNIM] typefix-blacklist 파싱 실패: {}. 빈 목록 사용.", e);
-                    Self::default()
-                }
+            }
+            YamlRead::Unreadable => Self {
+                unreadable: true,
+                ..Self::default()
             },
-            Err(_) => Self::default(),
-        }
+        };
+        bl.last_modified = get_mtime(path);
+        bl.last_checked = Some(SystemTime::now());
+        bl
     }
 
     /// 기본 경로에서 로드.
@@ -214,7 +236,21 @@ impl Blacklist {
 
     /// 지정된 경로에 원자적으로 저장 (프로세스 고유 tmp + rename, 심볼릭 링크
     /// 대상 추적). 자세한 근거는 `crate::atomic_io` 참고.
+    ///
+    /// 읽을 수 없는 파일에서 온 인스턴스이거나 디스크의 현재 파일이 파싱되지 않으면
+    /// 거부한다(`atomic_io::is_unreadable_err`). 파일이 없으면 새로 만든다.
     pub fn save_to_path(&self, path: &Path) -> std::io::Result<()> {
+        if self.unreadable {
+            return Err(crate::atomic_io::unreadable_error(path));
+        }
+        use crate::atomic_io::{read_yaml, YamlRead};
+        match read_yaml::<Blacklist>(path, "typefix-blacklist", false) {
+            YamlRead::Unreadable => return Err(crate::atomic_io::unreadable_error(path)),
+            YamlRead::Parsed(d) if d.version > 1 => {
+                return Err(crate::atomic_io::unreadable_error(path))
+            }
+            _ => {}
+        }
         let content = serde_yaml::to_string(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         crate::atomic_io::atomic_write(path, content)
@@ -249,6 +285,12 @@ impl Blacklist {
             return false;
         };
         let Some(current) = get_mtime(&path) else {
+            // 깨진 파일이 보관(이동)돼 사라졌다면 새로 시작할 수 있게 푼다.
+            if self.unreadable {
+                *self = Self::default();
+                self.last_checked = Some(now);
+                return true;
+            }
             return false;
         };
         let should_reload = match self.last_modified {
@@ -514,5 +556,59 @@ mod tests {
     fn now_unix_is_positive() {
         assert!(now_unix() > 0);
         let _ = SystemTime::now() + Duration::from_secs(1);
+    }
+
+    #[test]
+    fn corrupt_file_loads_readonly_and_save_refuses() {
+        let path = unique_temp_path("corrupt");
+        let body = "version: 1\nentries: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        let mut d = Blacklist::load_from_path(&path);
+        assert!(d.is_unreadable());
+        d.add_or_hit_tentative("abc", Direction::Forward, "k", "e");
+        let err = d.save_to_path(&path).unwrap_err();
+        assert!(crate::atomic_io::is_unreadable_err(&err));
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_refuses_when_disk_file_broke_after_load() {
+        let path = unique_temp_path("broke-later");
+        let d = Blacklist::load_from_path(&path); // 없는 파일 → 정상 빈 인스턴스
+        assert!(!d.is_unreadable());
+        let body = "entries: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        assert!(d.save_to_path(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn newer_version_is_unreadable() {
+        let path = unique_temp_path("newer");
+        let body = "version: 9\n";
+        fs::write(&path, body).unwrap();
+        let d = Blacklist::load_from_path(&path);
+        assert!(d.is_unreadable());
+        assert!(d.save_to_path(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn quarantine_then_fresh_start_creates_file() {
+        let path = unique_temp_path("quar");
+        let body = "entries: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        let kept = Blacklist::quarantine(&path).unwrap();
+        assert!(!path.exists());
+        assert_eq!(fs::read_to_string(&kept).unwrap(), body);
+        let d = Blacklist::load_from_path(&path);
+        assert!(!d.is_unreadable());
+        d.save_to_path(&path).unwrap();
+        assert!(path.exists());
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&kept);
     }
 }

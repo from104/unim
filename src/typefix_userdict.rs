@@ -67,6 +67,9 @@ pub struct UserDictionary {
     last_modified: Option<SystemTime>,
     #[serde(skip)]
     last_checked: Option<SystemTime>,
+    /// 파일이 존재하나 읽을 수 없어 빈 목록으로 동작 중 — 저장 거부.
+    #[serde(skip)]
+    unreadable: bool,
 }
 
 impl Default for UserDictionary {
@@ -76,6 +79,7 @@ impl Default for UserDictionary {
             reverse_words: Vec::new(),
             last_modified: None,
             last_checked: None,
+            unreadable: false,
         }
     }
 }
@@ -101,21 +105,40 @@ impl UserDictionary {
         crate::paths::config_dir().map(|p| p.join("unim").join("typefix-userdict.yaml"))
     }
 
+    /// 파일이 있으나 읽을 수 없어(파싱 실패·미지원 버전) 읽기 전용 빈 사전으로 동작 중인지.
+    pub fn is_unreadable(&self) -> bool {
+        self.unreadable
+    }
+
+    /// 깨진 파일을 `<path>.broken-YYYYMMDD-HHMMSS` 로 옮긴다. 이후 새로 로드하면 빈 사전으로 시작.
+    pub fn quarantine(path: &Path) -> std::io::Result<PathBuf> {
+        crate::atomic_io::quarantine(path)
+    }
+
     pub fn load_from_path(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Ok(content) => match serde_yaml::from_str::<UserDictionary>(&content) {
-                Ok(mut ud) => {
-                    ud.last_modified = get_mtime(path);
-                    ud.last_checked = Some(SystemTime::now());
-                    ud
+        use crate::atomic_io::{read_yaml, YamlRead};
+        let mut ud = match read_yaml::<UserDictionary>(path, "typefix-userdict", true) {
+            YamlRead::Missing => Self::default(),
+            YamlRead::Parsed(ud) if ud.version <= 1 => ud,
+            YamlRead::Parsed(_) => {
+                crate::unim_log!(
+                    "ENGINE",
+                    "typefix-userdict 지원하지 않는 버전 — 읽기 전용(빈 목록)으로 동작"
+                );
+                Self {
+                    unreadable: true,
+                    ..Self::default()
                 }
-                Err(e) => {
-                    eprintln!("[UNIM] typefix-userdict 파싱 실패: {}. 빈 사전 사용.", e);
-                    Self::default()
-                }
+            }
+            YamlRead::Unreadable => Self {
+                unreadable: true,
+                ..Self::default()
             },
-            Err(_) => Self::default(),
-        }
+        };
+        // 깨진 파일도 mtime 을 기억해 핫리로드가 같은 파일을 반복 로드·로그하지 않게 한다.
+        ud.last_modified = get_mtime(path);
+        ud.last_checked = Some(SystemTime::now());
+        ud
     }
 
     pub fn load_from_default_path() -> Self {
@@ -127,7 +150,21 @@ impl UserDictionary {
 
     /// 원자적 저장 (프로세스 고유 tmp + rename, 심볼릭 링크 대상 추적).
     /// 자세한 근거는 `crate::atomic_io` 참고.
+    ///
+    /// 읽을 수 없는 파일에서 온 인스턴스이거나 디스크의 현재 파일이 파싱되지 않으면
+    /// 거부한다(`atomic_io::is_unreadable_err`). 파일이 없으면 새로 만든다.
     pub fn save_to_path(&self, path: &Path) -> std::io::Result<()> {
+        if self.unreadable {
+            return Err(crate::atomic_io::unreadable_error(path));
+        }
+        use crate::atomic_io::{read_yaml, YamlRead};
+        match read_yaml::<UserDictionary>(path, "typefix-userdict", false) {
+            YamlRead::Unreadable => return Err(crate::atomic_io::unreadable_error(path)),
+            YamlRead::Parsed(d) if d.version > 1 => {
+                return Err(crate::atomic_io::unreadable_error(path))
+            }
+            _ => {}
+        }
         let content = serde_yaml::to_string(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         crate::atomic_io::atomic_write(path, content)
@@ -161,6 +198,12 @@ impl UserDictionary {
             return false;
         };
         let Some(current) = get_mtime(&path) else {
+            // 깨진 파일이 보관(이동)돼 사라졌다면 새로 시작할 수 있게 푼다.
+            if self.unreadable {
+                *self = Self::default();
+                self.last_checked = Some(now);
+                return true;
+            }
             return false;
         };
         let should_reload = match self.last_modified {
@@ -384,5 +427,59 @@ mod tests {
         let g = EmptyUserDict;
         assert!(!g.contains_reverse("git"));
         assert!(!g.contains_reverse(""));
+    }
+
+    #[test]
+    fn corrupt_file_loads_readonly_and_save_refuses() {
+        let path = unique_temp_path("corrupt");
+        let body = "version: 1\nreverse_words: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        let mut d = UserDictionary::load_from_path(&path);
+        assert!(d.is_unreadable());
+        d.add("git", None);
+        let err = d.save_to_path(&path).unwrap_err();
+        assert!(crate::atomic_io::is_unreadable_err(&err));
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_refuses_when_disk_file_broke_after_load() {
+        let path = unique_temp_path("broke-later");
+        let d = UserDictionary::load_from_path(&path); // 없는 파일 → 정상 빈 인스턴스
+        assert!(!d.is_unreadable());
+        let body = "reverse_words: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        assert!(d.save_to_path(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn newer_version_is_unreadable() {
+        let path = unique_temp_path("newer");
+        let body = "version: 9\n";
+        fs::write(&path, body).unwrap();
+        let d = UserDictionary::load_from_path(&path);
+        assert!(d.is_unreadable());
+        assert!(d.save_to_path(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), body);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn quarantine_then_fresh_start_creates_file() {
+        let path = unique_temp_path("quar");
+        let body = "reverse_words: [깨짐\n";
+        fs::write(&path, body).unwrap();
+        let kept = UserDictionary::quarantine(&path).unwrap();
+        assert!(!path.exists());
+        assert_eq!(fs::read_to_string(&kept).unwrap(), body);
+        let d = UserDictionary::load_from_path(&path);
+        assert!(!d.is_unreadable());
+        d.save_to_path(&path).unwrap();
+        assert!(path.exists());
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&kept);
     }
 }

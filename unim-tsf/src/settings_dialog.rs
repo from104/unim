@@ -1057,6 +1057,27 @@ unsafe fn listbox_get_sel(hwnd: HWND) -> Option<usize> {
     if r < 0 { None } else { Some(r as usize) }
 }
 
+// ─── 단어 목록 저장 실패 안내 ────────────────────────────────────────────────
+
+unsafe fn tsf_msgbox(hwnd: HWND, text: &str, flags: MESSAGEBOX_STYLE) {
+    let msg_w = to_wide_nul(text);
+    let title_w = to_wide_nul("UNIM 설정");
+    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()), flags);
+}
+
+/// 단어 목록(억제 단어·사용자 사전) 저장 실패 안내. 읽을 수 없는 파일 때문이면 위치와 함께 알린다.
+unsafe fn report_list_save_err(hwnd: HWND, e: &std::io::Error, path: Option<std::path::PathBuf>) {
+    let text = if unim::atomic_io::is_unreadable_err(e) {
+        format!(
+            "단어 파일을 읽을 수 없어(깨졌거나 더 새 버전) 단어가 사라지지 않도록 저장하지 않았습니다.\n파일은 그대로입니다:\n{}\n\n직접 고치거나, 명령 프롬프트에서 unim-cli dict user-dict clear / dict blacklist clear 로 보관하고 새로 시작할 수 있습니다.",
+            path.map(|p| p.display().to_string()).unwrap_or_default()
+        )
+    } else {
+        format!("저장 실패:\n{}", e)
+    };
+    tsf_msgbox(hwnd, &text, MB_OK | MB_ICONERROR);
+}
+
 // ─── 억제 단어 탭 리프레시 ──────────────────────────────────────────────────
 
 unsafe fn refresh_blacklist_page(page: HWND, blacklist: &Blacklist) {
@@ -1690,39 +1711,46 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
         }
 
         // ── 억제 단어 탭 버튼 ────────────────────────────────────────────────
-        ID_BL_BTN_DELETE => {
+        // 목록 순번이 아니라 화면에 보인 항목 자체를 파일을 다시 읽어 찾아 작용한다
+        // (CLI·데몬이 그사이 파일을 바꿨을 수 있음). 없으면 새로고침 + 안내.
+        ID_BL_BTN_DELETE | ID_BL_BTN_DEACTIVATE | ID_BL_BTN_CONFIRM => {
             let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.blacklist.remove(sel);
-                    let _ = state.blacklist.save_to_default_path();
+            let Some(lb) = find_child_by_id(pg, ID_BL_LIST) else { return };
+            let Some(sel) = listbox_get_sel(lb) else { return };
+            let Some(shown) = state.blacklist.entries.get(sel).cloned() else { return };
+            let mut fresh = Blacklist::load_from_default_path();
+            let found = fresh.entries.iter().position(|e| {
+                e.ascii == shown.ascii
+                    && e.direction == shown.direction
+                    && e.korean_layout == shown.korean_layout
+                    && e.english_layout == shown.english_layout
+            });
+            match found {
+                None => {
+                    state.blacklist = fresh;
                     refresh_blacklist_page(pg, &state.blacklist);
+                    tsf_msgbox(hwnd, "그사이 목록이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로고침했습니다.", MB_OK | MB_ICONWARNING);
                 }
-            }
-        }
-        ID_BL_BTN_DEACTIVATE => {
-            let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    // 현재 상태에 따라 토글: 활성→비활성, 비활성→재활성
-                    let is_active = state.blacklist.entries.get(sel)
-                        .map_or(false, |e| e.status.is_active());
-                    if is_active {
-                        state.blacklist.deactivate(sel);
-                    } else {
-                        state.blacklist.reactivate_as_confirmed(sel);
+                Some(i) => {
+                    match ctrl_id {
+                        ID_BL_BTN_DELETE => fresh.remove(i),
+                        ID_BL_BTN_CONFIRM => fresh.promote_to_confirmed(i),
+                        _ => {
+                            // 활성→비활성, 비활성→재활성
+                            if fresh.entries[i].status.is_active() {
+                                fresh.deactivate(i);
+                            } else {
+                                fresh.reactivate_as_confirmed(i);
+                            }
+                        }
                     }
-                    let _ = state.blacklist.save_to_default_path();
-                    refresh_blacklist_page(pg, &state.blacklist);
-                }
-            }
-        }
-        ID_BL_BTN_CONFIRM => {
-            let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.blacklist.promote_to_confirmed(sel);
-                    let _ = state.blacklist.save_to_default_path();
+                    match fresh.save_to_default_path() {
+                        Ok(()) => state.blacklist = fresh,
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, Blacklist::default_path());
+                            state.blacklist = Blacklist::load_from_default_path();
+                        }
+                    }
                     refresh_blacklist_page(pg, &state.blacklist);
                 }
             }
@@ -1738,54 +1766,84 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
                 let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
                     .map(|h| edit_get_text(h))
                     .filter(|s| !s.is_empty());
-                if state.userdict.add(&word, note) {
-                    let _ = state.userdict.save_to_default_path();
-                    refresh_userdict_page(pg, &state.userdict);
-                    // 입력 필드 초기화
-                    if let Some(h) = find_child_by_id(pg, ID_UD_EDT_WORD) {
-                        let _ = SetWindowTextW(h, w!(""));
-                    }
-                    if let Some(h) = find_child_by_id(pg, ID_UD_EDT_NOTE) {
-                        let _ = SetWindowTextW(h, w!(""));
-                    }
-                } else {
-                    let msg_w   = to_wide_nul("추가 실패: 이미 존재하거나 영문이 아닌 단어입니다.");
-                    let title_w = to_wide_nul("UNIM 설정");
-                    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
-                        MB_OK | MB_ICONWARNING);
-                }
-            }
-        }
-        ID_UD_BTN_UPDATE => {
-            let pg = state.hwnd_page_userdict;
-            if let Some(lb) = find_child_by_id(pg, ID_UD_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    let word = find_child_by_id(pg, ID_UD_EDT_WORD)
-                        .map(|h| edit_get_text(h))
-                        .unwrap_or_default();
-                    if !word.is_empty() {
-                        let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
-                            .map(|h| edit_get_text(h))
-                            .filter(|s| !s.is_empty());
-                        if state.userdict.update_at(sel, &word, note) {
-                            let _ = state.userdict.save_to_default_path();
-                            refresh_userdict_page(pg, &state.userdict);
-                        } else {
-                            let msg_w   = to_wide_nul("수정 실패: 중복이거나 영문이 아닌 단어입니다.");
-                            let title_w = to_wide_nul("UNIM 설정");
-                            MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
-                                MB_OK | MB_ICONWARNING);
+                let mut fresh = UserDictionary::load_from_default_path();
+                if fresh.add(&word, note) {
+                    match fresh.save_to_default_path() {
+                        Ok(()) => {
+                            state.userdict = fresh;
+                            // 입력 필드 초기화
+                            if let Some(h) = find_child_by_id(pg, ID_UD_EDT_WORD) {
+                                let _ = SetWindowTextW(h, w!(""));
+                            }
+                            if let Some(h) = find_child_by_id(pg, ID_UD_EDT_NOTE) {
+                                let _ = SetWindowTextW(h, w!(""));
+                            }
+                        }
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, UserDictionary::default_path());
+                            state.userdict = UserDictionary::load_from_default_path();
                         }
                     }
+                    refresh_userdict_page(pg, &state.userdict);
+                } else if fresh.is_unreadable() {
+                    report_list_save_err(
+                        hwnd,
+                        &unim::atomic_io::unreadable_error(
+                            &UserDictionary::default_path().unwrap_or_default(),
+                        ),
+                        UserDictionary::default_path(),
+                    );
+                } else {
+                    tsf_msgbox(hwnd, "추가 실패: 이미 존재하거나 영문이 아닌 단어입니다.", MB_OK | MB_ICONWARNING);
                 }
             }
         }
-        ID_UD_BTN_DELETE => {
+        ID_UD_BTN_UPDATE | ID_UD_BTN_DELETE => {
             let pg = state.hwnd_page_userdict;
-            if let Some(lb) = find_child_by_id(pg, ID_UD_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.userdict.remove_at(sel);
-                    let _ = state.userdict.save_to_default_path();
+            let Some(lb) = find_child_by_id(pg, ID_UD_LIST) else { return };
+            let Some(sel) = listbox_get_sel(lb) else { return };
+            let Some(shown) = state.userdict.reverse_words.get(sel).cloned() else { return };
+            let is_update = ctrl_id == ID_UD_BTN_UPDATE;
+            let (word, note) = if is_update {
+                let word = find_child_by_id(pg, ID_UD_EDT_WORD)
+                    .map(|h| edit_get_text(h))
+                    .unwrap_or_default();
+                if word.is_empty() {
+                    return;
+                }
+                let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
+                    .map(|h| edit_get_text(h))
+                    .filter(|s| !s.is_empty());
+                (word, note)
+            } else {
+                (String::new(), None)
+            };
+            let mut fresh = UserDictionary::load_from_default_path();
+            let found = fresh.reverse_words.iter().position(|e| {
+                e.word == shown.word && e.note == shown.note && e.added_at == shown.added_at
+            });
+            match found {
+                None => {
+                    state.userdict = fresh;
+                    refresh_userdict_page(pg, &state.userdict);
+                    tsf_msgbox(hwnd, "그사이 사전이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로고침했습니다.", MB_OK | MB_ICONWARNING);
+                }
+                Some(i) => {
+                    if is_update {
+                        if !fresh.update_at(i, &word, note) {
+                            tsf_msgbox(hwnd, "수정 실패: 중복이거나 영문이 아닌 단어입니다.", MB_OK | MB_ICONWARNING);
+                            return;
+                        }
+                    } else {
+                        fresh.remove_at(i);
+                    }
+                    match fresh.save_to_default_path() {
+                        Ok(()) => state.userdict = fresh,
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, UserDictionary::default_path());
+                            state.userdict = UserDictionary::load_from_default_path();
+                        }
+                    }
                     refresh_userdict_page(pg, &state.userdict);
                 }
             }
@@ -1893,6 +1951,21 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
         let config = Config::load_from_default_path();
         let blacklist = Blacklist::load_from_default_path();
         let userdict = UserDictionary::load_from_default_path();
+        // 깨진 단어 파일이면 열 때 한 번 알린다(저장은 코어가 막는다).
+        if userdict.is_unreadable() {
+            report_list_save_err(
+                hwnd_parent,
+                &unim::atomic_io::unreadable_error(&UserDictionary::default_path().unwrap_or_default()),
+                UserDictionary::default_path(),
+            );
+        }
+        if blacklist.is_unreadable() {
+            report_list_save_err(
+                hwnd_parent,
+                &unim::atomic_io::unreadable_error(&Blacklist::default_path().unwrap_or_default()),
+                Blacklist::default_path(),
+            );
+        }
         let atf_baseline_enabled = config.engine.auto_typefix.enabled;
         let atf_baseline_forward = config.engine.auto_typefix.forward;
         let atf_baseline_reverse = config.engine.auto_typefix.reverse;
