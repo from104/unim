@@ -140,6 +140,10 @@ pub fn show_settings_dialog(app: &adw::Application) {
     let page_userdict = build_userdict_page(&window);
     window.add(&page_userdict);
 
+    // ── Page 4b: 한자 사용자 사전 (한자키 후보 앞자리) ───────
+    let page_hanja_dict = crate::hanja_dict_page::build_hanja_dict_page(&window);
+    window.add(&page_hanja_dict);
+
     // ── Page 5: GNOME Shell (GNOME 세션 전용) ────────────────
     if is_gnome_session() {
         if let Some(page_gnome) = build_gnome_page(&window) {
