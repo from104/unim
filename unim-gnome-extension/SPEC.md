@@ -18,7 +18,7 @@
 | `dbus_ime.js` | `unim-daemon`과의 DBus 통신 (`Gio.DBusProxy` + 글로벌 signal 구독) |
 | `unim_input_method.js` | `Clutter.InputMethod` 서브클래스 (vfunc 오버라이드로 Mutter 연동) |
 | `key_handler.js` | 키 이벤트 필터링·분류·라우팅, call_sync 재진입용 **key queue**, (v1.6) 바이패스 키·포인터·PRIMARY 소유자 변경을 `SurroundingHint` 로 보고(§2.8) — v1.2~v1.5 의 PRIMARY 선택 보강은 퇴역(§2.8.1) |
-| `capabilities.js` | (v1.6) `SetClientCapabilities` 능력 비트 순수 계산(`computeClientCapabilities`) — 실측 스위치 `surrounding-word-replace` 값에 따라 0x4/0x5. gi 의존 없는 순수 모듈 — node 단위 시험(§2.8) |
+| `capabilities.js` | (v1.6) `SetClientCapabilities` 능력 비트 순수 계산(`computeClientCapabilities`) — 스위치 `surrounding-word-replace`(0.4.5 부터 기본 켬) 값에 따라 0x4/0x5. gi 의존 없는 순수 모듈 — node 단위 시험(§2.8) |
 | `surrounding_facts.js` | (통합 계획 P3) 필드 세대·마지막 surrounding 캐시, FIELD_FOCUS·창 FocusIn 직후 캐시 재송신 판정(`decideResend`)과 `ReplaceSurroundingText` 의 expect 대조(`verifyReplaceExpectation`). gi 의존 없는 순수 모듈 — node 단위 시험 |
 | `pointer_hints.js` | (v1.6) 포인터 사건 분류(단일·Shift·500ms 더블클릭·4px 드래그·터치·보조/가운데 버튼 → `POINTER_PLAIN`/`POINTER_SELECT`)와 힌트 키 로그 이름. gi 의존 없는 순수 모듈 — node 단위 시험(§2.8). v1.2~v1.5 의 `primary_selection.js` 는 퇴역·삭제(§2.8.1) |
 | `preedit_overlay.js` | 입력 중인 글자(Preedit)를 커서 위치에 표시하는 오버레이 |
@@ -393,7 +393,7 @@ text-input-v3 → mutter 경로에서 GTK3·LibreOffice(gtk3/gtk4 VCL)·Firefox 
 
 총 **7개 키** (enable + 표시 4 + IME 1 + 단축키 2) + 실측 전용 1개. 이전 버전의 18개 키에서 대폭 축소되었다.
 
-**GNOME 전용 GSettings 키 예외 — `surrounding-word-replace`** (bool, 기본 `false`): HANJA_WORD_SPEC §6.5 (10) 실측용 스위치. 켜면 `SetClientCapabilities` 가 `0x5`, 끄면 `0x4`(§2.8). 이 키는 **prefs UI 에 노출하지 않으며**(`gsettings --schemadir <확장 schemas 경로> set …` 로만 바꾼다), **"설정은 엔진·GUI·CLI 3지점 싱크" 원칙의 대상이 아닌 GNOME 전용 GSettings 키 예외**다 — 일반 설정이 아니라 mutter `delete_surrounding` 동작을 실측하는 동안만 쓰는 임시 스위치이고, 실측 결과가 나오면 키를 없애고 기본 동작으로 굳히거나(승인 후) 앱 거름 규칙으로 바꾼다. 설명 문구: "HANJA_WORD_SPEC §6.5 (10) 실측용 — 실측 전에는 켜지 말 것".
+**GNOME 전용 GSettings 키 예외 — `surrounding-word-replace`** (bool, 기본 `true` — 0.4.5 부터, 2026-11 실측 완료 뒤 기현님 승인. 그 전에는 `false` 실측용): 대상③ 스위치. 켜면 `SetClientCapabilities` 가 `0x5`, 끄면 `0x4`(§2.8). 이 키는 **prefs UI 에 노출하지 않으며**(`gsettings --schemadir <확장 schemas 경로> set …` 로만 바꾼다), **"설정은 엔진·GUI·CLI 3지점 싱크" 원칙의 대상이 아닌 GNOME 전용 GSettings 키 예외**다 — 실측(TextEditor·gedit·LibreOffice·Chrome 교체 정상, Firefox 는 v1.9 낡음 표시로 이모지)을 마쳐 기본으로 켰고, 끄면 커서가 걸친 단어에서 한자키가 이모지로 돌아간다(비상 스위치).
 
 ### 5.2 `prefs.js` UX
 

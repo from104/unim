@@ -704,7 +704,7 @@ export default class UnimExtension extends Extension {
     }
 
     /**
-     * 대상③ 실측 스위치(`surrounding-word-replace`) 읽기. 스키마가 옛것(키 없음)이면 false —
+     * 대상③ 스위치(`surrounding-word-replace`, 기본 켬) 읽기. 스키마가 옛것(키 없음)이면 false —
      * 키가 없는 스키마에서 get_boolean 은 치명 오류라 has_key 로 먼저 확인한다.
      * @returns {boolean}
      * @private

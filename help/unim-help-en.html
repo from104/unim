@@ -191,7 +191,7 @@ li { margin: 0.35rem 0; }
 <body>
 <div class="wrap">
 <header class="topbar">
-  <span class="brand">UNIM Help <span class="ver">v0.4.4</span></span>
+  <span class="brand">UNIM Help <span class="ver">v0.4.5</span></span>
   <a class="langswitch" href="unim-help-ko.html">한국어</a>
 </header>
 
@@ -571,7 +571,8 @@ Digit 1   만세 大韓民國| 만만세
 <div class="tablewrap"><table><thead><tr><th>Group</th><th>Typical environment / app</th><th>Word being typed</th><th>Word at the cursor</th><th>Selected range</th></tr></thead><tbody>
 <tr><td><strong>Everything works</strong></td><td>Apps connected through the UNIM input-method modules (X11 sessions etc. — see <a href="#user-guide--3-per-environment-setup">3. Per-environment setup</a>): GTK4 apps, Qt5/Qt6 apps (including the KDE build of LibreOffice), ordinary text fields and text areas of GTK3 apps</td><td>yes</td><td>yes</td><td>yes</td></tr>
 <tr><td><strong>Apps going through the GNOME (Wayland) extension</strong></td><td>GTK4, Qt6, Chromium-based</td><td>yes</td><td>yes (right after moving the cursor, the emoji popup may appear until the app reports the new position)</td><td>only right after selecting</td></tr>
-<tr><td></td><td>GTK3 apps, LibreOffice, Firefox</td><td>yes</td><td>yes (emoji while a selection may still exist)</td><td>no — use the cursor method</td></tr>
+<tr><td></td><td>GTK3 apps, LibreOffice</td><td>yes</td><td>yes (emoji while a selection may still exist)</td><td>no — use the cursor method</td></tr>
+<tr><td></td><td>Firefox</td><td>yes</td><td>no (emoji — Firefox reports the cursor position late, so this is blocked to avoid replacing the wrong word)</td><td>no</td></tr>
 <tr><td><strong>Only the word just typed</strong></td><td>Terminals (GNOME Terminal etc.), XIM apps, Chromium/Electron apps running on X11</td><td>yes</td><td>no (the key opens the emoji popup)</td><td>no</td></tr>
 <tr><td></td><td>Pure Wayland (KDE Plasma, Sway, etc.)</td><td>yes</td><td>not yet</td><td>depends on the app</td></tr>
 </tbody></table>
@@ -1160,7 +1161,7 @@ needed). For usage details see
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-english">UNIM FAQ (English)</h2>
 <blockquote>
-<p>The questions people actually ask about UNIM 0.4.4.
+<p>The questions people actually ask about UNIM 0.4.5.
 Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.</p>
 </blockquote>
 <hr />

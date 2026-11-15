@@ -6,17 +6,30 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
+## [0.4.5] 2026-11-16
+
 ### Added
 
 - Hanja conversion of the word just typed (e.g. 대한민국) and of a Hangul word selected in the app, in one step (selection conversion on GTK4, Qt, GNOME, Wayland and Windows)
 - Hanja output format setting — choose 漢字, 한자(漢字) or 漢字(한자) ([Settings] › [Hanja Output Format], `unim-cli config set hanja-output-format`)
 - Per-character meanings shown for multi-syllable hanja candidates
+- Hanja conversion of the word under the cursor — put the cursor anywhere in an already typed Hangul word (start, middle or end) and press the hanja key, no selection needed (GTK and Qt apps connected through the UNIM input method modules; GTK, Qt, Chromium-based apps and LibreOffice through the GNOME (Wayland) extension; Windows TSF apps. Firefox on GNOME falls back to the emoji popup)
+- Status notifications (toasts) for easy-to-miss input method events such as an automatic correction, entering a password field or a blocked Korean/English toggle (Linux and Windows, [Settings] › [Notifications], `unim-cli config set notify-enabled` and friends)
+
+### Changed
+
+- The Korean/English and auto-correction toggle beeps now differ in pitch and count — Korean/on plays two high beeps, English/off one low beep
+- Logs no longer record the text you type (lengths only)
 
 ### Fixed
 
 - Fixed syllables composed before the target being lost when cancelling the hanja popup or converting only the last syllable in word commit mode
 - Fixed the selection being erased when pressing the hanja key or the Korean/English toggle with text selected on GTK4 and Qt apps
 - Windows: fixed the next keystroke being handled as popup navigation after focus briefly moved away while the hanja popup was open
+- Fixed password fields losing their password status after an input method reset (e.g. clicking in the field), which re-enabled automatic correction and dropped the forced English mode
+- GNOME: fixed selected text being erased in GTK4 apps (Text Editor and others) when the hanja key opened the emoji popup over a selection
+- Fixed Korean/English toggling stalling and keys leaking to the app after long sessions with the global mode share (input contexts of closed apps are now reclaimed too)
+- Fixed the daemon loading a fresh copy of the hanja dictionary for every input field, which made its memory use grow sharply
 
 ## [0.4.4] 2026-09-21
 

@@ -104,8 +104,8 @@ export class UnimDbusIME {
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
         /**
-         * 대상③ 확정 실측 스위치(GSettings `surrounding-word-replace`) 현재 값 — HANJA_WORD_SPEC
-         * §6.5 (10) 실측 전에는 false. extension.js 가 설정에서 읽어 `setSurroundingWordReplace` 로 주입한다.
+         * 대상③ 확정 스위치(GSettings `surrounding-word-replace`, 0.4.5 부터 기본 켬) 현재 값. 설정을 읽기
+         * 전에는 false(보수) — extension.js 가 설정에서 읽어 `setSurroundingWordReplace` 로 주입한다.
          * @type {boolean}
          */
         this._surroundingWordReplace = false;

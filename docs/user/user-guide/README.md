@@ -534,7 +534,8 @@ The same `Hanja` key does different things depending on whether the app tells th
 |---|---|---|---|---|
 | **Everything works** | Apps connected through the UNIM input-method modules (X11 sessions etc. — see [3. Per-environment setup](#3-per-environment-setup)): GTK4 apps, Qt5/Qt6 apps (including the KDE build of LibreOffice), ordinary text fields and text areas of GTK3 apps | yes | yes | yes |
 | **Apps going through the GNOME (Wayland) extension** | GTK4, Qt6, Chromium-based | yes | yes (right after moving the cursor, the emoji popup may appear until the app reports the new position) | only right after selecting |
-| | GTK3 apps, LibreOffice, Firefox | yes | yes (emoji while a selection may still exist) | no — use the cursor method |
+| | GTK3 apps, LibreOffice | yes | yes (emoji while a selection may still exist) | no — use the cursor method |
+| | Firefox | yes | no (emoji — Firefox reports the cursor position late, so this is blocked to avoid replacing the wrong word) | no |
 | **Only the word just typed** | Terminals (GNOME Terminal etc.), XIM apps, Chromium/Electron apps running on X11 | yes | no (the key opens the emoji popup) | no |
 | | Pure Wayland (KDE Plasma, Sway, etc.) | yes | not yet | depends on the app |
 

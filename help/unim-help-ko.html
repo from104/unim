@@ -191,7 +191,7 @@ li { margin: 0.35rem 0; }
 <body>
 <div class="wrap">
 <header class="topbar">
-  <span class="brand">UNIM 도움말 <span class="ver">v0.4.4</span></span>
+  <span class="brand">UNIM 도움말 <span class="ver">v0.4.5</span></span>
   <a class="langswitch" href="unim-help-en.html">English</a>
 </header>
 
@@ -571,7 +571,8 @@ export XMODIFIERS="@im=unim"
 <div class="tablewrap"><table><thead><tr><th>부류</th><th>대표 환경·앱</th><th>입력 중인 단어</th><th>커서가 걸친 단어</th><th>선택한 범위</th></tr></thead><tbody>
 <tr><td><strong>모두 된다</strong></td><td>UNIM 입력기 모듈로 연결된 앱(X11 세션 등 — <a href="#user-guide--3-환경별-설정-가이드">3. 환경별 설정 가이드</a>): GTK4 앱, Qt5·Qt6 앱(KDE 판 LibreOffice 포함), GTK3 앱의 일반 입력칸·텍스트 영역</td><td>됨</td><td>됨</td><td>됨</td></tr>
 <tr><td><strong>GNOME(Wayland)에서 확장을 거치는 앱</strong></td><td>GTK4·Qt6·크롬 계열</td><td>됨</td><td>됨 (위치를 막 옮긴 직후에는 앱이 알려 줄 때까지 이모지가 뜰 수 있다)</td><td>선택한 직후에만 됨</td></tr>
-<tr><td></td><td>GTK3 앱, LibreOffice, Firefox</td><td>됨</td><td>됨 (선택이 남아 있을 수 있는 동안에는 이모지)</td><td>안 됨 — 커서 방식을 쓴다</td></tr>
+<tr><td></td><td>GTK3 앱, LibreOffice</td><td>됨</td><td>됨 (선택이 남아 있을 수 있는 동안에는 이모지)</td><td>안 됨 — 커서 방식을 쓴다</td></tr>
+<tr><td></td><td>Firefox</td><td>됨</td><td>안 됨 (이모지 — Firefox 가 알려 주는 커서 위치가 늦게 바뀌어, 엉뚱한 단어를 바꾸지 않도록 막아 두었다)</td><td>안 됨</td></tr>
 <tr><td><strong>방금 입력한 단어만 된다</strong></td><td>터미널(GNOME 터미널 등), XIM 앱, X11에서 도는 크롬·Electron 앱</td><td>됨</td><td>안 됨 (한자 키를 누르면 이모지)</td><td>안 됨</td></tr>
 <tr><td></td><td>순수 Wayland(KDE Plasma·Sway 등)</td><td>됨</td><td>아직 안 됨</td><td>앱에 따라 다름</td></tr>
 </tbody></table>
@@ -1170,7 +1171,7 @@ xbindkeys      # 다시 시작
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-한국어">UNIM FAQ (한국어)</h2>
 <blockquote>
-<p>UNIM 0.4.4에 대해 사람들이 정말 자주 묻는 질문 모음.
+<p>UNIM 0.4.5에 대해 사람들이 정말 자주 묻는 질문 모음.
 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.</p>
 </blockquote>
 <hr />

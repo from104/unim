@@ -2,9 +2,8 @@
  * 프런트 능력 비트 계산 — gi 의존 없는 순수 모듈 (node 단위 시험 대상)
  *
  * `SetClientCapabilities(caps)` 로 데몬에 선언하는 능력 비트를 정한다. 대상③(커서가 걸친
- * 단어) 확정 경로(`REPLACE_SURROUNDING`)는 mutter `delete_surrounding` 의 삭제 단위
- * 실측(HANJA_WORD_SPEC §6.5 (10)) 전까지 꺼 둔다. 실측용으로만 GSettings 키
- * `surrounding-word-replace`(기본 false)로 켤 수 있다 — prefs UI 에는 노출하지 않는다.
+ * 단어) 확정 경로(`REPLACE_SURROUNDING`)는 GSettings 키 `surrounding-word-replace` 로 켜고 끈다
+ * (0.4.5 부터 기본 켬 — 2026-11 실측 완료, HANJA_WORD_SPEC §6.5 (10)). prefs UI 에는 노출하지 않는다.
  *
  * @module capabilities
  */

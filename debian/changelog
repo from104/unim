@@ -1,3 +1,18 @@
+unim (0.4.5-1) unstable; urgency=medium
+
+  * Hanja: convert the word just typed, a selected Hangul word, or the word
+    under the cursor in one step; hanja output format setting; per-character
+    meanings for multi-syllable candidates.
+  * Status notifications (toasts) for easy-to-miss input method events.
+  * Korean/English and auto-correction toggle beeps now differ in pitch and
+    count (Korean/on: two high beeps, English/off: one low beep).
+  * Logs no longer record typed text.
+  * Fixes: password fields losing their status after an input method reset,
+    GTK4 selection erased by the emoji popup on GNOME, toggle stalls with the
+    global mode share, hanja dictionary loaded once per input field.
+
+ -- Seo Kihyun <from104@gmail.com>  Mon, 16 Nov 2026 09:00:00 +0900
+
 unim (0.4.4-1) unstable; urgency=medium
 
   * GNOME: the extension now follows the daemon across restarts. After a

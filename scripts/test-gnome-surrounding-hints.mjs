@@ -255,9 +255,8 @@ eq('extension.js: disable() 이 _settingsChangedIds 전부 disconnect',
     const xml = read('schemas/org.gnome.shell.extensions.unim.gschema.xml');
     const m = xml.match(/<key type="b" name="surrounding-word-replace">([\s\S]*?)<\/key>/);
     eq('gschema 에 surrounding-word-replace(boolean) 키', m !== null, true);
-    eq('gschema 기본값 false', m !== null && /<default>false<\/default>/.test(m[1]), true);
-    eq('gschema 설명에 실측 전용·켜지 말 것 경고',
-        m !== null && m[1].includes('HANJA_WORD_SPEC §6.5 (10) 실측용 — 실측 전에는 켜지 말 것'), true);
+    eq('gschema 기본값 true(0.4.5 — 실측 완료 뒤 기본 켬)', m !== null && /<default>true<\/default>/.test(m[1]), true);
+    eq('gschema 설명: 끄면 이모지로 폴백', m !== null && m[1].includes('turn off to fall back to the emoji popup'), true);
     eq('prefs UI 에 노출하지 않는다', read('prefs.js').includes('surrounding-word-replace'), false);
 }
 eq('SELECTION_RELIABLE(0x2) 미선언', /CAP_SELECTION_RELIABLE/.test(dbusSrc) || /CAP_SELECTION_RELIABLE/.test(read('capabilities.js')), false);
