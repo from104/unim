@@ -233,9 +233,22 @@ export global Tr {
     out property <string> bl-removed: @tr("억제 단어를 삭제했습니다.");
     out property <string> bl-cleared: @tr("억제 단어를 모두 삭제했습니다.");
     out property <string> bl-confirmed: @tr("억제 단어를 영구 활성했습니다.");
-    out property <string> ud-added: @tr("사용자 사전에 추가했습니다.");
+    out property <string> ud-added: @tr("자동 교정 사전에 추가했습니다.");
     out property <string> ud-dup: @tr("이미 등록된 단어입니다.");
-    out property <string> ud-removed: @tr("사용자 사전에서 삭제했습니다.");
+    out property <string> ud-removed: @tr("자동 교정 사전에서 삭제했습니다.");
+    // 한자 사용자 사전
+    out property <string> hd-added: @tr("한자 사용자 사전에 추가했습니다.");
+    out property <string> hd-saved: @tr("고친 내용을 저장했습니다.");
+    out property <string> hd-removed: @tr("한자 사용자 사전에서 삭제했습니다.");
+    out property <string> hd-gone: @tr("그 사이 항목이 바뀌어 작업하지 않았습니다. 목록을 새로 읽었습니다.");
+    out property <string> hd-quarantined: @tr("읽을 수 없던 파일을 보관하고 새 사전으로 시작했습니다.");
+    out property <string> hd-meaning-auto: @tr("글자별 뜻 자동");
+    out property <string> hd-err-hangul-empty: @tr("한글을 입력하세요.");
+    out property <string> hd-err-meaning-control: @tr("뜻에는 줄바꿈·탭 같은 제어 문자를 쓸 수 없습니다.");
+    out property <string> hd-err-dup: @tr("이미 같은 한글·한자 쌍이 등록되어 있습니다.");
+    out property <string> hd-err-notfound: @tr("항목을 찾을 수 없습니다.");
+    out property <string> hd-corrupt-title: @tr("한자 사용자 사전 파일을 읽을 수 없습니다");
+    out property <string> hd-readonly-hint: @tr("파일을 건드리지 않았습니다. 이 앱에서는 추가·수정·삭제가 막혀 있습니다.");
     out property <string> atf-undone: @tr("기본값 복원을 되돌렸습니다.");
     out property <string> delete-undone: @tr("삭제를 되돌렸습니다.");
     out property <string> preset-onehand: @tr("‘한 손 사용’ 프리셋을 적용했습니다.");
@@ -298,6 +311,17 @@ export global Tr {
     // 전 항목 무효 반려 — CLI/DBus 의 "At least one valid key required" 와 동일 정책.
     // 저장하면 엔진 파서가 전부 걸러 해당 기능이 통째로 죽으므로 저장 자체를 막는다.
     public pure function keys-all-invalid(field: string) -> string { @tr("{}: 유효한 키가 하나도 없어 저장하지 않았습니다 — 마지막 저장값이 유지됩니다", field) }
+    public pure function hd-err-not-syllable(pos: int, ch: string) -> string { @tr("한글 {}번째 글자 ‘{}’ 는 완성된 한글 글자가 아닙니다. (자모·공백·숫자·영문 불가)", pos, ch) }
+    public pure function hd-err-too-long(len: int, max: int) -> string { @tr("한글이 너무 깁니다 ({}글자). {}글자까지 가능합니다.", len, max) }
+    public pure function hd-err-len-mismatch(hangul: int, hanja: int) -> string { @tr("한글 {}글자, 한자 {}글자 — 글자 수가 같아야 합니다.", hangul, hanja) }
+    public pure function hd-msg-more-hanja(need: int) -> string { @tr("한자를 {}글자 더 입력하세요.", need) }
+    public pure function hd-err-not-han(pos: int, ch: string) -> string { @tr("한자 {}번째 글자 ‘{}’ 는 한자가 아닙니다.", pos, ch) }
+    public pure function hd-err-meaning-long(len: int, max: int) -> string { @tr("뜻이 너무 깁니다 ({}자). {}자까지 가능합니다.", len, max) }
+    public pure function hd-count(n: int) -> string { @tr("{}개 항목", n) }
+    public pure function hd-row(hangul: string, hanja: string, note: string) -> string { @tr("{} → {}    {}", hangul, hanja, note) }
+    public pure function hd-row-invalid(hangul: string, hanja: string, why: string) -> string { @tr("⚠ {} → {}    ({})", hangul, hanja, why) }
+    public pure function hd-corrupt-parse(why: string, path: string) -> string { why + "\n" + path }
+    public pure function hd-corrupt-newer(version: int, path: string) -> string { @tr("이 파일은 더 새 버전(version {})의 형식입니다. 읽기 전용으로만 다룹니다.\n{}", version, path) }
     public pure function blacklist-entry(ascii: string, dir: string, st: string, hits: int) -> string {
         @tr("{}    [{} · {}]    감지 {}회", ascii, dir, st, hits)
     }
@@ -411,11 +435,31 @@ export component SettingsWindow inherits Window {
     in-out property <[StandardListViewItem]> blacklist-model;
     in-out property <int> blacklist-selected;
 
-    // ── 사용자 사전 ──
+    // ── 자동 교정 사전(AutoTypeFix 사용자 사전) ──
     in-out property <[StandardListViewItem]> userdict-model;
     in-out property <int> userdict-selected;
     in-out property <string> userdict-new-word;
     in-out property <string> userdict-new-note;
+
+    // ── 한자 사용자 사전 (HANJA_USERDICT_SPEC §6) ──
+    // 모델·선택·메시지는 전부 Rust 가 채운다(파일을 매번 다시 읽어 갱신).
+    in-out property <[StandardListViewItem]> hanja-model;
+    in-out property <int> hanja-selected: -1;
+    in-out property <string> hanja-hangul;
+    in-out property <string> hanja-hanja;
+    in-out property <string> hanja-meaning;
+    // 폼이 목록의 한 행에 묶여 있는가(=[고친 내용 저장] 대상이 있는가).
+    in-out property <bool> hanja-editing: false;
+    // 입력 중 실시간 검증 메시지(칸 아래 문장). kind: 0=없음, 1=안내(진행 중), 2=오류.
+    in-out property <string> hanja-msg;
+    in-out property <int> hanja-msg-kind: 0;
+    in-out property <bool> hanja-can-add: false;
+    in-out property <bool> hanja-can-save: false;
+    in-out property <string> hanja-count-text;
+    // 파일을 읽을 수 없을 때: 오류 행(이유 + 경로)만 보이고 추가는 막힌다.
+    in-out property <bool> hanja-corrupt: false;
+    in-out property <string> hanja-corrupt-text;
+    in-out property <bool> hanja-can-quarantine: false;
 
     in-out property <string> status-text;
 
@@ -444,6 +488,14 @@ export component SettingsWindow inherits Window {
     callback blacklist-clear();
     callback userdict-add();
     callback userdict-remove(int);
+    // 한자 사용자 사전: 폼 입력(검증), 행 선택(-1=새로 입력), 추가, 고친 내용 저장,
+    // 삭제(되돌리기 토스트), 읽을 수 없는 파일 보관.
+    callback hanja-form-edited();
+    callback hanja-select(int);
+    callback hanja-add();
+    callback hanja-save-edit();
+    callback hanja-remove(int);
+    callback hanja-quarantine();
     // I6: 토스트의 '되돌리기' 클릭 → 마지막 삭제 스냅샷 복원.
     callback undo-restore();
     // 오타 교정 강도 프리셋(0=보수적, 1=표준, 2=적극적) 일괄 적용.
@@ -462,7 +514,7 @@ export component SettingsWindow inherits Window {
     // 경로 해석·언어 선택·실패 안내는 전부 Rust(platform::open_help) 책임.
     callback open-help();
 
-    // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=사용자 사전)
+    // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=자동 교정 사전, 4=한자 사용자 사전, 5=알림)
     property <int> current-page: 0;
     // 오타 교정 '고급' 접이식 상태(progressive disclosure). Rust 미노출 UI 상태.
     property <bool> atf-advanced-expanded: false;
@@ -589,7 +641,7 @@ export component SettingsWindow inherits Window {
                             root.current-page = Math.max(0, root.current-page - 1);
                             accept
                         } else if event.text == Key.DownArrow {
-                            root.current-page = Math.min(4, root.current-page + 1);
+                            root.current-page = Math.min(5, root.current-page + 1);
                             accept
                         } else {
                             reject
@@ -601,7 +653,7 @@ export component SettingsWindow inherits Window {
                         // 페이지 전환용 NavItem 묶음(위)과 사이드바 하단 고정 [도움말]
                         // 사이를 스페이서로 벌린다. NavItem 은 "현재 페이지" 의미론이라
                         // 외부 브라우저를 여는 도움말을 여기 섞으면 안 된다(위 nav-scope
-                        // 의 Math.min(4, ...) 상한도 함께 깨진다).
+                        // 의 Math.min(5, ...) 상한도 함께 깨진다).
                         VerticalLayout {
                             vertical-stretch: 0;
                             spacing: Tokens.space-1;
@@ -628,16 +680,22 @@ export component SettingsWindow inherits Window {
                                 clicked => { root.current-page = 2; }
                             }
                             NavItem {
-                                label: @tr("사용자 사전");
+                                label: @tr("자동 교정 사전");
                                 selected: root.current-page == 3;
                                 focused: root.current-page == 3 && nav-scope.has-focus;
                                 clicked => { root.current-page = 3; }
                             }
                             NavItem {
-                                label: @tr("알림");
+                                label: @tr("한자 사용자 사전");
                                 selected: root.current-page == 4;
                                 focused: root.current-page == 4 && nav-scope.has-focus;
                                 clicked => { root.current-page = 4; }
+                            }
+                            NavItem {
+                                label: @tr("알림");
+                                selected: root.current-page == 5;
+                                focused: root.current-page == 5 && nav-scope.has-focus;
+                                clicked => { root.current-page = 5; }
                             }
                         }
                         // 스페이서 — 아래 [도움말] 을 사이드바 바닥에 고정한다.
@@ -1247,13 +1305,13 @@ export component SettingsWindow inherits Window {
                             }
                         }
                         SettingRow {
-                            title: @tr("사용자 사전 사용");
-                            description: @tr("사용자 사전에 등록한 단어를 교정에 반영합니다.");
+                            title: @tr("자동 교정 사전 사용");
+                            description: @tr("자동 교정 사전에 등록한 단어를 교정에 반영합니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-user-dict-enabled;
-                                accessible-label: @tr("사용자 사전 사용");
+                                accessible-label: @tr("자동 교정 사전 사용");
                                 toggled => { root.auto-save(); }
                             }
                         }
@@ -1308,7 +1366,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    // ── 페이지 3: 사용자 사전 ──
+                    // ── 페이지 3: 자동 교정 사전 ──
                     if root.current-page == 3: Text {
                         text: @tr("역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다.");
                         font-size: Tokens.font-caption;
@@ -1364,8 +1422,154 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    // ── 페이지 4: 알림 (상황 알림/토스트, NOTIFY_SPEC) ──
-                    if root.current-page == 4: Card {
+                    // ── 페이지 4: 한자 사용자 사전 (HANJA_USERDICT_SPEC §6) ──
+                    // 접근성: 한글 칸 Enter → 한자 칸, 한자·뜻 칸 Enter → 유효하면 바로 저장,
+                    // 검증 메시지는 칸 아래에 문장으로, 삭제는 확인 없이 되돌리기 토스트.
+                    if root.current-page == 4: Text {
+                        text: @tr("내가 등록한 한자를 한자 변환 후보 맨 앞에 올립니다. 변경 즉시 적용됩니다.");
+                        font-size: Tokens.font-caption;
+                        wrap: word-wrap;
+                        color: Tokens.caption-color;
+                    }
+                    if root.current-page == 4 && root.hanja-corrupt: Card {
+                        title: Tr.hd-corrupt-title;
+                        Text {
+                            text: root.hanja-corrupt-text;
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Tokens.is-dark ? #ff8a8a : #c42b1c;
+                        }
+                        Text {
+                            text: Tr.hd-readonly-hint;
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        if root.hanja-can-quarantine: Rectangle { height: Tokens.space-2; }
+                        if root.hanja-can-quarantine: HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: @tr("보관하고 새로 시작");
+                                accessible-label: @tr("읽을 수 없는 파일을 보관하고 새로 시작");
+                                primary: true;
+                                clicked => { root.hanja-quarantine(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 4 && !root.hanja-corrupt: Card {
+                        title: root.hanja-editing ? @tr("한자 항목 수정") : @tr("한자 항목 추가");
+                        SettingRow {
+                            title: @tr("한글(읽기)");
+                            description: @tr("예: 서기현");
+                            hangul-edit := LineEdit {
+                                min-width: 260px;
+                                text <=> root.hanja-hangul;
+                                placeholder-text: @tr("한글(읽기)");
+                                accessible-label: @tr("한글(읽기)");
+                                edited => { root.hanja-form-edited(); }
+                                accepted => { hanja-edit.focus(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("한자");
+                            description: @tr("한글을 쓰고 한자키로 한 글자씩 바꿔 넣으세요 (예: 서 → 徐)");
+                            hanja-edit := LineEdit {
+                                min-width: 260px;
+                                text <=> root.hanja-hanja;
+                                placeholder-text: @tr("한자");
+                                accessible-label: @tr("한자");
+                                edited => { root.hanja-form-edited(); }
+                                accepted => {
+                                    if (root.hanja-editing && root.hanja-can-save) {
+                                        root.hanja-save-edit();
+                                        hangul-edit.focus();
+                                    } else if (!root.hanja-editing && root.hanja-can-add) {
+                                        root.hanja-add();
+                                        hangul-edit.focus();
+                                    }
+                                }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("뜻 (선택)");
+                            description: @tr("비우면 글자별 뜻이 자동으로 붙습니다.");
+                            meaning-edit := LineEdit {
+                                min-width: 260px;
+                                text <=> root.hanja-meaning;
+                                placeholder-text: @tr("뜻(선택)");
+                                accessible-label: @tr("뜻");
+                                edited => { root.hanja-form-edited(); }
+                                accepted => {
+                                    if (root.hanja-editing && root.hanja-can-save) {
+                                        root.hanja-save-edit();
+                                        hangul-edit.focus();
+                                    } else if (!root.hanja-editing && root.hanja-can-add) {
+                                        root.hanja-add();
+                                        hangul-edit.focus();
+                                    }
+                                }
+                            }
+                        }
+                        // 실시간 검증 메시지 — 높이를 예약해 입력 중 레이아웃이 흔들리지 않게 한다.
+                        Text {
+                            text: root.hanja-msg;
+                            min-height: 22px;
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: root.hanja-msg-kind == 2
+                                ? (Tokens.is-dark ? #ff8a8a : #c42b1c)
+                                : Tokens.caption-color;
+                            accessible-role: text;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            alignment: end;
+                            Button {
+                                text: @tr("새로 입력");
+                                enabled: root.hanja-editing || root.hanja-hangul != "" || root.hanja-hanja != "" || root.hanja-meaning != "";
+                                clicked => {
+                                    root.hanja-select(-1);
+                                    hangul-edit.focus();
+                                }
+                            }
+                            Button {
+                                text: @tr("고친 내용 저장");
+                                enabled: root.hanja-editing && root.hanja-can-save;
+                                clicked => { root.hanja-save-edit(); }
+                            }
+                            Button {
+                                text: @tr("추가");
+                                primary: true;
+                                enabled: root.hanja-can-add;
+                                clicked => {
+                                    root.hanja-add();
+                                    hangul-edit.focus();
+                                }
+                            }
+                        }
+                    }
+                    if root.current-page == 4 && !root.hanja-corrupt: Card {
+                        title: root.hanja-count-text;
+                        StandardListView {
+                            min-height: 280px;
+                            model: root.hanja-model;
+                            current-item <=> root.hanja-selected;
+                            current-item-changed(i) => { root.hanja-select(i); }
+                        }
+                        Rectangle { height: Tokens.space-3; }
+                        HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: @tr("선택 삭제");
+                                enabled: root.hanja-selected >= 0;
+                                clicked => { root.hanja-remove(root.hanja-selected); }
+                            }
+                        }
+                    }
+
+                    // ── 페이지 5: 알림 (상황 알림/토스트, NOTIFY_SPEC) ──
+                    if root.current-page == 5: Card {
                         title: @tr("상황 알림");
                         Text {
                             text: @tr("자동 교정 발동·비밀번호 칸 진입 같은 입력기 상황을 짧은 알림으로 알립니다. 포커스를 가져가지 않고 자동으로 사라집니다.");
@@ -1436,7 +1640,7 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    if root.current-page == 4: Card {
+                    if root.current-page == 5: Card {
                         title: @tr("알림 이벤트");
                         SettingRow {
                             title: @tr("자동 교정됨");
@@ -1738,7 +1942,7 @@ export component SettingsWindow inherits Window {
                     if root.wiz-current-kind == 4: Card {
                         title: @tr("오교정이 생기면");
                         Text {
-                            text: @tr("• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '사용자 사전'에 등록할 수 있습니다.");
+                            text: @tr("• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '자동 교정 사전'에 등록할 수 있습니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
@@ -1756,7 +1960,7 @@ export component SettingsWindow inherits Window {
                         }
                         Rectangle { height: Tokens.space-2; }
                         Text {
-                            text: @tr("• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 사용자 사전\n• 변경 즉시 저장되는 설정 GUI");
+                            text: @tr("• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 한자 사용자 사전\n• 변경 즉시 저장되는 설정 GUI");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;

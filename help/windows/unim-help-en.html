@@ -850,7 +850,11 @@ korean:
 <h4 id="user-guide--54-page-4--auto-correction-dictionary-reverse-whitelist">5.4 Page 4 — Auto-correction Dictionary (reverse whitelist)</h4>
 <!-- screenshot: settings-userdict -->
 <p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers auto-correction dictionary entries.</p>
-<h4 id="user-guide--55-page-5--notifications-situation-toasts">5.5 Page 5 — Notifications (situation toasts)</h4>
+<h4 id="user-guide--541-page-5--hanja-user-dictionary">5.4.1 Page 5 — Hanja User Dictionary</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the fifth item in the sidebar, right after "Auto-correction Dictionary". Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; <strong>Delete selected</strong> can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with <code>unim-cli</code> show up in the list within a few seconds.</p>
+<hr />
+<h4 id="user-guide--55-page-6--notifications-situation-toasts">5.5 Page 6 — Notifications (situation toasts)</h4>
 <p>Short 1-2 second notifications for <strong>input-method situations that are easy to miss</strong>, such as auto-fix firing or the Korean/English toggle being blocked in a password field. They never take focus, disappear on their own and are not kept in the notification list (GNOME).</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Description</th></tr></thead><tbody>
 <tr><td>Enable situation notifications</td><td>Master switch (on by default). When off, none of the events below produce a notification</td></tr>
@@ -866,10 +870,6 @@ korean:
 <p><strong>The "entered password field" notification is shown once per field</strong> and again after 10 minutes. In apps where one window is one input field (browsers), moving to another site's password field in the same window within 10 minutes of the first notification is not announced.</p>
 </blockquote>
 <p>The CLI works too: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code> (comma-separated).</p>
-<h4 id="user-guide--551-page-6--hanja-user-dictionary">5.5.1 Page 6 — Hanja User Dictionary</h4>
-<!-- screenshot: settings-hanja-userdict -->
-<p>The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the sixth (bottom) item in the sidebar. Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; <strong>Delete selected</strong> can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with <code>unim-cli</code> show up in the list within a few seconds.</p>
-<hr />
 <h3 id="user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Not included on Windows yet.</strong> The layout viewer/editor (Keymap Studio) and the typing-practice tool ship only with the Linux packages for now. The Windows installer (MSI) contains just the input method, the settings window, and the popup renderer.</p>
 <p><strong>Choosing</strong> a layout works the same on Windows — it's under General → Layout options in the settings window. What is missing is only the tooling for authoring new layouts and for typing practice.</p>

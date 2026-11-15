@@ -8,7 +8,9 @@
 //! - 일반: 한글/영문 자판, 시작 모드, 모드 공유, 토글/한자 키, 자동 영문 전환
 //! - 오타 교정: AutoTypeFix 방향·임계값·옵션
 //! - 억제 단어: blacklist 조회/삭제 (변경 즉시 저장)
-//! - 사용자 사전: userdict 추가/삭제 (변경 즉시 저장)
+//! - 자동 교정 사전: AutoTypeFix userdict 추가/삭제 (변경 즉시 저장)
+//! - 한자 사용자 사전: hanja-userdict.yaml 추가/수정/삭제 (쓰기마다 디스크에서 다시 읽고
+//!   `(한글, 한자)` 쌍으로 대상을 찾는다. 2초 mtime 폴링으로 CLI·GTK 변경도 반영)
 //
 // GUI 전용 앱이므로 콘솔 창을 띄우지 않는다(무조건). debug 빌드에서도 빈
 // 콘솔 창이 먼저 뜨지 않도록 cfg_attr 없이 항상 windows 서브시스템을 쓴다.
@@ -16,8 +18,9 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, SystemTime};
 
-use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
+use slint::{Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
     english_layout_display_name, normalize_korean_layout_name,
@@ -31,7 +34,8 @@ use unim::config::{
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
-use unim::input_engine::InputEngine;
+use unim::hanja::{EntryError, HanjaUserDict, HanjaUserEntry, LoadError};
+use unim::input_engine::{InputEngine, HANJA_MAX_KEY_CHARS};
 use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, BlacklistEntry, Direction, EntryStatus};
 use unim::typefix_userdict::{ReverseWord, UserDictionary};
@@ -693,6 +697,254 @@ fn refresh_blacklist(ui: &SettingsWindow, bl: &Blacklist) {
     ui.set_blacklist_model(ModelRc::new(VecModel::from(items)));
 }
 
+// ───────────────────────── 한자 사용자 사전 ─────────────────────────
+//
+// 규칙(HANJA_USERDICT_SPEC §6·§8): 화면용 사본(`HanjaPage::dict`)은 **표시·검증 전용**이다.
+// 쓰기는 항상 디스크에서 다시 읽어(`load_default`) 그 사본에 적용하고 저장한다. 행은
+// 인덱스가 아니라 `(한글, 한자)` 쌍으로 찾는다. 읽을 수 없는 파일은 절대 덮어쓰지 않는다.
+// 항목 내용(한글·한자·뜻)은 로그에 남기지 않는다 — 이 모듈은 아무것도 출력하지 않는다.
+
+/// 파일 서명(mtime, 길이). 파일이 없으면 `None`.
+type HanjaSig = Option<(SystemTime, u64)>;
+
+struct HanjaPage {
+    /// 마지막으로 읽은 내용(표시·검증용). 읽기 실패 시 빈 사전.
+    dict: HanjaUserDict,
+    /// 폼이 묶여 있는 행의 (표시 위치, 선택 시점 전체 스냅샷). `Some` 이면 [고친 내용 저장] 대상.
+    editing: Option<(usize, HanjaUserEntry)>,
+    sig: HanjaSig,
+    model: Rc<VecModel<StandardListViewItem>>,
+}
+
+type HanjaState = Rc<RefCell<HanjaPage>>;
+
+/// 화면에 보이던 행(`shown_idx`, 스냅샷 `snap`)이 방금 읽은 사전의 어느 위치인지 찾는다.
+/// 같은 (한글, 한자) 가 여럿이어도 **전체 필드(뜻·added_at 포함)가 같은** 항목만 인정한다:
+/// 표시 위치의 항목이 스냅샷과 완전히 같으면 그것, 아니면 완전히 같은 마지막 항목, 없으면 `None`.
+fn hanja_locate(d: &HanjaUserDict, shown_idx: usize, snap: &HanjaUserEntry) -> Option<usize> {
+    if d.entries.get(shown_idx) == Some(snap) {
+        return Some(shown_idx);
+    }
+    d.entries.iter().rposition(|e| e == snap)
+}
+
+fn hanja_file_sig() -> HanjaSig {
+    let path = HanjaUserDict::default_path()?;
+    let md = std::fs::metadata(path).ok()?;
+    Some((md.modified().ok()?, md.len()))
+}
+
+fn hanja_err_text(tr: &Tr, e: &EntryError) -> String {
+    match e {
+        EntryError::HangulEmpty => tr.get_hd_err_hangul_empty().to_string(),
+        EntryError::HangulNotSyllable { ch, pos } => tr
+            .invoke_hd_err_not_syllable(*pos as i32 + 1, ch.to_string().as_str().into())
+            .to_string(),
+        EntryError::HangulTooLong { len } => tr
+            .invoke_hd_err_too_long(*len as i32, HANJA_MAX_KEY_CHARS as i32)
+            .to_string(),
+        EntryError::HanjaLenMismatch { hangul, hanja } => tr
+            .invoke_hd_err_len_mismatch(*hangul as i32, *hanja as i32)
+            .to_string(),
+        EntryError::HanjaNotHan { ch, pos } => tr
+            .invoke_hd_err_not_han(*pos as i32 + 1, ch.to_string().as_str().into())
+            .to_string(),
+        EntryError::MeaningTooLong { len } => tr
+            .invoke_hd_err_meaning_long(*len as i32, unim::hanja::user_dict::MEANING_MAX_CHARS as i32)
+            .to_string(),
+        EntryError::MeaningControl => tr.get_hd_err_meaning_control().to_string(),
+        EntryError::Duplicate => tr.get_hd_err_dup().to_string(),
+        EntryError::NotFound => tr.get_hd_err_notfound().to_string(),
+    }
+}
+
+fn hanja_row_text(tr: &Tr, d: &HanjaUserDict, idx: usize) -> String {
+    let e = &d.entries[idx];
+    match d.entry_error(idx) {
+        Some(err) => tr
+            .invoke_hd_row_invalid(
+                e.hangul.as_str().into(),
+                e.hanja.as_str().into(),
+                hanja_err_text(tr, &err).as_str().into(),
+            )
+            .to_string(),
+        None => {
+            let note = match e.meaning.as_deref() {
+                Some(m) if !m.is_empty() => m.to_string(),
+                _ => format!("({})", tr.get_hd_meaning_auto()),
+            };
+            tr.invoke_hd_row(
+                e.hangul.as_str().into(),
+                e.hanja.as_str().into(),
+                note.as_str().into(),
+            )
+            .to_string()
+        }
+    }
+}
+
+/// 모델을 **제자리에서** 맞춘다. 통째로 바꾸면 목록 스크롤이 맨 위로 튀므로 바뀐 행만
+/// 고치고 남는 행을 지운다/덧붙인다(삭제 뒤 스크롤 위치 유지).
+fn sync_list_model(model: &VecModel<StandardListViewItem>, rows: Vec<String>) {
+    let n = rows.len();
+    for (i, text) in rows.into_iter().enumerate() {
+        let item = StandardListViewItem::from(SharedString::from(text));
+        if i < model.row_count() {
+            if model.row_data(i).map(|r| r.text) != Some(item.text.clone()) {
+                model.set_row_data(i, item);
+            }
+        } else {
+            model.push(item);
+        }
+    }
+    while model.row_count() > n {
+        model.remove(model.row_count() - 1);
+    }
+}
+
+/// 현재 폼 값 → (메시지, 종류 0/1/2, 추가 가능, 저장 가능). 중복은 화면용 사본으로 본다
+/// (실제 쓰기 때 다시 읽어 한 번 더 확인).
+fn hanja_form_state(ui: &SettingsWindow, st: &HanjaPage) -> (String, i32, bool, bool) {
+    let tr = ui.global::<Tr>();
+    let (h, j, m) = (
+        ui.get_hanja_hangul().to_string(),
+        ui.get_hanja_hanja().to_string(),
+        ui.get_hanja_meaning().to_string(),
+    );
+    if h.trim().is_empty() && j.trim().is_empty() && m.trim().is_empty() {
+        return (String::new(), 0, false, false);
+    }
+    let (h, j, _m) = match HanjaUserDict::validate(&h, &j, Some(&m)) {
+        Ok(v) => v,
+        // 한글이 비었으면 오류가 아니라 아직 입력 전이다.
+        Err(EntryError::HangulEmpty) => {
+            return (tr.get_hd_err_hangul_empty().to_string(), 1, false, false)
+        }
+        // 한자를 한 글자씩 넣는 중 — 모자라기만 하면 진행 안내로 보여 준다.
+        Err(EntryError::HanjaLenMismatch { hangul, hanja }) if hanja < hangul => {
+            let msg = if hanja == 0 {
+                String::new()
+            } else {
+                tr.invoke_hd_msg_more_hanja((hangul - hanja) as i32).to_string()
+            };
+            return (msg, 1, false, false);
+        }
+        Err(e) => return (hanja_err_text(&tr, &e), 2, false, false),
+    };
+    let editing_idx = st
+        .editing
+        .as_ref()
+        .and_then(|(i, snap)| hanja_locate(&st.dict, *i, snap));
+    let same = |e: &HanjaUserEntry| e.hangul == h && e.hanja == j;
+    let dup_any = st.dict.entries.iter().any(same);
+    let dup_other = st
+        .dict
+        .entries
+        .iter()
+        .enumerate()
+        .any(|(i, e)| Some(i) != editing_idx && same(e));
+    if dup_other {
+        return (tr.get_hd_err_dup().to_string(), 2, false, false);
+    }
+    // [추가] 는 같은 쌍이 이미 있으면(편집 중인 자기 자신 포함) 막고,
+    // [고친 내용 저장] 은 편집 대상이 있고 다른 항목과 겹치지 않을 때만 연다.
+    (String::new(), 0, !dup_any, editing_idx.is_some())
+}
+
+fn hanja_validate(ui: &SettingsWindow, st: &HanjaState) {
+    let (msg, kind, can_add, can_save) = hanja_form_state(ui, &st.borrow());
+    ui.set_hanja_msg(msg.into());
+    ui.set_hanja_msg_kind(kind);
+    ui.set_hanja_can_add(can_add);
+    ui.set_hanja_can_save(can_save);
+}
+
+fn hanja_clear_form(ui: &SettingsWindow, st: &HanjaState) {
+    st.borrow_mut().editing = None;
+    ui.set_hanja_hangul("".into());
+    ui.set_hanja_hanja("".into());
+    ui.set_hanja_meaning("".into());
+    ui.set_hanja_editing(false);
+    hanja_validate(ui, st);
+}
+
+/// 디스크에서 다시 읽어 목록·깨짐 상태·개수·편집 대상을 갱신한다. 선택 인덱스는 범위만
+/// 보정한다(호출부가 필요하면 덮어쓴다).
+fn hanja_refresh(ui: &SettingsWindow, st: &HanjaState) {
+    let tr = ui.global::<Tr>();
+    let sig = hanja_file_sig();
+    let loaded = HanjaUserDict::load_default();
+    {
+        let mut p = st.borrow_mut();
+        p.sig = sig;
+        match &loaded {
+            Ok(d) => {
+                p.dict = d.clone();
+                ui.set_hanja_corrupt(false);
+                ui.set_hanja_corrupt_text("".into());
+                ui.set_hanja_can_quarantine(false);
+            }
+            Err(e) => {
+                p.dict = HanjaUserDict::default();
+                let path = HanjaUserDict::default_path()
+                    .map(|x| x.display().to_string())
+                    .unwrap_or_default();
+                let text = match e {
+                    LoadError::NewerVersion(v) => {
+                        tr.invoke_hd_corrupt_newer(*v as i32, path.as_str().into())
+                    }
+                    other => tr.invoke_hd_corrupt_parse(
+                        other.to_string().as_str().into(),
+                        path.as_str().into(),
+                    ),
+                };
+                ui.set_hanja_corrupt(true);
+                ui.set_hanja_corrupt_text(text);
+                // 이름 바꿔 보관은 "파싱 실패" 에만(SPEC §8). 새 버전·IO 오류는 읽기 전용 안내.
+                ui.set_hanja_can_quarantine(matches!(e, LoadError::Parse { .. }));
+            }
+        }
+        let rows: Vec<String> = (0..p.dict.entries.len())
+            .map(|i| hanja_row_text(&tr, &p.dict, i))
+            .collect();
+        let n = rows.len();
+        sync_list_model(&p.model, rows);
+        ui.set_hanja_count_text(tr.invoke_hd_count(n as i32));
+        // 편집 대상이 사라졌으면(다른 곳에서 삭제·이름 변경) 폼의 묶임만 푼다(입력값은 둔다).
+        let located = p
+            .editing
+            .as_ref()
+            .and_then(|(i, snap)| hanja_locate(&p.dict, *i, snap));
+        match (located, p.editing.as_mut()) {
+            (Some(i), Some(e)) => e.0 = i,
+            _ => p.editing = None,
+        }
+        ui.set_hanja_editing(p.editing.is_some());
+        let sel = ui.get_hanja_selected();
+        if sel >= n as i32 {
+            ui.set_hanja_selected(n as i32 - 1);
+        }
+    }
+    hanja_validate(ui, st);
+}
+
+fn hanja_meaning_arg(ui: &SettingsWindow) -> Option<String> {
+    let m = ui.get_hanja_meaning().to_string();
+    let m = m.trim();
+    (!m.is_empty()).then(|| m.to_string())
+}
+
+/// 읽기 실패(깨짐 등) 시 호출부가 쓰기를 중단하고 화면을 깨짐 상태로 돌린다.
+fn hanja_load_for_write(ui: &SettingsWindow, st: &HanjaState) -> Option<HanjaUserDict> {
+    match HanjaUserDict::load_default() {
+        Ok(d) => Some(d),
+        Err(_) => {
+            hanja_refresh(ui, st);
+            None
+        }
+    }
+}
+
 fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
     let items: Vec<StandardListViewItem> = ud
         .reverse_words
@@ -707,6 +959,9 @@ fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
 enum DeleteSnapshot {
     Blacklist(Blacklist),
     Userdict(UserDictionary),
+    /// 한자 사용자 사전에서 지운 항목 1개 + 원래 위치 + 삭제 직후 파일 서명. 되돌리기는 파일이
+    /// 그대로면 원래 위치에, 바뀌었으면 맨 뒤에(완전히 같은 항목이 없을 때만) 끼운다.
+    HanjaDict(HanjaUserEntry, usize, HanjaSig),
     /// 오타 교정 '기본값으로 복원' 직전의 AutoTypeFix 설정. 되돌리기 시 그대로
     /// 되돌려 사용자가 실수로 복원해도 이전 튜닝을 잃지 않게 한다(WCAG 3.3.4).
     AtfDefaults(AutoTypeFixConfig),
@@ -1004,6 +1259,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     refresh_blacklist(&ui, &blacklist.borrow());
     refresh_userdict(&ui, &userdict.borrow());
+
+    // ── 한자 사용자 사전: 상태·모델 준비 + 최초 읽기 ──
+    let hanja_model: Rc<VecModel<StandardListViewItem>> = Rc::new(VecModel::default());
+    ui.set_hanja_model(ModelRc::from(hanja_model.clone()));
+    let hanja: HanjaState = Rc::new(RefCell::new(HanjaPage {
+        dict: HanjaUserDict::default(),
+        editing: None,
+        sig: None,
+        model: hanja_model,
+    }));
+    hanja_refresh(&ui, &hanja);
 
     // ── 자동 저장 (config.yaml) — 컨트롤 변경 즉시 호출 ──
     {
@@ -1556,6 +1822,205 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── 한자 사용자 사전: 폼 입력 → 실시간 검증 ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        ui.on_hanja_form_edited(move || {
+            hanja_validate(&ui_weak.unwrap(), &hanja);
+        });
+    }
+
+    // ── 한자 사용자 사전: 행 선택(-1 = 새로 입력) → 폼에 채움 ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        ui.on_hanja_select(move |idx| {
+            let ui = ui_weak.unwrap();
+            if idx < 0 {
+                ui.set_hanja_selected(-1);
+                hanja_clear_form(&ui, &hanja);
+                return;
+            }
+            // 선택 시점에 디스크를 다시 읽어, 그 시점의 행 내용으로 폼을 채운다.
+            hanja_refresh(&ui, &hanja);
+            let entry = hanja.borrow().dict.entries.get(idx as usize).cloned();
+            match entry {
+                Some(e) => {
+                    ui.set_hanja_hangul(e.hangul.as_str().into());
+                    ui.set_hanja_hanja(e.hanja.as_str().into());
+                    ui.set_hanja_meaning(e.meaning.clone().unwrap_or_default().as_str().into());
+                    hanja.borrow_mut().editing = Some((idx as usize, e));
+                    ui.set_hanja_editing(true);
+                    hanja_validate(&ui, &hanja);
+                }
+                None => hanja_clear_form(&ui, &hanja),
+            }
+        });
+    }
+
+    // ── 한자 사용자 사전: 추가 ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        ui.on_hanja_add(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let Some(mut d) = hanja_load_for_write(&ui, &hanja) else {
+                return;
+            };
+            let (h, j) = (
+                ui.get_hanja_hangul().to_string(),
+                ui.get_hanja_hanja().to_string(),
+            );
+            match d.add(&h, &j, hanja_meaning_arg(&ui)) {
+                Ok(_) => match d.save_default() {
+                    Ok(()) => {
+                        hanja_refresh(&ui, &hanja);
+                        hanja_clear_form(&ui, &hanja);
+                        ui.set_hanja_selected(-1);
+                        ui.set_status_text(tr.get_hd_added());
+                    }
+                    Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+                },
+                Err(e) => {
+                    ui.set_status_text(hanja_err_text(&tr, &e).as_str().into());
+                    hanja_refresh(&ui, &hanja);
+                }
+            }
+        });
+    }
+
+    // ── 한자 사용자 사전: 고친 내용 저장(편집 대상 쌍으로 찾아서) ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        ui.on_hanja_save_edit(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let Some((shown_idx, snap)) = hanja.borrow().editing.clone() else {
+                return;
+            };
+            let Some(mut d) = hanja_load_for_write(&ui, &hanja) else {
+                return;
+            };
+            let Some(idx) = hanja_locate(&d, shown_idx, &snap) else {
+                hanja_refresh(&ui, &hanja);
+                ui.set_status_text(tr.get_hd_gone());
+                return;
+            };
+            let (h, j) = (
+                ui.get_hanja_hangul().to_string(),
+                ui.get_hanja_hanja().to_string(),
+            );
+            match d.update_at(idx, &h, &j, hanja_meaning_arg(&ui)) {
+                Ok(()) => match d.save_default() {
+                    Ok(()) => {
+                        // 저장된 값(다듬은 값)으로 편집 대상을 갱신하고 폼도 그 값으로 맞춘다.
+                        let e = d.entries[idx].clone();
+                        ui.set_hanja_hangul(e.hangul.as_str().into());
+                        ui.set_hanja_hanja(e.hanja.as_str().into());
+                        ui.set_hanja_meaning(e.meaning.clone().unwrap_or_default().as_str().into());
+                        hanja.borrow_mut().editing = Some((idx, e));
+                        hanja_refresh(&ui, &hanja);
+                        ui.set_hanja_selected(idx as i32);
+                        ui.set_status_text(tr.get_hd_saved());
+                    }
+                    Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+                },
+                Err(e) => {
+                    ui.set_status_text(hanja_err_text(&tr, &e).as_str().into());
+                    hanja_refresh(&ui, &hanja);
+                }
+            }
+        });
+    }
+
+    // ── 한자 사용자 사전: 삭제 — 확인 없이, 되돌리기 토스트. 같은 자리 행으로 선택 이동 ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        let delete_snapshot = delete_snapshot.clone();
+        ui.on_hanja_remove(move |idx| {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            // 화면에 보이던 행(위치 + 전체 스냅샷)을 잡아 두고, 디스크를 다시 읽어
+            // 그 행과 완전히 같은 항목만 지운다(같은 쌍의 다른 항목을 건드리지 않는다).
+            let shown_idx = usize::try_from(idx).unwrap_or(usize::MAX);
+            let shown = hanja.borrow().dict.entries.get(shown_idx).cloned();
+            let Some(shown) = shown else {
+                return;
+            };
+            let Some(mut d) = hanja_load_for_write(&ui, &hanja) else {
+                return;
+            };
+            let Some(pos) = hanja_locate(&d, shown_idx, &shown) else {
+                hanja_refresh(&ui, &hanja);
+                ui.set_status_text(tr.get_hd_gone());
+                return;
+            };
+            let Some(removed) = d.remove_at(pos) else {
+                return;
+            };
+            match d.save_default() {
+                Ok(()) => {
+                    // 되돌리기 판단용: 삭제 직후 파일 서명(그 뒤 바뀌었는지 본다).
+                    *delete_snapshot.borrow_mut() =
+                        Some(DeleteSnapshot::HanjaDict(removed, pos, hanja_file_sig()));
+                    hanja_refresh(&ui, &hanja);
+                    hanja_clear_form(&ui, &hanja);
+                    // 목록 위치 유지: 지운 자리의 다음 행(마지막이었으면 앞 행)을 선택해 둔다.
+                    let n = hanja.borrow().dict.entries.len() as i32;
+                    ui.set_hanja_selected(if n == 0 { -1 } else { (pos as i32).min(n - 1) });
+                    ui.set_status_text(tr.get_hd_removed());
+                    ui.set_toast_message(tr.get_hd_removed());
+                    ui.set_toast_visible(true);
+                }
+                Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+            }
+        });
+    }
+
+    // ── 한자 사용자 사전: 읽을 수 없는 파일 보관(이름만 바꿈) 후 새로 시작 ──
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        ui.on_hanja_quarantine(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let Some(path) = HanjaUserDict::default_path() else {
+                return;
+            };
+            // 보관 직전에 다시 확인: 그 사이 고쳐져 읽을 수 있게 됐다면 건드리지 않는다.
+            if HanjaUserDict::load(&path).is_ok() {
+                hanja_refresh(&ui, &hanja);
+                return;
+            }
+            match HanjaUserDict::quarantine(&path) {
+                Ok(_) => {
+                    hanja_refresh(&ui, &hanja);
+                    ui.set_status_text(tr.get_hd_quarantined());
+                }
+                Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+            }
+        });
+    }
+
+    // ── 한자 사용자 사전: 2초 mtime 폴링 — CLI·GTK 앱이 바꾼 내용을 반영 ──
+    let hanja_timer = slint::Timer::default();
+    {
+        let ui_weak = ui.as_weak();
+        let hanja = hanja.clone();
+        hanja_timer.start(slint::TimerMode::Repeated, Duration::from_secs(2), move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            if hanja_file_sig() != hanja.borrow().sig {
+                hanja_refresh(&ui, &hanja);
+            }
+        });
+    }
+
     // ── I6: 되돌리기(undo) — 마지막 삭제 스냅샷 복원 ──
     {
         let ui_weak = ui.as_weak();
@@ -1563,6 +2028,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let userdict = userdict.clone();
         let config = config.clone();
         let delete_snapshot = delete_snapshot.clone();
+        let hanja = hanja.clone();
         ui.on_undo_restore(move || {
             let ui = ui_weak.unwrap();
             let tr = ui.global::<Tr>();
@@ -1587,6 +2053,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     refresh_userdict(&ui, &ud);
                     ui.set_status_text(tr.get_delete_undone());
                 }
+                Some(DeleteSnapshot::HanjaDict(entry, pos, sig)) => {
+                    // 파일이 삭제 직후 그대로면 원래 위치에, 그 사이 바뀌었으면 맨 뒤에 끼운다.
+                    // 완전히 같은 항목이 이미 있으면 아무것도 하지 않는다.
+                    let unchanged = hanja_file_sig() == sig;
+                    if let Some(mut d) = hanja_load_for_write(&ui, &hanja) {
+                        if d.entries.contains(&entry) {
+                            hanja_refresh(&ui, &hanja);
+                            ui.set_status_text(tr.get_delete_undone());
+                        } else {
+                            let at = if unchanged {
+                                pos.min(d.entries.len())
+                            } else {
+                                d.entries.len()
+                            };
+                            d.entries.insert(at, entry);
+                            match d.save_default() {
+                                Ok(()) => {
+                                    hanja_refresh(&ui, &hanja);
+                                    ui.set_hanja_selected(at as i32);
+                                    ui.set_status_text(tr.get_delete_undone());
+                                }
+                                Err(e) => ui.set_status_text(
+                                    tr.invoke_save_failed(e.to_string().as_str().into()),
+                                ),
+                            }
+                        }
+                    }
+                }
                 None => {}
             }
             ui.set_toast_visible(false);
@@ -1598,6 +2092,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     wizard::wire(&ui, &config);
 
     ui.run()?;
+    drop(hanja_timer);
     Ok(())
 }
 

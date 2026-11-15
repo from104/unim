@@ -967,7 +967,17 @@ A single list shows **Tentative**, **Confirmed**, and **Inactive** suppressions 
 
 Enter a **word** and an optional **note**, then **Add**, to register an English ↔ Korean-jamo-sequence mapping. E.g. `wave` ↔ `ㅈㅐㅍㅁ`. Select an entry below and **Delete** to remove it. Reverse correction prefers auto-correction dictionary entries.
 
-### 5.5 Page 5 — Notifications (situation toasts)
+### 5.4.1 Page 5 — Hanja User Dictionary
+
+<!-- screenshot: settings-hanja-userdict -->
+
+The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the fifth item in the sidebar, right after "Auto-correction Dictionary". Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; **Delete selected** can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with `unim-cli` show up in the list within a few seconds.
+
+---
+
+<!-- @platform:windows -->
+
+### 5.5 Page 6 — Notifications (situation toasts)
 
 Short 1-2 second notifications for **input-method situations that are easy to miss**, such as auto-fix firing or the Korean/English toggle being blocked in a password field. They never take focus, disappear on their own and are not kept in the notification list (GNOME).
 
@@ -986,15 +996,6 @@ Short 1-2 second notifications for **input-method situations that are easy to mi
 
 The CLI works too: `unim-cli config set notify-enabled false`, `notify-duration-ms`, `notify-language`, `notify-show-text`, `notify-corner`, `notify-events` (comma-separated).
 
-### 5.5.1 Page 6 — Hanja User Dictionary
-
-<!-- screenshot: settings-hanja-userdict -->
-
-The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the sixth (bottom) item in the sidebar. Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; **Delete selected** can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with `unim-cli` show up in the list within a few seconds.
-
----
-
-<!-- @platform:windows -->
 ## 5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)
 
 **🪟 Not included on Windows yet.** The layout viewer/editor (Keymap Studio) and the typing-practice tool ship only with the Linux packages for now. The Windows installer (MSI) contains just the input method, the settings window, and the popup renderer.

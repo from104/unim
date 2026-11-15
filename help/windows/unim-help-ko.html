@@ -843,7 +843,11 @@ korean:
 <h4 id="user-guide--54-페이지-4--자동-교정-사전-역방향-화이트리스트">5.4 페이지 4 — 자동 교정 사전 (역방향 화이트리스트)</h4>
 <!-- screenshot: settings-userdict -->
 <p>「단어」+「메모(선택)」를 입력해 [추가]하면 영어 단어 ↔ 한글 시퀀스 매핑이 등록된다. 예: <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. 아래 목록에서 선택 후 [선택 삭제]로 제거한다. reverse 교정에서 우선 매칭.</p>
-<h4 id="user-guide--55-페이지-5--알림-상황-알림">5.5 페이지 5 — 알림 (상황 알림)</h4>
+<h4 id="user-guide--541-페이지-5--한자-사용자-사전">5.4.1 페이지 5 — 한자 사용자 사전</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>한자 변환용 사전이다(§4.2 「한자 사용자 사전」). 사이드바에서 「자동 교정 사전」 바로 다음, 다섯 번째 항목이다. 한글·한자·뜻(선택)을 쓰고 Enter 로 추가하며, 입력하는 동안 규칙에 어긋난 곳은 칸 아래에 이유가 바로 나온다. 목록에서 행을 누르면 폼에 채워져 고칠 수 있고, [선택 삭제] 는 5초 안에 되돌릴 수 있다. 파일이 깨졌으면 목록 대신 오류와 경로가 보이고 [보관하고 새로 시작] 만 쓸 수 있다. <code>unim-cli</code> 로 바꾼 내용도 몇 초 안에 목록에 반영된다.</p>
+<hr />
+<h4 id="user-guide--55-페이지-6--알림-상황-알림">5.5 페이지 6 — 알림 (상황 알림)</h4>
 <p>자동 교정이 발동했을 때, 비밀번호 칸에서 한/영 전환이 막혔을 때처럼 <strong>눈치채지 못하고 지나가기 쉬운 입력기 상황</strong>을 1~2초짜리 짧은 알림으로 알려 준다. 포커스를 가져가지 않고 자동으로 사라지며, 알림 센터(GNOME 알림 목록)에는 남지 않는다.</p>
 <div class="tablewrap"><table><thead><tr><th>항목</th><th>설명</th></tr></thead><tbody>
 <tr><td>상황 알림 사용</td><td>전체 스위치(기본 켜짐). 끄면 아래 이벤트가 모두 알림을 내지 않는다</td></tr>
@@ -859,10 +863,6 @@ korean:
 <p><strong>비밀번호 칸 진입 알림은 같은 칸에서 한 번만</strong> 나가고 10분이 지나면 다시 나간다. 브라우저처럼 창 하나가 입력 칸 하나로 보이는 앱에서는 첫 알림 뒤 10분 안에 같은 창의 다른 사이트 비밀번호 칸으로 옮겨 가도 알리지 않는다.</p>
 </blockquote>
 <p>CLI 로도 바꿀 수 있다: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code>(쉼표 구분).</p>
-<h4 id="user-guide--551-페이지-6--한자-사용자-사전">5.5.1 페이지 6 — 한자 사용자 사전</h4>
-<!-- screenshot: settings-hanja-userdict -->
-<p>한자 변환용 사전이다(§4.2 「한자 사용자 사전」). 사이드바의 여섯 번째(맨 아래) 항목이다. 한글·한자·뜻(선택)을 쓰고 Enter 로 추가하며, 입력하는 동안 규칙에 어긋난 곳은 칸 아래에 이유가 바로 나온다. 목록에서 행을 누르면 폼에 채워져 고칠 수 있고, [선택 삭제] 는 5초 안에 되돌릴 수 있다. 파일이 깨졌으면 목록 대신 오류와 경로가 보이고 [보관하고 새로 시작] 만 쓸 수 있다. <code>unim-cli</code> 로 바꾼 내용도 몇 초 안에 목록에 반영된다.</p>
-<hr />
 <h3 id="user-guide--56-자판-도구-keymap-studio--typing-practice">5.6 자판 도구 (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Windows 에는 아직 포함되지 않는다.</strong> 자판을 눈으로 보며 편집하는 도구(Keymap Studio)와 타자 연습 도구(Typing Practice)는 현재 리눅스 패키지에만 들어 있다. Windows 설치본(MSI)에는 입력기 본체·설정 창·팝업 렌더러만 담긴다.</p>
 <p>자판 <strong>선택</strong>은 Windows 에서도 설정 창의 「일반」 → 「자판 옵션」에서 그대로 할 수 있다. 없는 것은 자판을 새로 만들거나 타자 연습을 하는 도구뿐이다.</p>
