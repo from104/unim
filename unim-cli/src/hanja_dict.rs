@@ -173,11 +173,7 @@ pub(crate) fn add(path: &Path, hangul: &str, hanja: &str, meaning: Option<String
     d.add(hangul, hanja, meaning)
         .map_err(|e| entry_error_msg(&e, hangul.trim(), hanja.trim()))?;
     save(&d, path)?;
-    Ok(t!(
-        "hanja_dict_added",
-        pair = pair(hangul.trim(), hanja.trim())
-    )
-    .to_string())
+    Ok(t!("hanja_dict_added", pair = pair(hangul.trim(), hanja.trim())).to_string())
 }
 
 pub(crate) fn edit(
@@ -213,28 +209,40 @@ pub(crate) fn edit(
     Ok(t!("hanja_dict_edited", pair = pair(h.trim(), j.trim())).to_string())
 }
 
-pub(crate) fn remove(path: &Path, hangul: &str, hanja: Option<&str>, yes: bool) -> Outcome {
-    let mut d = load_for_write(path)?;
-    let (h, j) = (hangul.trim(), hanja.map(str::trim));
-    let targets: Vec<String> = d
-        .entries
+/// `remove` 대상 `(한글, 한자)` 쌍 문장 목록.
+fn removal_targets(d: &HanjaUserDict, h: &str, j: Option<&str>) -> Vec<String> {
+    d.entries
         .iter()
         .filter(|e| e.hangul == h && j.is_none_or(|j| e.hanja == j))
         .map(|e| pair(&e.hangul, &e.hanja))
-        .collect();
-    if targets.is_empty() {
+        .collect()
+}
+
+pub(crate) fn remove(path: &Path, hangul: &str, hanja: Option<&str>, yes: bool) -> Outcome {
+    let (h, j) = (hangul.trim(), hanja.map(str::trim));
+    let not_found = || {
         let item = match j {
             Some(j) => pair(h, j),
             None => safe(h),
         };
-        return Err(t!("hanja_dict_not_found", item = item).to_string());
+        Err(t!("hanja_dict_not_found", item = item).to_string())
+    };
+    // 1차 읽기: 확인 문구용. 읽을 수 없으면 여기서 거부한다.
+    let targets = removal_targets(&load_for_write(path)?, h, j);
+    if targets.is_empty() {
+        return not_found();
     }
     match confirm_multi_removal(&targets, yes) {
         MultiRemoveGate::Proceed => {}
         MultiRemoveGate::Cancelled => return Err(String::new()),
         MultiRemoveGate::NeedsYes => return Err(t!("dict_multi_remove_needs_yes").to_string()),
     }
+    // 확인 사이에 설정 앱이 파일을 바꿨을 수 있다 — 다시 읽어 그 사본에 적용한다.
+    let mut d = load_for_write(path)?;
     let n = d.remove(h, j);
+    if n == 0 {
+        return not_found();
+    }
     save(&d, path)?;
     Ok(match j {
         Some(j) if n == 1 => t!("hanja_dict_removed", pair = pair(h, j)).to_string(),
@@ -257,17 +265,26 @@ fn confirm(prompt: String, yes: bool) -> bool {
 
 pub(crate) fn clear(path: &Path, yes: bool) -> Outcome {
     match HanjaUserDict::load(path) {
-        Ok(mut d) => {
+        Ok(d) => {
             if d.entries.is_empty() {
                 return Ok(t!("hanja_dict_empty").to_string());
             }
-            let count = d.entries.len();
             if !confirm(
-                t!("hanja_dict_clear_confirm", count = count.to_string()).to_string(),
+                t!(
+                    "hanja_dict_clear_confirm",
+                    count = d.entries.len().to_string()
+                )
+                .to_string(),
                 yes,
             ) {
                 println!("{}", t!("exit_canceled"));
                 return Err(String::new());
+            }
+            // 확인 사이에 바뀐 파일을 덮어쓰지 않도록 다시 읽어 그 사본을 비운다.
+            let mut d = load_for_write(path)?;
+            let count = d.entries.len();
+            if count == 0 {
+                return Ok(t!("hanja_dict_empty").to_string());
             }
             d.entries.clear();
             save(&d, path)?;

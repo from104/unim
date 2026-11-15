@@ -172,9 +172,10 @@ fn now_unix() -> u64 {
 }
 
 /// 파일 서명 `(mtime, 길이)`. 파일이 없거나 stat 실패면 `None`.
-type Signature = (SystemTime, u64);
+pub type Signature = (SystemTime, u64);
 
-fn file_signature(path: &Path) -> Option<Signature> {
+/// 파일 서명을 구한다(설정 앱이 "그 사이 파일이 바뀌었나" 를 판단할 때 쓴다).
+pub fn file_signature(path: &Path) -> Option<Signature> {
     let m = fs::metadata(path).ok()?;
     Some((m.modified().ok()?, m.len()))
 }
@@ -202,10 +203,22 @@ impl HanjaUserDict {
 
     /// `load` 와 같되 `version > 1` 도 최선으로 읽어 돌려준다(엔진 조회용).
     fn load_lenient(path: &Path) -> Result<Self, LoadError> {
-        let content = match fs::read_to_string(path) {
-            Ok(c) => c,
+        let bytes = match fs::read(path) {
+            Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(LoadError::Io(e)),
+        };
+        // 읽었지만 UTF-8 이 아닌 파일(메모장 ANSI/CP949 저장 등)은 I/O 오류가 아니라
+        // 내용 오류다 → Parse 로 분류해 보관(quarantine) 경로가 열리게 한다. 내용은 담지 않는다.
+        let content = match String::from_utf8(bytes) {
+            Ok(c) => c,
+            Err(_) => {
+                return Err(LoadError::Parse {
+                    line: None,
+                    column: None,
+                    message: "파일이 UTF-8 이 아닙니다 (not valid UTF-8)".to_string(),
+                })
+            }
         };
         if content.trim().is_empty() {
             return Ok(Self::default());
@@ -268,16 +281,18 @@ impl HanjaUserDict {
         ))
     }
 
-    /// 저장된 항목의 유효성(목록 ⚠ 표시용). 앞 항목과 같은 쌍이면 `Duplicate`.
-    /// 범위를 벗어난 `idx` 는 `None`.
+    /// 저장된 항목의 유효성(목록 ⚠ 표시용). 앞의 **유효** 항목과 같은 쌍이면 `Duplicate`
+    /// (조회 인덱스·`scan_errors` 와 같은 규칙). 범위를 벗어난 `idx` 는 `None`.
     pub fn entry_error(&self, idx: usize) -> Option<EntryError> {
         let e = self.entries.get(idx)?;
         if let Err(err) = check_fields(&e.hangul, &e.hanja, e.meaning.as_deref()) {
             return Some(err);
         }
-        let dup = self.entries[..idx]
-            .iter()
-            .any(|p| p.hangul == e.hangul && p.hanja == e.hanja);
+        let dup = self.entries[..idx].iter().any(|p| {
+            p.hangul == e.hangul
+                && p.hanja == e.hanja
+                && check_fields(&p.hangul, &p.hanja, p.meaning.as_deref()).is_ok()
+        });
         dup.then_some(EntryError::Duplicate)
     }
 
@@ -906,6 +921,40 @@ mod tests {
     }
 
     #[test]
+    fn load_invalid_utf8_is_quarantinable_parse_error() {
+        let p = unique_temp_path("cp949");
+        // CP949 로 저장된 "서" = 0xBC 0xAD (UTF-8 로는 무효)
+        let body: Vec<u8> =
+            b"version: 1\nentries:\n  - hangul: \xBC\xAD\n    hanja: \xE5\xBE\x90\n".to_vec();
+        fs::write(&p, &body).unwrap();
+        match HanjaUserDict::load(&p) {
+            Err(LoadError::Parse {
+                line,
+                column,
+                message,
+            }) => {
+                assert!(line.is_none() && column.is_none());
+                assert!(message.contains("UTF-8"));
+            }
+            other => panic!("Parse 오류여야 함: {other:?}"),
+        }
+        assert!(matches!(
+            HanjaUserDict::load_lenient(&p),
+            Err(LoadError::Parse { .. })
+        ));
+        assert_eq!(
+            fs::read(&p).unwrap(),
+            body,
+            "읽기가 원본 바이트를 건드리지 않는다"
+        );
+        let q = HanjaUserDict::quarantine(&p).unwrap();
+        assert!(!p.exists());
+        assert_eq!(fs::read(&q).unwrap(), body);
+        assert!(HanjaUserDict::load(&p).unwrap().entries.is_empty());
+        let _ = fs::remove_file(&q);
+    }
+
+    #[test]
     fn load_unreadable_is_io_error() {
         // 디렉터리를 파일로 읽으려 하면 NotFound 가 아닌 I/O 오류
         let dir = std::env::temp_dir();
@@ -972,6 +1021,27 @@ mod tests {
         assert_eq!(r.entries[1].hanja, "多온");
         assert_eq!(r.entries[0].added_at, 7);
         let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn entry_error_ignores_invalid_earlier_twin() {
+        let long = "가".repeat(MEANING_MAX_CHARS + 1);
+        let mut d = HanjaUserDict::default();
+        for m in [Some(long), None] {
+            d.entries.push(HanjaUserEntry {
+                hangul: "서".into(),
+                hanja: "徐".into(),
+                meaning: m,
+                added_at: 0,
+            });
+        }
+        assert!(matches!(
+            d.entry_error(0),
+            Some(EntryError::MeaningTooLong { .. })
+        ));
+        // 인덱스는 두 번째 항목을 유효로 쓴다 → 목록도 중복이라 하지 않는다.
+        assert_eq!(d.entry_error(1), None);
+        assert_eq!(HanjaUserIndex::from_dict(&d).valid_count(), 1);
     }
 
     #[test]

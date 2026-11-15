@@ -16,7 +16,9 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use rust_i18n::t;
 
-use unim::hanja::user_dict::{EntryError, HanjaUserDict, HanjaUserEntry, LoadError};
+use unim::hanja::user_dict::{
+    file_signature, EntryError, HanjaUserDict, HanjaUserEntry, LoadError, Signature,
+};
 use unim::input_engine::HANJA_MAX_KEY_CHARS;
 use unim::unim_log;
 
@@ -75,7 +77,10 @@ fn note_save_failed(refs: &Refs, e: &std::io::Error) {
     log_save_failed(e);
     note(
         refs,
-        &t!("settings_toast_save_failed", err = format!("{:?}", e.kind())),
+        &t!(
+            "settings_toast_save_failed",
+            err = format!("{:?}", e.kind())
+        ),
     );
 }
 
@@ -424,6 +429,8 @@ fn delete_entry(refs: &Rc<Refs>, snap: &HanjaUserEntry, shown_idx: usize) {
         note_save_failed(refs, &e);
         return;
     }
+    // 삭제 직후 파일 서명 — 되돌리기 때 "그 사이 바뀌었나" 판단 기준.
+    let sig_after = HanjaUserDict::default_path().and_then(|p| file_signature(&p));
 
     // 같은 자리(마지막이면 앞) 행에 포커스, 스크롤 유지.
     refill(refs, Some(idx.min(len_after.saturating_sub(1))));
@@ -435,7 +442,7 @@ fn delete_entry(refs: &Rc<Refs>, snap: &HanjaUserEntry, shown_idx: usize) {
         .build();
     {
         let refs_c = refs.clone();
-        toast.connect_button_clicked(move |_| undo_delete(&refs_c, &entry, idx, len_after));
+        toast.connect_button_clicked(move |_| undo_delete(&refs_c, &entry, idx, sig_after));
     }
     // 앞선 되돌리기 토스트는 걷어 새 토스트가 곧바로 보이게 한다.
     if let Some(prev) = refs.undo_toast.replace(Some(toast.clone())) {
@@ -444,7 +451,7 @@ fn delete_entry(refs: &Rc<Refs>, snap: &HanjaUserEntry, shown_idx: usize) {
     refs.window.add_toast(toast);
 }
 
-fn undo_delete(refs: &Rc<Refs>, entry: &HanjaUserEntry, idx: usize, len_after: usize) {
+fn undo_delete(refs: &Rc<Refs>, entry: &HanjaUserEntry, idx: usize, sig_after: Option<Signature>) {
     let mut dict = match HanjaUserDict::load_default() {
         Ok(d) => d,
         Err(_) => {
@@ -454,7 +461,9 @@ fn undo_delete(refs: &Rc<Refs>, entry: &HanjaUserEntry, idx: usize, len_after: u
     };
     // 그동안 파일이 바뀌지 않았으면 원래 자리, 바뀌었으면(그리고 완전히 같은 항목이
     // 이미 다시 들어와 있지 않으면) 맨 끝.
-    let pos = if dict.entries.len() == len_after {
+    let unchanged = sig_after.is_some()
+        && HanjaUserDict::default_path().and_then(|p| file_signature(&p)) == sig_after;
+    let pos = if unchanged {
         idx.min(dict.entries.len())
     } else if dict.entries.iter().any(|e| e == entry) {
         refill(refs, None);
@@ -652,13 +661,23 @@ fn show_edit_dialog(refs: &Rc<Refs>, original: Option<(HanjaUserEntry, usize)>) 
                     None
                 }
             };
-            set_msg(&hangul_msg, &hangul_row, show(Field::Hangul), show(Field::Hangul).is_some());
+            set_msg(
+                &hangul_msg,
+                &hangul_row,
+                show(Field::Hangul),
+                show(Field::Hangul).is_some(),
+            );
             // 한자 칸은 오류가 없을 때 입력 안내를 보인다.
             match show(Field::Hanja) {
                 Some(t) => set_msg(&hanja_msg, &hanja_row, Some(t), true),
                 None => set_msg(&hanja_msg, &hanja_row, Some(&hint), false),
             }
-            set_msg(&meaning_msg, &meaning_row, show(Field::Meaning), show(Field::Meaning).is_some());
+            set_msg(
+                &meaning_msg,
+                &meaning_row,
+                show(Field::Meaning),
+                show(Field::Meaning).is_some(),
+            );
 
             save_btn.set_sensitive(error.is_none() && !pending);
         })
