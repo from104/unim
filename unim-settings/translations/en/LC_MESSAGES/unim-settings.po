@@ -1048,3 +1048,15 @@ msgstr "New Entry"
 
 msgid "고친 내용 저장"
 msgstr "Save Changes"
+
+msgid "그 사이 목록이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로 읽었습니다."
+msgstr "The list changed in the meantime and that entry is gone. The list was reloaded."
+
+msgid "읽을 수 없던 파일을 보관하고 새로 시작했습니다."
+msgstr "Set the unreadable file aside and started fresh."
+
+msgid "단어 파일을 읽을 수 없어(깨졌거나 더 새 버전) 단어가 사라지지 않도록 저장을 막았습니다. 파일은 그대로입니다.\n{}"
+msgstr "The word file is unreadable (corrupt or a newer version). Saving is blocked so no words are lost; the file is untouched.\n{}"
+
+msgid "단어 파일을 읽을 수 없습니다"
+msgstr "The word file is unreadable"

@@ -241,6 +241,9 @@ export global Tr {
     out property <string> hd-saved: @tr("고친 내용을 저장했습니다.");
     out property <string> hd-removed: @tr("한자 사용자 사전에서 삭제했습니다.");
     out property <string> hd-gone: @tr("그 사이 항목이 바뀌어 작업하지 않았습니다. 목록을 새로 읽었습니다.");
+    out property <string> atf-gone: @tr("그 사이 목록이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로 읽었습니다.");
+    out property <string> atf-quarantined: @tr("읽을 수 없던 파일을 보관하고 새로 시작했습니다.");
+    public pure function atf-file-corrupt(path: string) -> string { @tr("단어 파일을 읽을 수 없어(깨졌거나 더 새 버전) 단어가 사라지지 않도록 저장을 막았습니다. 파일은 그대로입니다.\n{}", path) }
     out property <string> hd-quarantined: @tr("읽을 수 없던 파일을 보관하고 새 사전으로 시작했습니다.");
     out property <string> hd-meaning-auto: @tr("글자별 뜻 자동");
     out property <string> hd-err-hangul-empty: @tr("한글을 입력하세요.");
@@ -457,6 +460,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> hanja-can-save: false;
     in-out property <string> hanja-count-text;
     // 파일을 읽을 수 없을 때: 오류 행(이유 + 경로)만 보이고 추가는 막힌다.
+    in-out property <string> atf-bl-corrupt-text;
+    in-out property <string> atf-ud-corrupt-text;
     in-out property <bool> hanja-corrupt: false;
     in-out property <string> hanja-corrupt-text;
     in-out property <bool> hanja-can-quarantine: false;
@@ -496,6 +501,8 @@ export component SettingsWindow inherits Window {
     callback hanja-save-edit();
     callback hanja-remove(int);
     callback hanja-quarantine();
+    callback blacklist-quarantine();
+    callback userdict-quarantine();
     // I6: 토스트의 '되돌리기' 클릭 → 마지막 삭제 스냅샷 복원.
     callback undo-restore();
     // 오타 교정 강도 프리셋(0=보수적, 1=표준, 2=적극적) 일괄 적용.
@@ -1337,6 +1344,25 @@ export component SettingsWindow inherits Window {
                         wrap: word-wrap;
                         color: Tokens.caption-color;
                     }
+                    if root.current-page == 2 && root.atf-bl-corrupt-text != "": Card {
+                        title: @tr("단어 파일을 읽을 수 없습니다");
+                        Text {
+                            text: root.atf-bl-corrupt-text;
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Tokens.is-dark ? #ff8a8a : #c42b1c;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: @tr("보관하고 새로 시작");
+                                accessible-label: @tr("읽을 수 없는 파일을 보관하고 새로 시작");
+                                primary: true;
+                                clicked => { root.blacklist-quarantine(); }
+                            }
+                        }
+                    }
                     if root.current-page == 2: Card {
                         StandardListView {
                             min-height: 280px;
@@ -1403,6 +1429,25 @@ export component SettingsWindow inherits Window {
                                 text: @tr("추가");
                                 primary: true;
                                 clicked => { root.userdict-add(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 3 && root.atf-ud-corrupt-text != "": Card {
+                        title: @tr("단어 파일을 읽을 수 없습니다");
+                        Text {
+                            text: root.atf-ud-corrupt-text;
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Tokens.is-dark ? #ff8a8a : #c42b1c;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: @tr("보관하고 새로 시작");
+                                accessible-label: @tr("읽을 수 없는 파일을 보관하고 새로 시작");
+                                primary: true;
+                                clicked => { root.userdict-quarantine(); }
                             }
                         }
                     }

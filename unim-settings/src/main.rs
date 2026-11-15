@@ -695,6 +695,75 @@ fn refresh_blacklist(ui: &SettingsWindow, bl: &Blacklist) {
         .map(|e| StandardListViewItem::from(SharedString::from(fmt_blacklist(&tr, e))))
         .collect();
     ui.set_blacklist_model(ModelRc::new(VecModel::from(items)));
+    ui.set_atf_bl_corrupt_text(if bl.is_unreadable() {
+        tr.invoke_atf_file_corrupt(path_text(Blacklist::default_path()).as_str().into())
+    } else {
+        "".into()
+    });
+}
+
+fn path_text(p: Option<std::path::PathBuf>) -> String {
+    p.map(|x| x.display().to_string()).unwrap_or_default()
+}
+
+/// 저장 실패 안내. 읽을 수 없는 파일 때문이면 경로와 함께 그렇게 알린다(배너도 함께 뜬다).
+fn report_atf_save_err(ui: &SettingsWindow, e: &std::io::Error, path: Option<std::path::PathBuf>) {
+    let tr = ui.global::<Tr>();
+    if unim::atomic_io::is_unreadable_err(e) {
+        ui.set_status_text(tr.invoke_atf_file_corrupt(path_text(path).as_str().into()));
+    } else {
+        ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into()));
+    }
+}
+
+/// 새로 읽은 억제 단어를 저장하고 표시본을 맞춘다. 실패하면 디스크 상태로 되돌리고 안내한다.
+fn bl_commit(ui: &SettingsWindow, slot: &mut Blacklist, mut fresh: Blacklist) -> bool {
+    let ok = match fresh.save_to_default_path() {
+        Ok(()) => {
+            *slot = fresh;
+            true
+        }
+        Err(e) => {
+            *slot = Blacklist::load_from_default_path();
+            report_atf_save_err(ui, &e, Blacklist::default_path());
+            false
+        }
+    };
+    refresh_blacklist(ui, slot);
+    ok
+}
+
+fn ud_commit(ui: &SettingsWindow, slot: &mut UserDictionary, mut fresh: UserDictionary) -> bool {
+    let ok = match fresh.save_to_default_path() {
+        Ok(()) => {
+            *slot = fresh;
+            true
+        }
+        Err(e) => {
+            *slot = UserDictionary::load_from_default_path();
+            report_atf_save_err(ui, &e, UserDictionary::default_path());
+            false
+        }
+    };
+    refresh_userdict(ui, slot);
+    ok
+}
+
+/// 행에 보인 억제 단어 항목(ascii·방향·자판 조합)의 현재 파일 속 위치.
+fn bl_find(bl: &Blacklist, shown: &BlacklistEntry) -> Option<usize> {
+    bl.entries.iter().position(|e| {
+        e.ascii == shown.ascii
+            && e.direction == shown.direction
+            && e.korean_layout == shown.korean_layout
+            && e.english_layout == shown.english_layout
+    })
+}
+
+/// 행에 보인 사용자 사전 항목(단어·메모·등록 시각 전부 일치)의 현재 파일 속 위치.
+fn ud_find(ud: &UserDictionary, shown: &ReverseWord) -> Option<usize> {
+    ud.reverse_words
+        .iter()
+        .position(|e| e.word == shown.word && e.note == shown.note && e.added_at == shown.added_at)
 }
 
 // ───────────────────────── 한자 사용자 사전 ─────────────────────────
@@ -952,6 +1021,12 @@ fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
         .map(|w| StandardListViewItem::from(SharedString::from(fmt_userdict(w))))
         .collect();
     ui.set_userdict_model(ModelRc::new(VecModel::from(items)));
+    let tr = ui.global::<Tr>();
+    ui.set_atf_ud_corrupt_text(if ud.is_unreadable() {
+        tr.invoke_atf_file_corrupt(path_text(UserDictionary::default_path()).as_str().into())
+    } else {
+        "".into()
+    });
 }
 
 /// I6: 파괴적 삭제 직전 상태 스냅샷 1개. '되돌리기' 토스트에서 복원한다.
@@ -1702,12 +1777,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui = ui_weak.unwrap();
             let tr = ui.global::<Tr>();
             let mut bl = blacklist.borrow_mut();
-            if idx >= 0 && (idx as usize) < bl.entries.len() {
-                // I6: 삭제 직전 전체 목록을 스냅샷(복원 시 그대로 되돌림).
-                *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(bl.clone()));
-                bl.remove(idx as usize);
-                let _ = bl.save_to_default_path();
+            // 순번이 아니라 행에 보인 항목 자체를 파일에서 다시 찾아 지운다(CLI·데몬이 바꿨을 수 있음).
+            let Some(shown) = (idx >= 0).then(|| bl.entries.get(idx as usize).cloned()).flatten()
+            else {
+                return;
+            };
+            let mut fresh = Blacklist::load_from_default_path();
+            let Some(i) = bl_find(&fresh, &shown) else {
+                *bl = fresh;
                 refresh_blacklist(&ui, &bl);
+                ui.set_status_text(tr.get_atf_gone());
+                return;
+            };
+            // I6: 삭제 직전 전체 목록을 스냅샷(복원 시 그대로 되돌림).
+            let snap = fresh.clone();
+            fresh.remove(i);
+            if bl_commit(&ui, &mut bl, fresh) {
+                *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(snap));
                 ui.set_status_text(tr.get_bl_removed());
                 ui.set_toast_message(tr.get_bl_removed());
                 ui.set_toast_visible(true);
@@ -1724,18 +1810,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui = ui_weak.unwrap();
             let tr = ui.global::<Tr>();
             let mut bl = blacklist.borrow_mut();
-            if idx < 0 || (idx as usize) >= bl.entries.len() {
+            let Some(shown) = (idx >= 0).then(|| bl.entries.get(idx as usize).cloned()).flatten()
+            else {
                 return;
-            }
-            let i = idx as usize;
-            match bl.entries[i].status {
+            };
+            let mut fresh = Blacklist::load_from_default_path();
+            let Some(i) = bl_find(&fresh, &shown) else {
+                *bl = fresh;
+                refresh_blacklist(&ui, &bl);
+                ui.set_status_text(tr.get_atf_gone());
+                return;
+            };
+            match fresh.entries[i].status {
                 // 억제를 영구 확정한다. 이미 Confirmed(영구 활성)면 no-op.
-                EntryStatus::Tentative => bl.promote_to_confirmed(i),
-                EntryStatus::Inactive => bl.reactivate_as_confirmed(i),
+                EntryStatus::Tentative => fresh.promote_to_confirmed(i),
+                EntryStatus::Inactive => fresh.reactivate_as_confirmed(i),
                 EntryStatus::Confirmed => return,
             }
-            let _ = bl.save_to_default_path();
-            refresh_blacklist(&ui, &bl);
+            if !bl_commit(&ui, &mut bl, fresh) {
+                return;
+            }
             // 확정(영구 활성)은 되돌리기(undo) 대상이 아니므로 status_text 만 갱신한다.
             // undo 토스트(set_toast_visible)를 재사용하면 confirm 이 delete_snapshot 을
             // 만들지 않아, 직전 삭제 스냅샷이 남아있을 때 "되돌리기" 클릭 시 삭제가 부활하고
@@ -1752,17 +1846,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui = ui_weak.unwrap();
             let tr = ui.global::<Tr>();
             let mut bl = blacklist.borrow_mut();
-            if bl.entries.is_empty() {
+            let mut fresh = Blacklist::load_from_default_path();
+            if fresh.entries.is_empty() {
+                *bl = fresh;
+                refresh_blacklist(&ui, &bl);
                 return;
             }
             // I6: 삭제 직전 전체 목록을 스냅샷.
-            *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(bl.clone()));
-            bl.entries.clear();
-            let _ = bl.save_to_default_path();
-            refresh_blacklist(&ui, &bl);
-            ui.set_status_text(tr.get_bl_cleared());
-            ui.set_toast_message(tr.get_bl_cleared());
-            ui.set_toast_visible(true);
+            let snap = fresh.clone();
+            fresh.entries.clear();
+            if bl_commit(&ui, &mut bl, fresh) {
+                *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(snap));
+                ui.set_status_text(tr.get_bl_cleared());
+                ui.set_toast_message(tr.get_bl_cleared());
+                ui.set_toast_visible(true);
+            }
         });
     }
 
@@ -1786,14 +1884,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(note.to_string())
             };
             let mut ud = userdict.borrow_mut();
-            if ud.add(word, note) {
-                let _ = ud.save_to_default_path();
-                refresh_userdict(&ui, &ud);
-                ui.set_userdict_new_word("".into());
-                ui.set_userdict_new_note("".into());
-                ui.set_status_text(tr.get_ud_added());
+            let mut fresh = UserDictionary::load_from_default_path();
+            if fresh.add(word, note) {
+                if ud_commit(&ui, &mut ud, fresh) {
+                    ui.set_userdict_new_word("".into());
+                    ui.set_userdict_new_note("".into());
+                    ui.set_status_text(tr.get_ud_added());
+                }
             } else {
-                ui.set_status_text(tr.get_ud_dup());
+                *ud = fresh;
+                refresh_userdict(&ui, &ud);
+                if !ud.is_unreadable() {
+                    ui.set_status_text(tr.get_ud_dup());
+                }
             }
         });
     }
@@ -1807,14 +1910,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui = ui_weak.unwrap();
             let tr = ui.global::<Tr>();
             let mut ud = userdict.borrow_mut();
-            if idx < 0 || (idx as usize) >= ud.reverse_words.len() {
+            let Some(shown) =
+                (idx >= 0).then(|| ud.reverse_words.get(idx as usize).cloned()).flatten()
+            else {
                 return;
-            }
-            // I6: 삭제 직전 전체 목록을 스냅샷(제거 성공이 보장되는 시점).
-            *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Userdict(ud.clone()));
-            if ud.remove_at(idx as usize) {
-                let _ = ud.save_to_default_path();
+            };
+            let mut fresh = UserDictionary::load_from_default_path();
+            let Some(i) = ud_find(&fresh, &shown) else {
+                *ud = fresh;
                 refresh_userdict(&ui, &ud);
+                ui.set_status_text(tr.get_atf_gone());
+                return;
+            };
+            // I6: 삭제 직전 전체 목록을 스냅샷.
+            let snap = fresh.clone();
+            fresh.remove_at(i);
+            if ud_commit(&ui, &mut ud, fresh) {
+                *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Userdict(snap));
                 ui.set_status_text(tr.get_ud_removed());
                 ui.set_toast_message(tr.get_ud_removed());
                 ui.set_toast_visible(true);
@@ -2006,6 +2118,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── 억제 단어·자동 교정 사전: 깨진 파일 보관하고 새로 시작 ──
+    {
+        let ui_weak = ui.as_weak();
+        let blacklist = blacklist.clone();
+        ui.on_blacklist_quarantine(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let Some(path) = Blacklist::default_path() else {
+                return;
+            };
+            // 보관 직전에 다시 확인: 그 사이 고쳐져 읽을 수 있게 됐다면 건드리지 않는다.
+            if !Blacklist::load_from_path(&path).is_unreadable() {
+                *blacklist.borrow_mut() = Blacklist::load_from_default_path();
+                refresh_blacklist(&ui, &blacklist.borrow());
+                return;
+            }
+            match Blacklist::quarantine(&path) {
+                Ok(_) => {
+                    *blacklist.borrow_mut() = Blacklist::load_from_default_path();
+                    refresh_blacklist(&ui, &blacklist.borrow());
+                    ui.set_status_text(tr.get_atf_quarantined());
+                }
+                Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let userdict = userdict.clone();
+        ui.on_userdict_quarantine(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let Some(path) = UserDictionary::default_path() else {
+                return;
+            };
+            if !UserDictionary::load_from_path(&path).is_unreadable() {
+                *userdict.borrow_mut() = UserDictionary::load_from_default_path();
+                refresh_userdict(&ui, &userdict.borrow());
+                return;
+            }
+            match UserDictionary::quarantine(&path) {
+                Ok(_) => {
+                    *userdict.borrow_mut() = UserDictionary::load_from_default_path();
+                    refresh_userdict(&ui, &userdict.borrow());
+                    ui.set_status_text(tr.get_atf_quarantined());
+                }
+                Err(e) => ui.set_status_text(tr.invoke_save_failed(e.to_string().as_str().into())),
+            }
+        });
+    }
+
     // ── 한자 사용자 사전: 2초 mtime 폴링 — CLI·GTK 앱이 바꾼 내용을 반영 ──
     let hanja_timer = slint::Timer::default();
     {
@@ -2041,17 +2204,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Some(DeleteSnapshot::Blacklist(snap)) => {
                     let mut bl = blacklist.borrow_mut();
-                    *bl = snap;
-                    let _ = bl.save_to_default_path();
-                    refresh_blacklist(&ui, &bl);
-                    ui.set_status_text(tr.get_delete_undone());
+                    if bl_commit(&ui, &mut bl, snap) {
+                        ui.set_status_text(tr.get_delete_undone());
+                    }
                 }
                 Some(DeleteSnapshot::Userdict(snap)) => {
                     let mut ud = userdict.borrow_mut();
-                    *ud = snap;
-                    let _ = ud.save_to_default_path();
-                    refresh_userdict(&ui, &ud);
-                    ui.set_status_text(tr.get_delete_undone());
+                    if ud_commit(&ui, &mut ud, snap) {
+                        ui.set_status_text(tr.get_delete_undone());
+                    }
                 }
                 Some(DeleteSnapshot::HanjaDict(entry, pos, sig)) => {
                     // 파일이 삭제 직후 그대로면 원래 위치에, 그 사이 바뀌었으면 맨 뒤에 끼운다.
