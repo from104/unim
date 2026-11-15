@@ -160,7 +160,7 @@ For mechanics see [user manual §4.2](../user-guide/README.md#42-hanja-conversio
 ~/.config/unim/
 ├── config.yaml              # General settings (source of truth)
 ├── typefix-blacklist.yaml   # Learned suppressions
-├── userdict.yaml            # Reverse user dict (new in 0.2.0)
+├── userdict.yaml            # Reverse auto-correction dict (new in 0.2.0)
 └── layouts/                 # Custom v1 layouts
     └── my_3bul_variant.json
 ```
@@ -191,7 +191,7 @@ systemctl --user start unim-daemon
 %APPDATA%\unim\
 ├── config.yaml                # General settings (source of truth)
 ├── typefix-blacklist.yaml     # Learned suppressions (Suppressed Words tab)
-├── typefix-userdict.yaml      # Reverse user dictionary (User Dictionary tab)
+├── typefix-userdict.yaml      # Reverse auto-correction dictionary (Auto-correction Dictionary tab)
 └── layouts\                   # Custom v1 layouts
     └── my_3bul_variant.json
 ```
@@ -413,7 +413,7 @@ Yes. All user data lives under `~/.config/unim/` and is independent of the packa
 - `~/.config/unim/config.yaml` — main settings
 - `~/.config/unim/layouts/*.json` — custom keyboard profiles
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix suppression dictionary
-- `~/.config/unim/typefix-userdict.yaml` — user dictionary
+- `~/.config/unim/typefix-userdict.yaml` — auto-correction dictionary
 
 Uninstalling one package format and installing the other leaves these files untouched. Note that the `unim-gui-qt` package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between `unim-desktop` (indicator + legacy settings dialog + `unim-popup-service`, bundled together) and `unim-settings` (the Slint settings app). For the current full list of 11 packages, check `debian/control` or `dpkg -l 'unim*'`.
 
@@ -646,7 +646,7 @@ If it is still missing after signing back in, work down this list.
 2. **Settings → Apps → Installed apps** → remove `UNIM`. The Start menu shortcut **UNIM → Uninstall UNIM** does the same thing.
 3. When it finishes, **sign out and back in, or reboot**.
 
-Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input method registration, and the Start menu shortcuts. However, **your settings (`%APPDATA%\unim\`) stay** — reinstall and your config, suppression dictionary, and user dictionary carry over. Delete that folder by hand if you want a clean slate.
+Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input method registration, and the Start menu shortcuts. However, **your settings (`%APPDATA%\unim\`) stay** — reinstall and your config, suppression dictionary, and auto-correction dictionary carry over. Delete that folder by hand if you want a clean slate.
 
 > There is no separate "restore the system IME assignment" step like on Linux (Q23), because on Windows UNIM was only **added** to the input method list and never displaced anything. If Korean input behaves oddly after removal, check the remaining entries under **Settings → Time & language → Korean → Keyboards**.
 
@@ -692,11 +692,11 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 
 ## Q31. Does the Windows build have the same features as the Linux build?
 
-**🪟 Windows** — **The input core is identical; the surrounding tooling differs.** Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the user dictionary all run on the **same Rust core**. This table is the complete list of differences.
+**🪟 Windows** — **The input core is identical; the surrounding tooling differs.** Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the auto-correction dictionary all run on the **same Rust core**. This table is the complete list of differences.
 
 | Item | Linux | Windows |
 |------|-------|---------|
-| Settings window | settings app (`unim-settings`) | settings app (`unim-settings.exe`) — General / Typo Correction / Suppressed Words / User Dictionary, 4 tabs |
+| Settings window | settings app (`unim-settings`) | settings app (`unim-settings.exe`) — General / Typo Correction / Suppressed Words / Auto-correction Dictionary, 4 tabs |
 | Applying settings | daemon propagates immediately | immediate from the settings window; ~2 seconds when you edit the file directly |
 | `unim-cli` command-line tool | yes | **no** (not included in the installer) |
 | Keymap Studio · Typing Practice | yes | **no** |

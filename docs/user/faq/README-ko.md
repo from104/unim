@@ -160,7 +160,7 @@ Windows 지원은 v0.4.0에서 들어갔다. 리눅스처럼 환경별 등급을
 ~/.config/unim/
 ├── config.yaml              # 일반 설정 (소스 오브 트루스)
 ├── typefix-blacklist.yaml   # 학습된 억제 사전
-├── userdict.yaml            # reverse 사용자 사전 (0.2.0 신규)
+├── userdict.yaml            # reverse 자동 교정 사전 (0.2.0 신규)
 └── layouts/                 # 사용자 정의 v1 자판
     └── my_3bul_variant.json
 ```
@@ -192,7 +192,7 @@ systemctl --user start unim-daemon
 %APPDATA%\unim\
 ├── config.yaml                # 일반 설정 (소스 오브 트루스)
 ├── typefix-blacklist.yaml     # 학습된 억제 사전 (억제 단어 탭)
-├── typefix-userdict.yaml      # 역방향 사용자 사전 (사용자 사전 탭)
+├── typefix-userdict.yaml      # 역방향 자동 교정 사전 (자동 교정 사전 탭)
 └── layouts\                   # 사용자 정의 v1 자판
     └── my_3bul_variant.json
 ```
@@ -415,7 +415,7 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
 - `~/.config/unim/config.yaml` — 주 설정 파일
 - `~/.config/unim/layouts/*.json` — 사용자 자판 프로필
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix 억제 사전
-- `~/.config/unim/typefix-userdict.yaml` — 사용자 사전
+- `~/.config/unim/typefix-userdict.yaml` — 자동 교정 사전
 
 패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, `unim-gui-qt` 패키지는 0.3.0에서 제거됐다 — 트레이 아이콘·설정창·팝업 렌더러는 지금 `unim-desktop`(인디케이터+레거시 설정창+`unim-popup-service` 묶음) 과 `unim-settings`(Slint 설정 앱) 두 패키지가 나눠 담당한다. 현재 배포되는 11개 패키지 전체 목록은 `debian/control` 또는 `dpkg -l 'unim*'` 로 확인.
 
@@ -642,7 +642,7 @@ sudo apt remove 'unim*'
 2. **설정 → 앱 → 설치된 앱** 에서 `UNIM` 을 제거한다. 시작 메뉴 **UNIM → Uninstall UNIM** 단축키도 같은 일을 한다.
 3. 제거가 끝나면 **재로그인하거나 재부팅**한다.
 
-제거하면 설치 폴더(`C:\Program Files\UNIM\`)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 **사용자 설정(`%APPDATA%\unim\`)은 남는다** — 재설치하면 설정·억제 사전·사용자 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.
+제거하면 설치 폴더(`C:\Program Files\UNIM\`)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 **사용자 설정(`%APPDATA%\unim\`)은 남는다** — 재설치하면 설정·억제 사전·자동 교정 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.
 
 > 리눅스처럼 "시스템 입력기 지정을 원래대로 되돌리는" 별도 절차(Q23)는 없다. Windows에서 UNIM은 입력기 목록에 **추가**됐을 뿐 기존 입력기를 지우지 않기 때문이다. 제거 후 한글 입력이 이상하면 **설정 → 시간 및 언어 → 한국어 → 키보드** 에서 남아 있는 입력기를 확인한다.
 
@@ -688,11 +688,11 @@ sudo apt remove 'unim*'
 
 ## Q31. Windows판은 리눅스판과 기능이 같나요?
 
-**🪟 Windows** — **입력의 알맹이는 같고, 주변 도구가 다르다.** 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 사용자 사전은 **같은 Rust 코어**를 그대로 쓴다. 차이는 이 표가 전부다.
+**🪟 Windows** — **입력의 알맹이는 같고, 주변 도구가 다르다.** 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 자동 교정 사전은 **같은 Rust 코어**를 그대로 쓴다. 차이는 이 표가 전부다.
 
 | 항목 | 리눅스 | Windows |
 |------|--------|---------|
-| 설정 창 | 설정 앱 (`unim-settings`) | 설정 앱 (`unim-settings.exe`) — 일반 / 오타 교정 / 억제 단어 / 사용자 사전 4탭 |
+| 설정 창 | 설정 앱 (`unim-settings`) | 설정 앱 (`unim-settings.exe`) — 일반 / 오타 교정 / 억제 단어 / 자동 교정 사전 4탭 |
 | 설정 반영 | 데몬이 즉시 전파 | 설정 창에서 바꾸면 즉시, 파일을 직접 고치면 약 2초 뒤 |
 | 명령줄 도구 `unim-cli` | 있음 | **없음** (설치본에 포함되지 않음) |
 | 자판 스튜디오 · 타자 연습 | 있음 | **없음** |

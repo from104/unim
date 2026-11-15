@@ -656,6 +656,26 @@ Digit 1   만세 大韓民國| 만만세
 <p>You can change the string format inserted on confirm — go to [Settings] › [Hanja Output Format] and choose <strong>漢字</strong>, <strong>한자(漢字)</strong>, or <strong>漢字(한자)</strong>. The same format applies to both word conversion and single-syllable conversion.</p>
 <h5 id="user-guide--word-bookmarks">Word bookmarks</h5>
 <p>Word candidates can be bookmarked the same way syllable candidates are — <strong>Space</strong> toggles ☆/★. Bookmarks are reused <strong>only within the popup for the same word</strong> — starring an order inside the "대한민국" popup only affects that word's popup, not any other word's.</p>
+<h5 id="user-guide--hanja-user-dictionary">Hanja User Dictionary</h5>
+<p>Register <strong>names, organisations and technical terms</strong> that are missing from the built-in hanja dictionary as <code>hangul → hanja (+ meaning)</code>. They then show up as candidates in every hanja conversion (single syllable, the word you just typed, a selection, the word around the cursor), exactly like built-in words. Example: <code>서기현 → 徐基鉉</code>.</p>
+<p><strong>Add / edit / delete — settings window</strong>: use the "Hanja User Dictionary" page (§5.5.1). Type the hangul, press Enter, type the hanja, press Enter, and it is saved. It is easiest to type the hangul and then press the Hanja key to swap it in one character at a time. Click a row to edit it; delete takes one click and can be undone for 5 seconds.</p>
+<ul>
+<li><strong>Candidate order</strong>: bookmarks (★) → user dictionary → built-in dictionary. A hanja that appears in both is shown once, at the user-dictionary position. User entries can be bookmarked with ★ too.</li>
+<li><strong>When it applies</strong>: from the <strong>next Hanja key press</strong> after saving — no restart or re-login. A popup that is already open is left alone; the next one picks up the change.</li>
+<li><strong>Meaning</strong>: if left empty, the per-character meanings are joined automatically (<code>surname Seo · site gi · …</code>). Registering the same pair as a built-in entry moves that hanja to the front, and your meaning is used if you wrote one.</li>
+<li><strong>Input rules</strong>:
+<ul>
+<li>Hangul: completed syllables only, 1–18 characters (no bare jamo, spaces, digits or Latin letters).</li>
+<li>Hanja: must have the <strong>same number of characters</strong> as the hangul (one-to-one), and every character must be a hanja. Hangul, Latin letters, <code>〇</code> and <code>々</code> are rejected.</li>
+<li>Meaning: up to 60 characters, no line breaks.</li>
+<li>The same <code>hangul → hanja</code> pair can only be registered once. One hangul may have several hanja.</li>
+</ul>
+</li>
+<li><strong>File</strong>: <!-- @platform:linux --><code>~/.config/unim/hanja-userdict.yaml</code><!-- @endplatform --><!-- @platform:windows --><code>%APPDATA%\unim\hanja-userdict.yaml</code><!-- @endplatform --> — everything is stored only there, so <strong>back it up</strong> (§8). You may edit it by hand, but if it becomes unreadable the dictionary is switched off and neither the settings window nor the CLI will overwrite it. "Archive and start fresh" in the settings window (or <code>clear</code>) keeps the broken file as <code>.broken-&lt;date&gt;</code> and starts a new one.</li>
+</ul>
+<blockquote>
+<p>This dictionary is for <strong>hanja conversion</strong>. It is separate from the "Auto-correction Dictionary" used by typo correction (§5.4).</p>
+</blockquote>
 <h4 id="user-guide--43-special-characters">4.3 Special characters</h4>
 <p>In Korean mode, type a single jamo (consonant) and then press the Hanja key. The category depends on the consonant.</p>
 <div class="tablewrap"><table><thead><tr><th>Jamo</th><th>Category</th><th>Examples</th></tr></thead><tbody>
@@ -690,7 +710,7 @@ Digit 1   만세 大韓民國| 만만세
 </ol>
 <p><strong>Storage</strong>: <code>%APPDATA%\unim\typefix-blacklist.yaml</code>. Changes to the file are picked up automatically a moment later.</p>
 <blockquote>
-<p><strong>User dictionary (reverse whitelist)</strong> — new in 0.2.0. Select text and use a shortcut to call the <code>RegisterUserDictFromSelection</code> DBus method, registering an English-side entry. Manage entries in the GUI's "User Dictionary" page.</p>
+<p><strong>Auto-correction dictionary (reverse whitelist)</strong> — new in 0.2.0. Select text and use a shortcut to call the <code>RegisterUserDictFromSelection</code> DBus method, registering an English-side entry. Manage entries in the GUI's "Auto-correction Dictionary" page.</p>
 </blockquote>
 <h5 id="user-guide--toggle-hotkeys--turn-correction-onoff-with-a-single-key">Toggle hotkeys — turn correction on/off with a single key</h5>
 <p>A shortcut can turn AutoTypeFix on or off instantly. <strong>The master toggle defaults to <code>Shift+F8</code></strong>; the forward- and reverse-only shortcuts are empty (assign them only if you want them). Three of them, set separately:</p>
@@ -772,7 +792,7 @@ korean:
 </blockquote>
 <hr />
 <h3 id="user-guide--5-settings-gui-tour">5. Settings GUI Tour</h3>
-<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the five pages below are <strong>identical on both operating systems</strong> — only the way you open the window differs.</p>
+<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the six pages below are <strong>identical on both operating systems</strong> — only the way you open the window differs.</p>
 <p><strong>🪟 Opening it on Windows</strong> — three ways, whichever suits you.</p>
 <div class="tablewrap"><table><thead><tr><th>Route</th><th>Steps</th></tr></thead><tbody>
 <tr><td><strong>A. Language bar</strong> (recommended)</td><td><strong>Right-click</strong> the <code>한</code> / <code>A</code> indicator near the clock → <strong>Settings</strong></td></tr>
@@ -818,7 +838,7 @@ korean:
 <tr><td><strong>Direction</strong></td><td>Enable forward / Enable reverse</td><td>Each can be toggled independently — see 4.4</td></tr>
 <tr><td><strong>Toggle hotkeys</strong></td><td>Master on/off, Forward on/off, Reverse on/off (three fields, one group)</td><td>Toggle instantly with the assigned key. Leave empty to disable. Modifier combos like <code>Shift+F9</code> are allowed — see 4.4</td></tr>
 <tr><td><strong>Advanced settings</strong> (collapsible)</td><td>Korean-syllable threshold / English minimum word length / forward &amp; reverse detection windows (ms) / Tentative expiry (hours) / Observation timeout (sec) — all sliders</td><td>The "Correction strength" presets above cover most cases</td></tr>
-<tr><td><strong>Options</strong> (inside Advanced)</td><td>Skip English words / Skip complete syllables / Rollback detection / User-dictionary only</td><td>—</td></tr>
+<tr><td><strong>Options</strong> (inside Advanced)</td><td>Skip English words / Skip complete syllables / Rollback detection / Auto-correction dictionary only</td><td>—</td></tr>
 <tr><td>—</td><td>Restore defaults</td><td>Resets AutoTypeFix settings to their initial values (undo within 5 seconds)</td></tr>
 </tbody></table>
 </div><h4 id="user-guide--53-page-3--suppression-words">5.3 Page 3 — Suppression Words</h4>
@@ -827,9 +847,9 @@ korean:
 <blockquote>
 <p>Even if the daemon updates the file, the GUI refreshes immediately. No manual reload needed.</p>
 </blockquote>
-<h4 id="user-guide--54-page-4--user-dictionary-reverse-whitelist">5.4 Page 4 — User Dictionary (reverse whitelist)</h4>
+<h4 id="user-guide--54-page-4--auto-correction-dictionary-reverse-whitelist">5.4 Page 4 — Auto-correction Dictionary (reverse whitelist)</h4>
 <!-- screenshot: settings-userdict -->
-<p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers user-dict entries.</p>
+<p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers auto-correction dictionary entries.</p>
 <h4 id="user-guide--55-page-5--notifications-situation-toasts">5.5 Page 5 — Notifications (situation toasts)</h4>
 <p>Short 1-2 second notifications for <strong>input-method situations that are easy to miss</strong>, such as auto-fix firing or the Korean/English toggle being blocked in a password field. They never take focus, disappear on their own and are not kept in the notification list (GNOME).</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Description</th></tr></thead><tbody>
@@ -846,6 +866,9 @@ korean:
 <p><strong>The "entered password field" notification is shown once per field</strong> and again after 10 minutes. In apps where one window is one input field (browsers), moving to another site's password field in the same window within 10 minutes of the first notification is not announced.</p>
 </blockquote>
 <p>The CLI works too: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code> (comma-separated).</p>
+<h4 id="user-guide--551-page-6--hanja-user-dictionary">5.5.1 Page 6 — Hanja User Dictionary</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the sixth (bottom) item in the sidebar. Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; <strong>Delete selected</strong> can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with <code>unim-cli</code> show up in the list within a few seconds.</p>
 <hr />
 <h3 id="user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Not included on Windows yet.</strong> The layout viewer/editor (Keymap Studio) and the typing-practice tool ship only with the Linux packages for now. The Windows installer (MSI) contains just the input method, the settings window, and the popup renderer.</p>
@@ -905,7 +928,8 @@ notepad "$env:APPDATA\unim\config.yaml"
 <div class="tablewrap"><table><thead><tr><th>File</th><th>Purpose</th><th>Back up?</th></tr></thead><tbody>
 <tr><td><code>config.yaml</code></td><td>General settings (layout, mode, type correction, …)</td><td>YES</td></tr>
 <tr><td><code>typefix-blacklist.yaml</code></td><td>Learned suppressions</td><td>YES</td></tr>
-<tr><td><code>typefix-userdict.yaml</code></td><td>Reverse user dictionary</td><td>YES</td></tr>
+<tr><td><code>typefix-userdict.yaml</code></td><td>Reverse auto-correction dictionary</td><td>YES</td></tr>
+<tr><td><code>hanja-userdict.yaml</code></td><td>Hanja user dictionary (your own hangul→hanja entries)</td><td>YES</td></tr>
 </tbody></table>
 </div>
 <pre><code class="language-powershell"># Back up everything to a dated zip on your Desktop
@@ -1084,7 +1108,7 @@ Each answer carries at least one line of "why it works that way" so you can use 
 <pre><code>%APPDATA%\unim\
 ├── config.yaml                # General settings (source of truth)
 ├── typefix-blacklist.yaml     # Learned suppressions (Suppressed Words tab)
-├── typefix-userdict.yaml      # Reverse user dictionary (User Dictionary tab)
+├── typefix-userdict.yaml      # Reverse auto-correction dictionary (Auto-correction Dictionary tab)
 └── layouts\                   # Custom v1 layouts
     └── my_3bul_variant.json
 </code></pre>
@@ -1259,7 +1283,7 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <li><strong>Settings → Apps → Installed apps</strong> → remove <code>UNIM</code>. The Start menu shortcut <strong>UNIM → Uninstall UNIM</strong> does the same thing.</li>
 <li>When it finishes, <strong>sign out and back in, or reboot</strong>.</li>
 </ol>
-<p>Uninstalling removes the install folder (<code>C:\Program Files\UNIM\</code>), the input method registration, and the Start menu shortcuts. However, <strong>your settings (<code>%APPDATA%\unim\</code>) stay</strong> — reinstall and your config, suppression dictionary, and user dictionary carry over. Delete that folder by hand if you want a clean slate.</p>
+<p>Uninstalling removes the install folder (<code>C:\Program Files\UNIM\</code>), the input method registration, and the Start menu shortcuts. However, <strong>your settings (<code>%APPDATA%\unim\</code>) stay</strong> — reinstall and your config, suppression dictionary, and auto-correction dictionary carry over. Delete that folder by hand if you want a clean slate.</p>
 <blockquote>
 <p>There is no separate "restore the system IME assignment" step like on Linux (Q23), because on Windows UNIM was only <strong>added</strong> to the input method list and never displaced anything. If Korean input behaves oddly after removal, check the remaining entries under <strong>Settings → Time &amp; language → Korean → Keyboards</strong>.</p>
 </blockquote>
@@ -1300,9 +1324,9 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <p>If it fails in one specific app, include the <strong>app name and whether it is 32- or 64-bit</strong> in a <a href="https://github.com/from104/unim/issues">GitHub Issues</a> report — that makes diagnosis far faster.</p>
 <hr />
 <h3 id="faq--q31-does-the-windows-build-have-the-same-features-as-the-linux-build">Q31. Does the Windows build have the same features as the Linux build?</h3>
-<p><strong>🪟 Windows</strong> — <strong>The input core is identical; the surrounding tooling differs.</strong> Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the user dictionary all run on the <strong>same Rust core</strong>. This table is the complete list of differences.</p>
+<p><strong>🪟 Windows</strong> — <strong>The input core is identical; the surrounding tooling differs.</strong> Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the auto-correction dictionary all run on the <strong>same Rust core</strong>. This table is the complete list of differences.</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Linux</th><th>Windows</th></tr></thead><tbody>
-<tr><td>Settings window</td><td>settings app (<code>unim-settings</code>)</td><td>settings app (<code>unim-settings.exe</code>) — General / Typo Correction / Suppressed Words / User Dictionary, 4 tabs</td></tr>
+<tr><td>Settings window</td><td>settings app (<code>unim-settings</code>)</td><td>settings app (<code>unim-settings.exe</code>) — General / Typo Correction / Suppressed Words / Auto-correction Dictionary, 4 tabs</td></tr>
 <tr><td>Applying settings</td><td>daemon propagates immediately</td><td>immediate from the settings window; ~2 seconds when you edit the file directly</td></tr>
 <tr><td><code>unim-cli</code> command-line tool</td><td>yes</td><td><strong>no</strong> (not included in the installer)</td></tr>
 <tr><td>Keymap Studio · Typing Practice</td><td>yes</td><td><strong>no</strong></td></tr>

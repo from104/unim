@@ -649,6 +649,34 @@ export XMODIFIERS="@im=unim"
 <p>CLI 로는 <code>unim-cli config set hanja-output-format hangul-hanja</code> 처럼 바꾼다.</p>
 <h5 id="user-guide--단어-즐겨찾기">단어 즐겨찾기</h5>
 <p>단어 후보도 음절 후보와 똑같이 <strong>Space</strong> 키로 ☆/★를 토글해 즐겨찾기에 등록할 수 있다. 다만 즐겨찾기는 <strong>같은 단어의 팝업에서만</strong> 재사용된다 — "대한민국"에서 등록한 순서는 "대한민국" 팝업에만 적용되고 다른 단어 팝업에는 영향이 없다.</p>
+<h5 id="user-guide--한자-사용자-사전">한자 사용자 사전</h5>
+<p>내장 한자 사전에 없는 <strong>이름·기관명·전문용어</strong>를 직접 <code>한글 → 한자(+뜻)</code> 로 등록해 두면, 내장 단어와 똑같이 모든 한자 변환(한 글자·방금 쓴 단어·선택·커서가 걸친 단어)에서 후보로 나온다. 예: <code>서기현 → 徐基鉉</code>.</p>
+<p><strong>등록·고치기·지우기 — 설정 창</strong>: 「한자 사용자 사전」 페이지에서 한다(§5.5.1). 한글 칸에 쓰고 Enter, 한자 칸에 쓰고 Enter 하면 바로 저장된다. 한자는 한글을 쓴 뒤 한자키로 한 글자씩 바꿔 넣으면 편하다. 행을 누르면 고치기, 삭제는 한 번 누르면 되고 5초 안에 되돌릴 수 있다.</p>
+<p><strong>등록·고치기·지우기 — <code>unim-cli</code></strong>:</p>
+<pre><code class="language-bash">unim-cli dict hanja add 서기현 徐基鉉 --meaning "내 이름"   # 추가 (뜻은 선택)
+unim-cli dict hanja list                                   # 전체 보기 (list 서기현 으로 한 단어만)
+unim-cli dict hanja edit 서기현 徐基鉉 --meaning "본인"      # 고치기 (--hangul / --hanja 도 가능)
+unim-cli dict hanja remove 서기현 徐基鉉                    # 하나 지우기 (한자를 빼면 그 한글 전부)
+unim-cli dict hanja clear                                  # 전부 비우기 (확인을 묻는다)
+unim-cli dict hanja path                                   # 파일 위치
+</code></pre>
+<ul>
+<li><strong>후보 순서</strong>: 즐겨찾기(★) → 사용자 사전 → 내장 사전. 같은 한자는 한 번만 나오고, 사용자 사전 쪽 위치를 따른다. 사용자 항목도 ★ 로 즐겨찾기할 수 있다.</li>
+<li><strong>적용 시점</strong>: 저장한 뒤 <strong>다음 한자키부터</strong> 바로 적용된다. 재시작·재로그인이 필요 없다. 열려 있는 팝업은 그대로 두고 다음 팝업부터 바뀐다.</li>
+<li><strong>뜻</strong>: 비워 두면 글자별 뜻을 자동으로 이어 붙여 보여 준다(<code>성씨 서 · 터 기 · …</code>). 내장 사전에 있는 한자와 같은 쌍을 등록하면 그 한자가 맨 앞으로 오고, 뜻을 적었으면 그 뜻이 쓰인다.</li>
+<li><strong>입력 규칙</strong>:
+<ul>
+<li>한글은 완성된 음절만 1~18자 (자모·공백·숫자·영문 불가).</li>
+<li>한자는 한글과 <strong>글자 수가 같아야</strong> 하고(1글자씩 대응), 모든 글자가 한자여야 한다. 한글·영문·<code>〇</code>·<code>々</code> 는 안 된다.</li>
+<li>뜻은 60자 이하, 줄바꿈 없이.</li>
+<li>같은 <code>한글 → 한자</code> 쌍은 한 번만 등록된다. 한글 하나에 한자를 여러 개 등록할 수는 있다.</li>
+</ul>
+</li>
+<li><strong>파일</strong>: <!-- @platform:linux --><code>~/.config/unim/hanja-userdict.yaml</code><!-- @endplatform --><!-- @platform:windows --><code>%APPDATA%\unim\hanja-userdict.yaml</code><!-- @endplatform --> — 이 파일에만 저장되니 <strong>백업 대상</strong>이다(§8). 손으로 고쳐도 되지만 파일이 깨지면 사전이 꺼지고 설정 창·CLI 는 덮어쓰지 않는다. 설정 창의 [보관하고 새로 시작] 이나 <code>clear</code> 를 쓰면 깨진 파일을 <code>.broken-날짜</code> 이름으로 남겨 둔 뒤 새로 시작한다.</li>
+</ul>
+<blockquote>
+<p>이 사전은 <strong>한자 변환용</strong>이다. 자동 오타 교정 쪽의 「자동 교정 사전」(§5.4)과는 다른 것이다.</p>
+</blockquote>
 <h4 id="user-guide--43-특수문자-입력">4.3 특수문자 입력</h4>
 <p>한글 모드에서 자음(초성) 키 → 한자 키. 초성에 따라 카테고리가 달라진다.</p>
 <div class="tablewrap"><table><thead><tr><th>초성</th><th>카테고리</th><th>예시</th></tr></thead><tbody>
@@ -683,7 +711,7 @@ export XMODIFIERS="@im=unim"
 </ol>
 <p><strong>저장 위치</strong>: <code>~/.config/unim/typefix-blacklist.yaml</code>. 데몬은 mtime 감시로 자동 리로드한다.</p>
 <blockquote>
-<p><strong>사용자 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「사용자 사전」 페이지에서 추가/제거/수정.</p>
+<p><strong>자동 교정 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「자동 교정 사전」 페이지에서 추가/제거/수정.</p>
 </blockquote>
 <h5 id="user-guide--토글-단축키--지정한-키로-즉시-켜고-끄기">토글 단축키 — 지정한 키로 즉시 켜고 끄기</h5>
 <p>키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. <strong>전체 토글의 기본값은 <code>Shift+F8</code></strong> 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.</p>
@@ -784,7 +812,7 @@ unim-cli config set hanja-output-format hangul-hanja
 </blockquote>
 <hr />
 <h3 id="user-guide--5-설정-gui-투어">5. 설정 GUI 투어</h3>
-<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 5개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
+<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 6개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
 <p><strong>🐧 리눅스에서 여는 법</strong> — 앱 메뉴의 「UNIM 설정」 항목, 첫 실행 마법사, 트레이 메뉴가 모두 이 실행 파일을 띄운다. 터미널에서 직접 띄워도 된다.</p>
 <pre><code class="language-bash">unim-settings &amp;
 </code></pre>
@@ -821,7 +849,7 @@ unim-cli config set hanja-output-format hangul-hanja
 <tr><td><strong>교정 방향</strong></td><td>정방향 사용 / 역방향 사용</td><td>각각 독립적으로 켜고 끌 수 있다 — 4.4 참고</td></tr>
 <tr><td><strong>토글 단축키</strong></td><td>전체 켜기·끄기 / 정방향 켜기·끄기 / 역방향 켜기·끄기 (세 칸 한 그룹)</td><td>지정한 키로 즉시 토글. 비우면 사용 안 함. <code>Shift+F9</code>처럼 수정자 조합 가능 — 4.4 참고</td></tr>
 <tr><td><strong>고급 설정</strong>(펼침)</td><td>한글 음절 임계값 / 영문 단어 최소 길이 / 정방향·역방향 감지창(ms) / 임시 항목 만료(시간) / 관찰 타임아웃(초) — 전부 슬라이더</td><td>대부분은 위 「교정 강도」 프리셋으로 충분하다</td></tr>
-<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 사용자 사전 사용</td><td>—</td></tr>
+<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 자동 교정 사전 사용</td><td>—</td></tr>
 <tr><td>—</td><td>기본값으로 복원</td><td>오타 교정 설정을 초기값으로 되돌린다(5초 안에 취소 가능)</td></tr>
 </tbody></table>
 </div><h4 id="user-guide--53-페이지-3--교정-억제-단어">5.3 페이지 3 — 교정 억제 단어</h4>
@@ -830,7 +858,7 @@ unim-cli config set hanja-output-format hangul-hanja
 <blockquote>
 <p>데몬이 파일을 갱신해도 GUI가 즉시 반영한다. 따로 리로드 안 해도 된다.</p>
 </blockquote>
-<h4 id="user-guide--54-페이지-4--사용자-사전-역방향-화이트리스트">5.4 페이지 4 — 사용자 사전 (역방향 화이트리스트)</h4>
+<h4 id="user-guide--54-페이지-4--자동-교정-사전-역방향-화이트리스트">5.4 페이지 4 — 자동 교정 사전 (역방향 화이트리스트)</h4>
 <!-- screenshot: settings-userdict -->
 <p>「단어」+「메모(선택)」를 입력해 [추가]하면 영어 단어 ↔ 한글 시퀀스 매핑이 등록된다. 예: <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. 아래 목록에서 선택 후 [선택 삭제]로 제거한다. reverse 교정에서 우선 매칭.</p>
 <h4 id="user-guide--55-페이지-5--알림-상황-알림">5.5 페이지 5 — 알림 (상황 알림)</h4>
@@ -849,6 +877,9 @@ unim-cli config set hanja-output-format hangul-hanja
 <p><strong>비밀번호 칸 진입 알림은 같은 칸에서 한 번만</strong> 나가고 10분이 지나면 다시 나간다. 브라우저처럼 창 하나가 입력 칸 하나로 보이는 앱에서는 첫 알림 뒤 10분 안에 같은 창의 다른 사이트 비밀번호 칸으로 옮겨 가도 알리지 않는다.</p>
 </blockquote>
 <p>CLI 로도 바꿀 수 있다: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code>(쉼표 구분).</p>
+<h4 id="user-guide--551-페이지-6--한자-사용자-사전">5.5.1 페이지 6 — 한자 사용자 사전</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>한자 변환용 사전이다(§4.2 「한자 사용자 사전」). 사이드바의 여섯 번째(맨 아래) 항목이다. 한글·한자·뜻(선택)을 쓰고 Enter 로 추가하며, 입력하는 동안 규칙에 어긋난 곳은 칸 아래에 이유가 바로 나온다. 목록에서 행을 누르면 폼에 채워져 고칠 수 있고, [선택 삭제] 는 5초 안에 되돌릴 수 있다. 파일이 깨졌으면 목록 대신 오류와 경로가 보이고 [보관하고 새로 시작] 만 쓸 수 있다. <code>unim-cli</code> 로 바꾼 내용도 몇 초 안에 목록에 반영된다.</p>
 <hr />
 <h3 id="user-guide--56-자판-도구-keymap-studio--typing-practice">5.6 자판 도구 (Keymap Studio / Typing Practice)</h3>
 <p>설정 GUI와 별개로, 자판을 눈으로 보고·편집하고·연습하는 두 GTK4 도구가 함께 설치된다. 각자
@@ -988,7 +1019,8 @@ unim-cli config layout validate my.json        # 사용자 정의 자판 검증
 <div class="tablewrap"><table><thead><tr><th>파일</th><th>용도</th><th>백업 권장</th></tr></thead><tbody>
 <tr><td><code>~/.config/unim/config.yaml</code></td><td>일반 설정 (자판·모드·자동 영문 등)</td><td>YES</td></tr>
 <tr><td><code>~/.config/unim/typefix-blacklist.yaml</code></td><td>학습된 교정 억제 사전</td><td>YES</td></tr>
-<tr><td><code>~/.config/unim/typefix-userdict.yaml</code></td><td>reverse 사용자 사전</td><td>YES</td></tr>
+<tr><td><code>~/.config/unim/typefix-userdict.yaml</code></td><td>reverse 자동 교정 사전</td><td>YES</td></tr>
+<tr><td><code>~/.config/unim/hanja-userdict.yaml</code></td><td>한자 사용자 사전 (직접 등록한 한글→한자)</td><td>YES</td></tr>
 <tr><td><code>~/.config/unim/layouts/*.json</code></td><td>사용자 정의 자판 v1 프로필</td><td>YES</td></tr>
 <tr><td><code>~/.unim-errors.log</code></td><td>디버그 로그 (<code>UNIM_DEVELOP=1</code> 시)</td><td>NO (휘발)</td></tr>
 </tbody></table>
@@ -1026,13 +1058,13 @@ systemctl --user restart unim-daemon
 <div class="tablewrap"><table><thead><tr><th>단축키</th><th>동작</th><th>예시</th></tr></thead><tbody>
 <tr><td><code>Super+K</code></td><td>포커스된 단어를 <strong>영어 → 한글</strong>로 변환 후 교체</td><td><code>gksrmf</code> → <code>한글</code></td></tr>
 <tr><td><code>Shift+Super+K</code></td><td>포커스된 단어를 <strong>한글 → 영어</strong>로 변환 후 교체</td><td><code>ㅗ디ㅣㅐ</code> → <code>hello</code></td></tr>
-<tr><td><code>Super+E</code></td><td>선택 영역을 읽어 역방향(한→영) AutoTypeFix 사용자 사전에 등록</td><td><code>ㅎㅑㅅ</code> 선택 → <code>git</code> 으로 등록</td></tr>
+<tr><td><code>Super+E</code></td><td>선택 영역을 읽어 역방향(한→영) AutoTypeFix 자동 교정 사전에 등록</td><td><code>ㅎㅑㅅ</code> 선택 → <code>git</code> 으로 등록</td></tr>
 </tbody></table>
 </div>
 <p>이 세 단축키는 <a href="#user-guide--44-자동-오타-교정-autotypefix">4.4 자동 오타 교정</a>의 자동 교정과는 별개로, <strong>사용자가 직접 트리거하는 수동 변환</strong>이다. <code>Super</code> 조합을 다른 용도로 쓰고 있거나 충돌이 난다면, 다음 명령으로 확장 설정을 열어 바꾸거나 끌 수 있다.</p>
 <pre><code class="language-bash">gnome-extensions prefs unim-gnome@from104.github.io
 </code></pre>
-<p>「변환 단축키」 그룹에서 <code>Super+K</code>/<code>Shift+Super+K</code>, 「사용자 사전 등록」 그룹에서 <code>Super+E</code> 를 각각 재지정하거나 빈 값으로 비워 끌 수 있다.</p>
+<p>「변환 단축키」 그룹에서 <code>Super+K</code>/<code>Shift+Super+K</code>, 「자동 교정 사전 등록」 그룹에서 <code>Super+E</code> 를 각각 재지정하거나 빈 값으로 비워 끌 수 있다.</p>
 <hr />
 <h3 id="keyboard-shortcuts--이모지-팝업-단축키-super">이모지 팝업 단축키 (<code>Super+.</code>)</h3>
 <p>UNIM은 마지막 활성 입력 위치에 이모지 팝업을 띄우는 기능을 제공합니다. 기본 단축키는 <code>Super+.</code>(Meta+<code>.</code>)입니다. 다만 <strong>단축키를 누가 캡처하느냐</strong>가 환경별로 다르기 때문에, 일부 환경에서는 사용자가 직접 등록해야 합니다.</p>
@@ -1269,7 +1301,7 @@ xbindkeys      # 다시 시작
 <pre><code>~/.config/unim/
 ├── config.yaml              # 일반 설정 (소스 오브 트루스)
 ├── typefix-blacklist.yaml   # 학습된 억제 사전
-├── userdict.yaml            # reverse 사용자 사전 (0.2.0 신규)
+├── userdict.yaml            # reverse 자동 교정 사전 (0.2.0 신규)
 └── layouts/                 # 사용자 정의 v1 자판
     └── my_3bul_variant.json
 </code></pre>
@@ -1402,7 +1434,7 @@ cargo --version              # 1.95.0 이상
 <li><code>~/.config/unim/config.yaml</code> — 주 설정 파일</li>
 <li><code>~/.config/unim/layouts/*.json</code> — 사용자 자판 프로필</li>
 <li><code>~/.config/unim/typefix-blacklist.yaml</code> — AutoTypeFix 억제 사전</li>
-<li><code>~/.config/unim/typefix-userdict.yaml</code> — 사용자 사전</li>
+<li><code>~/.config/unim/typefix-userdict.yaml</code> — 자동 교정 사전</li>
 </ul>
 <p>패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, <code>unim-gui-qt</code> 패키지는 0.3.0에서 제거됐다 — 트레이 아이콘·설정창·팝업 렌더러는 지금 <code>unim-desktop</code>(인디케이터+레거시 설정창+<code>unim-popup-service</code> 묶음) 과 <code>unim-settings</code>(Slint 설정 앱) 두 패키지가 나눠 담당한다. 현재 배포되는 11개 패키지 전체 목록은 <code>debian/control</code> 또는 <code>dpkg -l 'unim*'</code> 로 확인.</p>
 <hr />

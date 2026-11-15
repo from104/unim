@@ -657,6 +657,37 @@ From the CLI: `unim-cli config set hanja-output-format hangul-hanja`.
 
 Word candidates can be bookmarked the same way syllable candidates are — **Space** toggles ☆/★. Bookmarks are reused **only within the popup for the same word** — starring an order inside the "대한민국" popup only affects that word's popup, not any other word's.
 
+#### Hanja User Dictionary
+
+Register **names, organisations and technical terms** that are missing from the built-in hanja dictionary as `hangul → hanja (+ meaning)`. They then show up as candidates in every hanja conversion (single syllable, the word you just typed, a selection, the word around the cursor), exactly like built-in words. Example: `서기현 → 徐基鉉`.
+
+**Add / edit / delete — settings window**: use the "Hanja User Dictionary" page (§5.5.1). Type the hangul, press Enter, type the hanja, press Enter, and it is saved. It is easiest to type the hangul and then press the Hanja key to swap it in one character at a time. Click a row to edit it; delete takes one click and can be undone for 5 seconds.
+
+<!-- @platform:linux -->
+**Add / edit / delete — `unim-cli`**:
+
+```bash
+unim-cli dict hanja add 서기현 徐基鉉 --meaning "my name"   # add (meaning is optional)
+unim-cli dict hanja list                                   # show all (list 서기현 for one word)
+unim-cli dict hanja edit 서기현 徐基鉉 --meaning "me"        # edit (--hangul / --hanja too)
+unim-cli dict hanja remove 서기현 徐基鉉                    # remove one (omit the hanja for all of that hangul)
+unim-cli dict hanja clear                                  # empty it (asks first)
+unim-cli dict hanja path                                   # file location
+```
+<!-- @endplatform -->
+
+- **Candidate order**: bookmarks (★) → user dictionary → built-in dictionary. A hanja that appears in both is shown once, at the user-dictionary position. User entries can be bookmarked with ★ too.
+- **When it applies**: from the **next Hanja key press** after saving — no restart or re-login. A popup that is already open is left alone; the next one picks up the change.
+- **Meaning**: if left empty, the per-character meanings are joined automatically (`surname Seo · site gi · …`). Registering the same pair as a built-in entry moves that hanja to the front, and your meaning is used if you wrote one.
+- **Input rules**:
+  - Hangul: completed syllables only, 1–18 characters (no bare jamo, spaces, digits or Latin letters).
+  - Hanja: must have the **same number of characters** as the hangul (one-to-one), and every character must be a hanja. Hangul, Latin letters, `〇` and `々` are rejected.
+  - Meaning: up to 60 characters, no line breaks.
+  - The same `hangul → hanja` pair can only be registered once. One hangul may have several hanja.
+- **File**: <!-- @platform:linux -->`~/.config/unim/hanja-userdict.yaml`<!-- @endplatform --><!-- @platform:windows -->`%APPDATA%\unim\hanja-userdict.yaml`<!-- @endplatform --> — everything is stored only there, so **back it up** (§8). You may edit it by hand, but if it becomes unreadable the dictionary is switched off and neither the settings window nor the CLI will overwrite it. "Archive and start fresh" in the settings window (or `clear`) keeps the broken file as `.broken-<date>` and starts a new one.
+
+> This dictionary is for **hanja conversion**. It is separate from the "Auto-correction Dictionary" used by typo correction (§5.4).
+
 ### 4.3 Special characters
 
 In Korean mode, type a single jamo (consonant) and then press the Hanja key. The category depends on the consonant.
@@ -701,7 +732,7 @@ When a particular word keeps getting corrected against your wishes:
 **Storage**: `%APPDATA%\unim\typefix-blacklist.yaml`. Changes to the file are picked up automatically a moment later.
 <!-- @endplatform -->
 
-> **User dictionary (reverse whitelist)** — new in 0.2.0. Select text and use a shortcut to call the `RegisterUserDictFromSelection` DBus method, registering an English-side entry. Manage entries in the GUI's "User Dictionary" page.
+> **Auto-correction dictionary (reverse whitelist)** — new in 0.2.0. Select text and use a shortcut to call the `RegisterUserDictFromSelection` DBus method, registering an English-side entry. Manage entries in the GUI's "Auto-correction Dictionary" page.
 
 #### Toggle hotkeys — turn correction on/off with a single key
 
@@ -843,7 +874,7 @@ korean:
 
 ## 5. Settings GUI Tour
 
-**`unim-settings`** (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the five pages below are **identical on both operating systems** — only the way you open the window differs.
+**`unim-settings`** (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the six pages below are **identical on both operating systems** — only the way you open the window differs.
 
 <!-- @platform:linux -->
 **🐧 Opening it on Linux** — the "UNIM Settings" app-menu item, the first-run wizard, and the tray menu all launch this same executable. You can also start it from a terminal.
@@ -919,7 +950,7 @@ Five pages (left-hand navigation):
 | **Direction** | Enable forward / Enable reverse | Each can be toggled independently — see 4.4 |
 | **Toggle hotkeys** | Master on/off, Forward on/off, Reverse on/off (three fields, one group) | Toggle instantly with the assigned key. Leave empty to disable. Modifier combos like `Shift+F9` are allowed — see 4.4 |
 | **Advanced settings** (collapsible) | Korean-syllable threshold / English minimum word length / forward & reverse detection windows (ms) / Tentative expiry (hours) / Observation timeout (sec) — all sliders | The "Correction strength" presets above cover most cases |
-| **Options** (inside Advanced) | Skip English words / Skip complete syllables / Rollback detection / User-dictionary only | — |
+| **Options** (inside Advanced) | Skip English words / Skip complete syllables / Rollback detection / Auto-correction dictionary only | — |
 | — | Restore defaults | Resets AutoTypeFix settings to their initial values (undo within 5 seconds) |
 
 ### 5.3 Page 3 — Suppression Words
@@ -930,11 +961,11 @@ A single list shows **Tentative**, **Confirmed**, and **Inactive** suppressions 
 
 > Even if the daemon updates the file, the GUI refreshes immediately. No manual reload needed.
 
-### 5.4 Page 4 — User Dictionary (reverse whitelist)
+### 5.4 Page 4 — Auto-correction Dictionary (reverse whitelist)
 
 <!-- screenshot: settings-userdict -->
 
-Enter a **word** and an optional **note**, then **Add**, to register an English ↔ Korean-jamo-sequence mapping. E.g. `wave` ↔ `ㅈㅐㅍㅁ`. Select an entry below and **Delete** to remove it. Reverse correction prefers user-dict entries.
+Enter a **word** and an optional **note**, then **Add**, to register an English ↔ Korean-jamo-sequence mapping. E.g. `wave` ↔ `ㅈㅐㅍㅁ`. Select an entry below and **Delete** to remove it. Reverse correction prefers auto-correction dictionary entries.
 
 ### 5.5 Page 5 — Notifications (situation toasts)
 
@@ -954,6 +985,12 @@ Short 1-2 second notifications for **input-method situations that are easy to mi
 > **The "entered password field" notification is shown once per field** and again after 10 minutes. In apps where one window is one input field (browsers), moving to another site's password field in the same window within 10 minutes of the first notification is not announced.
 
 The CLI works too: `unim-cli config set notify-enabled false`, `notify-duration-ms`, `notify-language`, `notify-show-text`, `notify-corner`, `notify-events` (comma-separated).
+
+### 5.5.1 Page 6 — Hanja User Dictionary
+
+<!-- screenshot: settings-hanja-userdict -->
+
+The dictionary used for hanja conversion (§4.2 "Hanja User Dictionary"). It is the sixth (bottom) item in the sidebar. Type the hangul, hanja and an optional meaning and press Enter to add; while you type, anything that breaks the rules is explained under the field. Click a row to load it into the form and edit it; **Delete selected** can be undone for 5 seconds. If the file is unreadable, the list is replaced by the error and its path, and only "Archive and start fresh" is available. Changes made with `unim-cli` show up in the list within a few seconds.
 
 ---
 
@@ -1185,7 +1222,8 @@ unim-cli config layout validate my.json        # validate a custom layout
 |------|------|----------|
 | `~/.config/unim/config.yaml` | General settings | YES |
 | `~/.config/unim/typefix-blacklist.yaml` | Learned suppressions | YES |
-| `~/.config/unim/typefix-userdict.yaml` | Reverse user dict | YES |
+| `~/.config/unim/typefix-userdict.yaml` | Reverse auto-correction dict | YES |
+| `~/.config/unim/hanja-userdict.yaml` | Hanja user dictionary (your own hangul→hanja entries) | YES |
 | `~/.config/unim/layouts/*.json` | Custom v1 layouts | YES |
 | `~/.unim-errors.log` | Debug log (`UNIM_DEVELOP=1`) | NO |
 
@@ -1203,7 +1241,8 @@ Everything lives under **`%APPDATA%\unim\`** — usually `C:\Users\<you>\AppData
 |------|------|----------|
 | `config.yaml` | General settings (layout, mode, type correction, …) | YES |
 | `typefix-blacklist.yaml` | Learned suppressions | YES |
-| `typefix-userdict.yaml` | Reverse user dictionary | YES |
+| `typefix-userdict.yaml` | Reverse auto-correction dictionary | YES |
+| `hanja-userdict.yaml` | Hanja user dictionary (your own hangul→hanja entries) | YES |
 
 ```powershell
 # Back up everything to a dated zip on your Desktop

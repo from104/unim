@@ -650,6 +650,26 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <p>확정할 때 들어가는 문자열 형식을 바꿀 수 있다 — [설정] › [한자 출력 형식]에서 <strong>漢字</strong> / <strong>한자(漢字)</strong> / <strong>漢字(한자)</strong> 중 고른다. 단어 변환과 한 글자 변환 모두 같은 형식을 쓴다.</p>
 <h5 id="user-guide--단어-즐겨찾기">단어 즐겨찾기</h5>
 <p>단어 후보도 음절 후보와 똑같이 <strong>Space</strong> 키로 ☆/★를 토글해 즐겨찾기에 등록할 수 있다. 다만 즐겨찾기는 <strong>같은 단어의 팝업에서만</strong> 재사용된다 — "대한민국"에서 등록한 순서는 "대한민국" 팝업에만 적용되고 다른 단어 팝업에는 영향이 없다.</p>
+<h5 id="user-guide--한자-사용자-사전">한자 사용자 사전</h5>
+<p>내장 한자 사전에 없는 <strong>이름·기관명·전문용어</strong>를 직접 <code>한글 → 한자(+뜻)</code> 로 등록해 두면, 내장 단어와 똑같이 모든 한자 변환(한 글자·방금 쓴 단어·선택·커서가 걸친 단어)에서 후보로 나온다. 예: <code>서기현 → 徐基鉉</code>.</p>
+<p><strong>등록·고치기·지우기 — 설정 창</strong>: 「한자 사용자 사전」 페이지에서 한다(§5.5.1). 한글 칸에 쓰고 Enter, 한자 칸에 쓰고 Enter 하면 바로 저장된다. 한자는 한글을 쓴 뒤 한자키로 한 글자씩 바꿔 넣으면 편하다. 행을 누르면 고치기, 삭제는 한 번 누르면 되고 5초 안에 되돌릴 수 있다.</p>
+<ul>
+<li><strong>후보 순서</strong>: 즐겨찾기(★) → 사용자 사전 → 내장 사전. 같은 한자는 한 번만 나오고, 사용자 사전 쪽 위치를 따른다. 사용자 항목도 ★ 로 즐겨찾기할 수 있다.</li>
+<li><strong>적용 시점</strong>: 저장한 뒤 <strong>다음 한자키부터</strong> 바로 적용된다. 재시작·재로그인이 필요 없다. 열려 있는 팝업은 그대로 두고 다음 팝업부터 바뀐다.</li>
+<li><strong>뜻</strong>: 비워 두면 글자별 뜻을 자동으로 이어 붙여 보여 준다(<code>성씨 서 · 터 기 · …</code>). 내장 사전에 있는 한자와 같은 쌍을 등록하면 그 한자가 맨 앞으로 오고, 뜻을 적었으면 그 뜻이 쓰인다.</li>
+<li><strong>입력 규칙</strong>:
+<ul>
+<li>한글은 완성된 음절만 1~18자 (자모·공백·숫자·영문 불가).</li>
+<li>한자는 한글과 <strong>글자 수가 같아야</strong> 하고(1글자씩 대응), 모든 글자가 한자여야 한다. 한글·영문·<code>〇</code>·<code>々</code> 는 안 된다.</li>
+<li>뜻은 60자 이하, 줄바꿈 없이.</li>
+<li>같은 <code>한글 → 한자</code> 쌍은 한 번만 등록된다. 한글 하나에 한자를 여러 개 등록할 수는 있다.</li>
+</ul>
+</li>
+<li><strong>파일</strong>: <!-- @platform:linux --><code>~/.config/unim/hanja-userdict.yaml</code><!-- @endplatform --><!-- @platform:windows --><code>%APPDATA%\unim\hanja-userdict.yaml</code><!-- @endplatform --> — 이 파일에만 저장되니 <strong>백업 대상</strong>이다(§8). 손으로 고쳐도 되지만 파일이 깨지면 사전이 꺼지고 설정 창·CLI 는 덮어쓰지 않는다. 설정 창의 [보관하고 새로 시작] 이나 <code>clear</code> 를 쓰면 깨진 파일을 <code>.broken-날짜</code> 이름으로 남겨 둔 뒤 새로 시작한다.</li>
+</ul>
+<blockquote>
+<p>이 사전은 <strong>한자 변환용</strong>이다. 자동 오타 교정 쪽의 「자동 교정 사전」(§5.4)과는 다른 것이다.</p>
+</blockquote>
 <h4 id="user-guide--43-특수문자-입력">4.3 특수문자 입력</h4>
 <p>한글 모드에서 자음(초성) 키 → 한자 키. 초성에 따라 카테고리가 달라진다.</p>
 <div class="tablewrap"><table><thead><tr><th>초성</th><th>카테고리</th><th>예시</th></tr></thead><tbody>
@@ -684,7 +704,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 </ol>
 <p><strong>저장 위치</strong>: <code>%APPDATA%\unim\typefix-blacklist.yaml</code>. 파일이 바뀌면 잠시 뒤 자동으로 다시 읽어들인다.</p>
 <blockquote>
-<p><strong>사용자 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「사용자 사전」 페이지에서 추가/제거/수정.</p>
+<p><strong>자동 교정 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「자동 교정 사전」 페이지에서 추가/제거/수정.</p>
 </blockquote>
 <h5 id="user-guide--토글-단축키--지정한-키로-즉시-켜고-끄기">토글 단축키 — 지정한 키로 즉시 켜고 끄기</h5>
 <p>키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. <strong>전체 토글의 기본값은 <code>Shift+F8</code></strong> 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.</p>
@@ -766,7 +786,7 @@ korean:
 </blockquote>
 <hr />
 <h3 id="user-guide--5-설정-gui-투어">5. 설정 GUI 투어</h3>
-<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 5개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
+<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 6개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
 <p><strong>🪟 Windows에서 여는 법</strong> — 세 가지 중 편한 것을 쓴다.</p>
 <div class="tablewrap"><table><thead><tr><th>방법</th><th>순서</th></tr></thead><tbody>
 <tr><td><strong>A. 언어바</strong> (추천)</td><td>작업 표시줄 시계 옆의 <code>한</code>/<code>A</code> 표시를 <strong>마우스 오른쪽 버튼</strong>으로 클릭 → <strong>설정</strong></td></tr>
@@ -811,7 +831,7 @@ korean:
 <tr><td><strong>교정 방향</strong></td><td>정방향 사용 / 역방향 사용</td><td>각각 독립적으로 켜고 끌 수 있다 — 4.4 참고</td></tr>
 <tr><td><strong>토글 단축키</strong></td><td>전체 켜기·끄기 / 정방향 켜기·끄기 / 역방향 켜기·끄기 (세 칸 한 그룹)</td><td>지정한 키로 즉시 토글. 비우면 사용 안 함. <code>Shift+F9</code>처럼 수정자 조합 가능 — 4.4 참고</td></tr>
 <tr><td><strong>고급 설정</strong>(펼침)</td><td>한글 음절 임계값 / 영문 단어 최소 길이 / 정방향·역방향 감지창(ms) / 임시 항목 만료(시간) / 관찰 타임아웃(초) — 전부 슬라이더</td><td>대부분은 위 「교정 강도」 프리셋으로 충분하다</td></tr>
-<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 사용자 사전 사용</td><td>—</td></tr>
+<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 자동 교정 사전 사용</td><td>—</td></tr>
 <tr><td>—</td><td>기본값으로 복원</td><td>오타 교정 설정을 초기값으로 되돌린다(5초 안에 취소 가능)</td></tr>
 </tbody></table>
 </div><h4 id="user-guide--53-페이지-3--교정-억제-단어">5.3 페이지 3 — 교정 억제 단어</h4>
@@ -820,7 +840,7 @@ korean:
 <blockquote>
 <p>데몬이 파일을 갱신해도 GUI가 즉시 반영한다. 따로 리로드 안 해도 된다.</p>
 </blockquote>
-<h4 id="user-guide--54-페이지-4--사용자-사전-역방향-화이트리스트">5.4 페이지 4 — 사용자 사전 (역방향 화이트리스트)</h4>
+<h4 id="user-guide--54-페이지-4--자동-교정-사전-역방향-화이트리스트">5.4 페이지 4 — 자동 교정 사전 (역방향 화이트리스트)</h4>
 <!-- screenshot: settings-userdict -->
 <p>「단어」+「메모(선택)」를 입력해 [추가]하면 영어 단어 ↔ 한글 시퀀스 매핑이 등록된다. 예: <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. 아래 목록에서 선택 후 [선택 삭제]로 제거한다. reverse 교정에서 우선 매칭.</p>
 <h4 id="user-guide--55-페이지-5--알림-상황-알림">5.5 페이지 5 — 알림 (상황 알림)</h4>
@@ -839,6 +859,9 @@ korean:
 <p><strong>비밀번호 칸 진입 알림은 같은 칸에서 한 번만</strong> 나가고 10분이 지나면 다시 나간다. 브라우저처럼 창 하나가 입력 칸 하나로 보이는 앱에서는 첫 알림 뒤 10분 안에 같은 창의 다른 사이트 비밀번호 칸으로 옮겨 가도 알리지 않는다.</p>
 </blockquote>
 <p>CLI 로도 바꿀 수 있다: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code>(쉼표 구분).</p>
+<h4 id="user-guide--551-페이지-6--한자-사용자-사전">5.5.1 페이지 6 — 한자 사용자 사전</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>한자 변환용 사전이다(§4.2 「한자 사용자 사전」). 사이드바의 여섯 번째(맨 아래) 항목이다. 한글·한자·뜻(선택)을 쓰고 Enter 로 추가하며, 입력하는 동안 규칙에 어긋난 곳은 칸 아래에 이유가 바로 나온다. 목록에서 행을 누르면 폼에 채워져 고칠 수 있고, [선택 삭제] 는 5초 안에 되돌릴 수 있다. 파일이 깨졌으면 목록 대신 오류와 경로가 보이고 [보관하고 새로 시작] 만 쓸 수 있다. <code>unim-cli</code> 로 바꾼 내용도 몇 초 안에 목록에 반영된다.</p>
 <hr />
 <h3 id="user-guide--56-자판-도구-keymap-studio--typing-practice">5.6 자판 도구 (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Windows 에는 아직 포함되지 않는다.</strong> 자판을 눈으로 보며 편집하는 도구(Keymap Studio)와 타자 연습 도구(Typing Practice)는 현재 리눅스 패키지에만 들어 있다. Windows 설치본(MSI)에는 입력기 본체·설정 창·팝업 렌더러만 담긴다.</p>
@@ -898,7 +921,8 @@ notepad "$env:APPDATA\unim\config.yaml"
 <div class="tablewrap"><table><thead><tr><th>파일</th><th>용도</th><th>백업 권장</th></tr></thead><tbody>
 <tr><td><code>config.yaml</code></td><td>일반 설정 (자판·모드·오타 교정 등)</td><td>YES</td></tr>
 <tr><td><code>typefix-blacklist.yaml</code></td><td>학습된 교정 억제 사전</td><td>YES</td></tr>
-<tr><td><code>typefix-userdict.yaml</code></td><td>역방향 사용자 사전</td><td>YES</td></tr>
+<tr><td><code>typefix-userdict.yaml</code></td><td>역방향 자동 교정 사전</td><td>YES</td></tr>
+<tr><td><code>hanja-userdict.yaml</code></td><td>한자 사용자 사전 (직접 등록한 한글→한자)</td><td>YES</td></tr>
 </tbody></table>
 </div>
 <pre><code class="language-powershell"># 통째 백업 — 바탕화면에 날짜가 붙은 zip 을 만든다
@@ -1077,7 +1101,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <pre><code>%APPDATA%\unim\
 ├── config.yaml                # 일반 설정 (소스 오브 트루스)
 ├── typefix-blacklist.yaml     # 학습된 억제 사전 (억제 단어 탭)
-├── typefix-userdict.yaml      # 역방향 사용자 사전 (사용자 사전 탭)
+├── typefix-userdict.yaml      # 역방향 자동 교정 사전 (자동 교정 사전 탭)
 └── layouts\                   # 사용자 정의 v1 자판
     └── my_3bul_variant.json
 </code></pre>
@@ -1252,7 +1276,7 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <li><strong>설정 → 앱 → 설치된 앱</strong> 에서 <code>UNIM</code> 을 제거한다. 시작 메뉴 <strong>UNIM → Uninstall UNIM</strong> 단축키도 같은 일을 한다.</li>
 <li>제거가 끝나면 <strong>재로그인하거나 재부팅</strong>한다.</li>
 </ol>
-<p>제거하면 설치 폴더(<code>C:\Program Files\UNIM\</code>)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 <strong>사용자 설정(<code>%APPDATA%\unim\</code>)은 남는다</strong> — 재설치하면 설정·억제 사전·사용자 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.</p>
+<p>제거하면 설치 폴더(<code>C:\Program Files\UNIM\</code>)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 <strong>사용자 설정(<code>%APPDATA%\unim\</code>)은 남는다</strong> — 재설치하면 설정·억제 사전·자동 교정 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.</p>
 <blockquote>
 <p>리눅스처럼 "시스템 입력기 지정을 원래대로 되돌리는" 별도 절차(Q23)는 없다. Windows에서 UNIM은 입력기 목록에 <strong>추가</strong>됐을 뿐 기존 입력기를 지우지 않기 때문이다. 제거 후 한글 입력이 이상하면 <strong>설정 → 시간 및 언어 → 한국어 → 키보드</strong> 에서 남아 있는 입력기를 확인한다.</p>
 </blockquote>
@@ -1293,9 +1317,9 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <p>특정 앱에서만 안 되면 그 <strong>앱 이름과 32/64비트 여부</strong>를 함께 적어 <a href="https://github.com/from104/unim/issues">GitHub Issues</a>로 알려 주면 진단이 훨씬 빠르다.</p>
 <hr />
 <h3 id="faq--q31-windows판은-리눅스판과-기능이-같나요">Q31. Windows판은 리눅스판과 기능이 같나요?</h3>
-<p><strong>🪟 Windows</strong> — <strong>입력의 알맹이는 같고, 주변 도구가 다르다.</strong> 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 사용자 사전은 <strong>같은 Rust 코어</strong>를 그대로 쓴다. 차이는 이 표가 전부다.</p>
+<p><strong>🪟 Windows</strong> — <strong>입력의 알맹이는 같고, 주변 도구가 다르다.</strong> 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 자동 교정 사전은 <strong>같은 Rust 코어</strong>를 그대로 쓴다. 차이는 이 표가 전부다.</p>
 <div class="tablewrap"><table><thead><tr><th>항목</th><th>리눅스</th><th>Windows</th></tr></thead><tbody>
-<tr><td>설정 창</td><td>설정 앱 (<code>unim-settings</code>)</td><td>설정 앱 (<code>unim-settings.exe</code>) — 일반 / 오타 교정 / 억제 단어 / 사용자 사전 4탭</td></tr>
+<tr><td>설정 창</td><td>설정 앱 (<code>unim-settings</code>)</td><td>설정 앱 (<code>unim-settings.exe</code>) — 일반 / 오타 교정 / 억제 단어 / 자동 교정 사전 4탭</td></tr>
 <tr><td>설정 반영</td><td>데몬이 즉시 전파</td><td>설정 창에서 바꾸면 즉시, 파일을 직접 고치면 약 2초 뒤</td></tr>
 <tr><td>명령줄 도구 <code>unim-cli</code></td><td>있음</td><td><strong>없음</strong> (설치본에 포함되지 않음)</td></tr>
 <tr><td>자판 스튜디오 · 타자 연습</td><td>있음</td><td><strong>없음</strong></td></tr>

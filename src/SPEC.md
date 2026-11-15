@@ -109,6 +109,7 @@ pub struct InputEngine {
     korean_layout: KoreanLayout,            // 한국어 레이아웃 설정
     toggle_keys: Vec<KeyCode>,             // 한/영 전환키 (설정 기반)
     hanja_dict: Arc<HanjaDictionary>,       // 한자 사전 (공유)
+    hanja_user: Arc<HanjaUserIndex>,        // 한자 사용자 사전 층 (docs/dev/specs/HANJA_USERDICT_SPEC.md) — 코어(src/hanja/user_dict.rs)의 프로세스 전역 캐시 스냅샷. 새 팝업을 여는 한자키에서만 mtime 확인 후 갱신, 조회는 hanja_lookup.rs 의 hanja_search/hanja_contains 가 사용자→내장 병합 (후보 순서: 즐겨찾기 → 사용자 → 내장). 파일 없음 = 종전과 바이트 동일
     hanja_candidates: Vec<HanjaEntry>,      // 현재 한자 후보
     hanja_mode: bool,                       // 한자 선택 모드
     hanja_target: String,                   // 사전 키 = 팝업 헤더 = 즐겨찾기 키 (어절 가능 — "대한민국")

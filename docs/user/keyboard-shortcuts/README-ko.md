@@ -26,7 +26,7 @@ GNOME Shell(`unim-gnome-extension`)에서는 아래 세 단축키가 **별도 �
 |--------|------|------|
 | `Super+K` | 포커스된 단어를 **영어 → 한글**로 변환 후 교체 | `gksrmf` → `한글` |
 | `Shift+Super+K` | 포커스된 단어를 **한글 → 영어**로 변환 후 교체 | `ㅗ디ㅣㅐ` → `hello` |
-| `Super+E` | 선택 영역을 읽어 역방향(한→영) AutoTypeFix 사용자 사전에 등록 | `ㅎㅑㅅ` 선택 → `git` 으로 등록 |
+| `Super+E` | 선택 영역을 읽어 역방향(한→영) AutoTypeFix 자동 교정 사전에 등록 | `ㅎㅑㅅ` 선택 → `git` 으로 등록 |
 
 이 세 단축키는 [4.4 자동 오타 교정](../user-guide/README-ko.md#44-자동-오타-교정-autotypefix)의 자동 교정과는 별개로, **사용자가 직접 트리거하는 수동 변환**이다. `Super` 조합을 다른 용도로 쓰고 있거나 충돌이 난다면, 다음 명령으로 확장 설정을 열어 바꾸거나 끌 수 있다.
 
@@ -34,7 +34,7 @@ GNOME Shell(`unim-gnome-extension`)에서는 아래 세 단축키가 **별도 �
 gnome-extensions prefs unim-gnome@from104.github.io
 ```
 
-「변환 단축키」 그룹에서 `Super+K`/`Shift+Super+K`, 「사용자 사전 등록」 그룹에서 `Super+E` 를 각각 재지정하거나 빈 값으로 비워 끌 수 있다.
+「변환 단축키」 그룹에서 `Super+K`/`Shift+Super+K`, 「자동 교정 사전 등록」 그룹에서 `Super+E` 를 각각 재지정하거나 빈 값으로 비워 끌 수 있다.
 
 ---
 
