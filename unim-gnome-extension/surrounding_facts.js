@@ -247,8 +247,27 @@ export function verifyReplaceExpectation(cache, a, b, expect) {
 /** LibreOffice 창 wm_class — `libreoffice-writer`·`soffice` 등. 이름 자체는 로그에 남기지 않는다. */
 const LO_WM_CLASS_RE = /^(libreoffice|soffice)/i;
 
+/**
+ * Firefox 창 wm_class — `firefox`·`firefox_firefox`(snap)·`firefox-esr` 등. 이름 자체는 로그에 남기지 않는다.
+ * Firefox 는 키 이동 뒤 surrounding 을 다시 보고하지 않고, 확정 직후의 보고는 그 확정이 반영되기
+ * 전 내용이다(한 박자 늦음) — 2026-11-15 실세션 실측(HANJA_WORD_SPEC §2.4b.6).
+ */
+const FIREFOX_WM_CLASS_RE = /^(firefox|org\.mozilla\.firefox)/i;
+
 /** 보고 없이 이 시간(ms)이 지나면 왕복을 접고 preedit 을 `null` 로 되돌린다. */
 export const POKE_TIMEOUT_MS = 250;
+
+/**
+ * Firefox 왕복 최소 정착 시간(ms) — 한자키 직전 키가 이보다 가까우면 왕복 보고도 아직 낡았을 수
+ * 있어 왕복하지 않는다(보고 없음 → 엔진 R7 기한 → 이모지).
+ */
+export const FIREFOX_POKE_SETTLE_MS = 200;
+
+/**
+ * Firefox 한자키 직전 낡음 표시 뒤, 왕복 응답이 아닌 보고를 데몬에 넘기지 않는 시간(ms).
+ * 엔진 보류(R7 150ms, 상한 450ms)보다 길다 — 그 사이 도착한 한 박자 늦은 보고로 재판정하지 않게 한다.
+ */
+export const FIREFOX_HOLD_MS = 500;
 
 /**
  * 창의 wm_class 가 LibreOffice 인지.
@@ -257,6 +276,15 @@ export const POKE_TIMEOUT_MS = 250;
  */
 export function isLibreOfficeWmClass(wmClass) {
     return typeof wmClass === 'string' && LO_WM_CLASS_RE.test(wmClass);
+}
+
+/**
+ * 창의 wm_class 가 Firefox 인지.
+ * @param {string|null|undefined} wmClass
+ * @returns {boolean}
+ */
+export function isFirefoxWmClass(wmClass) {
+    return typeof wmClass === 'string' && FIREFOX_WM_CLASS_RE.test(wmClass);
 }
 
 /**
@@ -279,21 +307,87 @@ export function cacheStateName(f) {
 /**
  * 한자키를 엔진에 보내기 직전, 빈 preedit 왕복(`""` → 보고 → `null`)으로 surrounding 보고를
  * 끌어낼지 판정한다. 모두 충족해야 한다 (먼저 걸린 이유가 반환된다):
- * nofocus → preedit(조합 중) → sensitive → popup → notlo → inflight → cache_fresh.
+ * nofocus → preedit(조합 중) → sensitive → popup → notarget → inflight →
+ * (LibreOffice) cache_fresh / (Firefox) settle → selmaybe.
+ *
+ * Firefox 는 캐시가 신선해 보여도 왕복한다 — 확정 직후 받은 보고가 한 박자 늦은 내용일 수 있다.
+ * 대신 직전 키가 `FIREFOX_POKE_SETTLE_MS` 안이면 왕복 보고도 낡았을 수 있어 하지 않는다.
  *
  * @param {{hasFocus: boolean, preeditEmpty: boolean, sensitive: boolean, popupVisible: boolean,
- *          isLibreOffice: boolean, inFlight: boolean, cacheState: string}} ctx
+ *          isLibreOffice: boolean, isFirefox?: boolean, inFlight: boolean, cacheState: string,
+ *          sinceKeyMs?: number, selMaybe?: boolean}} ctx - `sinceKeyMs`: 한자키 직전 키·문서 변경
+ *          (확정·삭제) 중 늦은 것으로부터 지난 시간. `selMaybe`: `selectionMaybe` 결과(모르면 왕복하지 않음)
  * @returns {{poke: boolean, reason: string}}
  */
 export function decidePoke(ctx) {
+    // ctx.selMaybe(Firefox 만): 앱에 선택이 남아 있을 수 있음 — 빈 조합이 선택을 지울 수 있어 왕복하지 않는다.
     if (!ctx.hasFocus) return { poke: false, reason: 'nofocus' };
     if (!ctx.preeditEmpty) return { poke: false, reason: 'preedit' };
     if (ctx.sensitive) return { poke: false, reason: 'sensitive' };
     if (ctx.popupVisible) return { poke: false, reason: 'popup' };
-    if (!ctx.isLibreOffice) return { poke: false, reason: 'notlo' };
+    if (!ctx.isLibreOffice && !ctx.isFirefox) return { poke: false, reason: 'notarget' };
     if (ctx.inFlight) return { poke: false, reason: 'inflight' };
-    if (ctx.cacheState === 'fresh') return { poke: false, reason: 'cache_fresh' };
+    if (ctx.isLibreOffice) {
+        if (ctx.cacheState === 'fresh') return { poke: false, reason: 'cache_fresh' };
+        return { poke: true, reason: 'ok' };
+    }
+    if (!(ctx.sinceKeyMs >= FIREFOX_POKE_SETTLE_MS)) return { poke: false, reason: 'settle' };
+    if (ctx.selMaybe !== false) return { poke: false, reason: 'selmaybe' };
     return { poke: true, reason: 'ok' };
+}
+
+/**
+ * 키 하나가 앱의 선택 영역을 없애는지(Firefox 왕복 보호용 보수 판정). 없앤다고 확실한 키만 참:
+ * Shift 없는 탐색 키, BackSpace·Tab·Enter·Delete, 인쇄 가능한 글자(Shift 포함 — 선택을 치환한다).
+ * Ctrl·Alt·Super 조합, Shift+탐색(선택을 늘림), 기능 키·Esc 는 거짓.
+ *
+ * @param {number} keyval - X11 keysym
+ * @param {{shift: boolean, ctrlAltSuper: boolean}} mods
+ * @returns {boolean}
+ */
+export function keyClearsSelection(keyval, mods) {
+    if (mods.ctrlAltSuper) return false;
+    const nav = (keyval >= 0xff50 && keyval <= 0xff57) || (keyval >= 0xff95 && keyval <= 0xff9c);
+    if (nav) return !mods.shift;
+    if ([0xff08, 0xff09, 0xff0d, 0xff8d, 0xffff, 0xff9f].includes(keyval)) return true;
+    return (keyval >= 0x20 && keyval <= 0x7e) || (keyval >= 0xa0 && keyval <= 0xff) || keyval >= 0x0100_0000;
+}
+
+/**
+ * 한자키 시점에 앱에 선택이 남아 있을 수 있는지 — 마지막 PRIMARY 소유자 변경이 마지막 "선택을 없앤
+ * 사건"(`keyClearsSelection` 키·앱 창 눌림)보다 늦으면 참. Firefox 는 선택을 풀어도 PRIMARY 를
+ * 그대로 두므로 mimetype 수로는 가를 수 없다. 두 시각은 같은 시계(단조 ms)여야 한다.
+ *
+ * @param {{primaryChangedAtMs: number, selClearAtMs: number}} t
+ * @returns {boolean}
+ */
+export function selectionMaybe(t) {
+    return t.primaryChangedAtMs > 0 && t.primaryChangedAtMs > t.selClearAtMs;
+}
+
+/**
+ * surrounding 보고를 데몬에 넘길지 — Firefox 낡음 표시 뒤 `holdUntilMs` 까지는 왕복 응답만 넘긴다.
+ *
+ * @param {{holdUntilMs: number, nowMs: number, pokeAwaitingReply: boolean}} ctx
+ * @returns {boolean}
+ */
+export function shouldForwardSurrounding(ctx) {
+    if (ctx.pokeAwaitingReply) return true;
+    return !(ctx.holdUntilMs > ctx.nowMs);
+}
+
+/**
+ * 한자키를 엔진에 보내기 직전, 마지막 보고를 낡은 것으로 표시(KEY 힌트)해야 하는지 판정한다.
+ * Firefox 만 — 확정 직후 받은 한 박자 늦은 보고를 엔진이 신선한 것으로 믿고 엉뚱한 단어를 고르지
+ * 않게 한다. 그 뒤 판정은 왕복 보고(또는 R7 기한 → 이모지)로만 난다. 조합 중이면 대상① 이라
+ * 표시하지 않는다.
+ *
+ * @param {{hasFocus: boolean, preeditEmpty: boolean, sensitive: boolean, popupVisible: boolean,
+ *          isFirefox: boolean}} ctx
+ * @returns {boolean}
+ */
+export function decideHanjaInvalidate(ctx) {
+    return !!(ctx.isFirefox && ctx.hasFocus && ctx.preeditEmpty && !ctx.sensitive && !ctx.popupVisible);
 }
 
 /**

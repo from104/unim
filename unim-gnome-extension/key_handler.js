@@ -16,7 +16,7 @@ import {
     createPointerState, classifyPointer, hintKeyLogName,
     HINT_KEY, HINT_PRIMARY_CHANGED, HINT_PRIMARY_EMPTY, HINT_POINTER_APP,
 } from './pointer_hints.js';
-import { decidePrimaryEmpty } from './surrounding_facts.js';
+import { decidePrimaryEmpty, keyClearsSelection, selectionMaybe } from './surrounding_facts.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 /** 바이패스할 수정자 키들 */
 const MODIFIER_KEYSYMS = new Set([
@@ -230,6 +230,11 @@ export class KeyHandler {
         this._selectionOwnerId = 0;
         /** @type {number} 마지막 PRIMARY owner-changed 시각(ms, 단조 시계). 본 적 없으면 0 (S5 판정·탐침) */
         this._primaryOwnerAtMs = 0;
+        /**
+         * @type {number} 마지막 "선택을 없앤 사건"(선택을 없애는 키·앱 창 눌림) 시각(ms, 단조 시계).
+         * PRIMARY 변경이 이보다 늦으면 선택이 남아 있을 수 있다(Firefox 왕복 보호, `selectionMaybe`).
+         */
+        this._selClearAtMs = 0;
         /** @type {number|null} 그 owner-changed 때 포커스 창 id (S5: 포커스 창이 포커스를 가진 동안의 사건인지) */
         this._primaryOwnerFocusWin = null;
     }
@@ -299,7 +304,7 @@ export class KeyHandler {
                 this._handleVfuncKey(keyval, keycode, state, event));
 
             // 앱 창 안 클릭(stage 가 못 보는 눌림) — mutter 의 vfunc_reset 이 알려 준다(S4).
-            this._inputMethod.setAppPressHandler(() => this._reportAppPress());
+            this._inputMethod.setAppPressHandler((btnMask) => this._reportAppPress(btnMask));
 
             // bare Alt_R(토글 후보) 비소비 통지 — vfunc 경로에서 return false 로
             // Mutter 네이티브 처리를 보존하되 데몬에 fire-and-forget 으로 통지한다.
@@ -341,6 +346,8 @@ export class KeyHandler {
      * @private
      */
     _handleVfuncKey(keyval, keycode, state, event) {
+        // 선택을 없애는 키면 시각을 남긴다(도착 시각 기준 — 큐에 들어가는 키도). 한자키는 세지 않는다.
+        this._noteSelClearKey(keyval, state);
         // 0. 재진입 방지: call_sync() 중 GLib 메인 루프가 이벤트를 처리하여
         //    동일 키가 재진입될 수 있음 → 큐에 저장하여 순차 처리 (키 누락 방지)
         if (this._processingKey) {
@@ -575,8 +582,38 @@ export class KeyHandler {
      * 다중 클릭 판정)도 건드리지 않는다. 선택 판단은 PRIMARY 힌트(4·7)가 맡는다.
      * @private
      */
-    _reportAppPress() {
+    _reportAppPress(btnMask = 0) {
+        // 왼쪽 버튼만 누른 앱 창 눌림은 선택을 없앤 사건으로 센다 — 드래그·더블클릭이면 PRIMARY 변경이 이
+        // 뒤에 온다(selectionMaybe). 오른쪽·가운데 버튼(문맥 메뉴·붙여넣기)은 선택을 남기므로 세지 않는다.
+        // 왼쪽 버튼으로 스크롤바·탭 바를 누른 경우는 가르지 못한다(HANJA_WORD_SPEC §2.4b.6 Firefox 남은 위험).
+        if (btnMask === Clutter.ModifierType.BUTTON1_MASK) this._selClearAtMs = GLib.get_monotonic_time() / 1000;
         this._sendHint(HINT_POINTER_APP);
+    }
+
+    /**
+     * 선택을 없애는 키(`keyClearsSelection`)면 그 시각을 남긴다. 수정자 단독·한자키는 세지 않는다.
+     * @param {number} keyval
+     * @param {number} state
+     * @private
+     */
+    _noteSelClearKey(keyval, state) {
+        if (MODIFIER_KEYSYMS.has(keyval) || this._hanjaKeysyms.has(keyval)) return;
+        // 팝업이 떠 있는 동안의 키(후보 탐색·Esc)는 엔진이 소비하고 문서를 건드리지 않는다.
+        if (this._inputMethod.isPopupShown?.()) return;
+        const mods = {
+            shift: (state & Clutter.ModifierType.SHIFT_MASK) !== 0,
+            ctrlAltSuper: (state & BYPASS_MODIFIER_MASK) !== 0,
+        };
+        if (keyClearsSelection(keyval, mods)) this._selClearAtMs = GLib.get_monotonic_time() / 1000;
+    }
+
+    /**
+     * 한자키 시점에 앱에 선택이 남아 있을 수 있는지(`selectionMaybe`).
+     * @returns {boolean}
+     * @private
+     */
+    _selectionMaybe() {
+        return selectionMaybe({ primaryChangedAtMs: this._primaryOwnerAtMs, selClearAtMs: this._selClearAtMs });
     }
 
     /**
@@ -672,12 +709,21 @@ export class KeyHandler {
                 const st = this._inputMethod.probeHanjaKeyState(before);
                 const sinceOwner = this._primaryOwnerAtMs > 0
                     ? Math.round(GLib.get_monotonic_time() / 1000 - this._primaryOwnerAtMs) : -1;
+                const sinceAct = Math.min(this._inputMethod.msSinceLastActivity(), 99999);
                 unimProbe('hanja_key',
-                    `lo=${st.lo} cache=${st.cache} snap=${st.snap} cache_age_ms=${st.cacheAgeMs} preedit_len=${st.preeditLen} ` +
-                    `primary_mimes=${this._primaryMimeCount()} since_owner_ms=${sinceOwner}`);
+                    `lo=${st.lo} ff=${st.ff} cache=${st.cache} snap=${st.snap} cache_age_ms=${st.cacheAgeMs} preedit_len=${st.preeditLen} ` +
+                    `primary_mimes=${this._primaryMimeCount()} since_owner_ms=${sinceOwner} since_act_ms=${sinceAct} ` +
+                    `sel_maybe=${this._selectionMaybe() ? 1 : 0}`);
             }
             this._maybeSendPrimaryEmpty();
-            this._inputMethod.pokeSurroundingReport(before);
+            // Firefox: 확정 직후의 한 박자 늦은 보고를 엔진이 믿지 않게 낡음 표시(KEY 힌트)하고, 잠시 왕복
+            // 응답이 아닌 보고는 넘기지 않는다 — 판정은 왕복 보고로만 나거나, 없으면 R7 기한 뒤 이모지다
+            // (HANJA_WORD_SPEC §2.4b.6 Firefox).
+            if (this._inputMethod.shouldInvalidateBeforeHanja()) {
+                this._sendHint(HINT_KEY, keyval, 0);
+                this._inputMethod.beginFirefoxHold();
+            }
+            this._inputMethod.pokeSurroundingReport({ ...(before ?? {}), selMaybe: this._selectionMaybe() });
         } catch (e) {
             unimError('KEY', `한자키 직전 처리 오류: ${e.message}`);
         }

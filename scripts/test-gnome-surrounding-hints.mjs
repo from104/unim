@@ -582,9 +582,119 @@ eq('창 FocusIn 직후 재송신(extension.js)',
     eq('왕복: 조합 중(preedit 있음)', decidePoke({ ...ok, preeditEmpty: false }), { poke: false, reason: 'preedit' });
     eq('왕복: 비밀번호·PIN 칸', decidePoke({ ...ok, sensitive: true }), { poke: false, reason: 'sensitive' });
     eq('왕복: 팝업이 보임', decidePoke({ ...ok, popupVisible: true }), { poke: false, reason: 'popup' });
-    eq('왕복: LO 가 아님', decidePoke({ ...ok, isLibreOffice: false }), { poke: false, reason: 'notlo' });
+    eq('왕복: LO·Firefox 가 아님', decidePoke({ ...ok, isLibreOffice: false }), { poke: false, reason: 'notarget' });
+    eq('왕복: LO 는 직전 키 정착 시간과 무관', decidePoke({ ...ok, sinceKeyMs: 0 }), { poke: true, reason: 'ok' });
     eq('왕복: 이미 진행 중', decidePoke({ ...ok, inFlight: true }), { poke: false, reason: 'inflight' });
     eq('왕복: 여러 조건 동시 실패 시 앞선 이유', decidePoke({ ...ok, hasFocus: false, sensitive: true }).reason, 'nofocus');
+}
+// ── 대상③ Firefox: 왕복 확대 + 한자키 직전 낡음 표시 (HANJA_WORD_SPEC §2.4b.6, v1.9) ──────────
+{
+    const { isFirefoxWmClass, isLibreOfficeWmClass, decidePoke, decideHanjaInvalidate, FIREFOX_POKE_SETTLE_MS,
+            FIREFOX_HOLD_MS, keyClearsSelection, selectionMaybe, shouldForwardSurrounding } = sf;
+    eq('Firefox 왕복 정착 200ms', FIREFOX_POKE_SETTLE_MS, 200);
+    eq('Firefox 보고 보류 500ms(R7 상한 450ms 보다 길다)', FIREFOX_HOLD_MS, 500);
+    const ff = [
+        ['firefox', true], ['firefox_firefox', true], ['Firefox', true], ['firefox-esr', true],
+        ['org.mozilla.firefox', true], ['org.mozilla.Firefox', true],
+        ['my-firefox', false], [' firefox', false], ['org.mozilla.thunderbird', false],
+        ['libreoffice-writer', false], ['soffice', false], ['google-chrome', false], ['', false],
+        [null, false], [undefined, false], [7, false],
+    ];
+    for (const [cls, want] of ff) eq(`Firefox wm_class: ${JSON.stringify(cls)}`, isFirefoxWmClass(cls), want);
+    eq('LO 판정은 Firefox 를 LO 로 보지 않는다', isLibreOfficeWmClass('firefox_firefox'), false);
+
+    const okFf = { hasFocus: true, preeditEmpty: true, sensitive: false, popupVisible: false,
+                   isLibreOffice: false, isFirefox: true, inFlight: false, cacheState: 'none',
+                   sinceKeyMs: 500, selMaybe: false };
+    eq('Firefox 왕복: 모두 충족', decidePoke(okFf), { poke: true, reason: 'ok' });
+    eq('Firefox 왕복: 캐시가 fresh 여도 왕복(한 박자 늦은 보고일 수 있다)',
+        decidePoke({ ...okFf, cacheState: 'fresh' }), { poke: true, reason: 'ok' });
+    eq('Firefox 왕복: 정착 경계 200ms 는 왕복', decidePoke({ ...okFf, sinceKeyMs: 200 }).poke, true);
+    eq('Firefox 왕복: 직전 활동 199ms → settle', decidePoke({ ...okFf, sinceKeyMs: 199 }), { poke: false, reason: 'settle' });
+    eq('Firefox 왕복: 직전 활동 시각 모름 → settle(보수)', decidePoke({ ...okFf, sinceKeyMs: undefined }), { poke: false, reason: 'settle' });
+    eq('Firefox 왕복: 기록 없음(MAX) → 왕복', decidePoke({ ...okFf, sinceKeyMs: Number.MAX_SAFE_INTEGER }).poke, true);
+    eq('Firefox 왕복: 선택이 남아 있을 수 있음 → selmaybe', decidePoke({ ...okFf, selMaybe: true }), { poke: false, reason: 'selmaybe' });
+    eq('Firefox 왕복: 선택 여부 모름 → selmaybe(보수)', decidePoke({ ...okFf, selMaybe: undefined }).reason, 'selmaybe');
+    eq('Firefox 왕복: settle 이 selmaybe 보다 먼저', decidePoke({ ...okFf, sinceKeyMs: 0, selMaybe: true }).reason, 'settle');
+    eq('Firefox 왕복: 진행 중이면 inflight 가 먼저', decidePoke({ ...okFf, inFlight: true, sinceKeyMs: 0 }).reason, 'inflight');
+    eq('Firefox 왕복: 조합 중', decidePoke({ ...okFf, preeditEmpty: false }).reason, 'preedit');
+    eq('Firefox 왕복: 비밀번호 칸', decidePoke({ ...okFf, sensitive: true }).reason, 'sensitive');
+    eq('Firefox 왕복: 팝업', decidePoke({ ...okFf, popupVisible: true }).reason, 'popup');
+    eq('왕복: Firefox 도 LO 도 아님 → notarget', decidePoke({ ...okFf, isFirefox: false }).reason, 'notarget');
+    eq('LO 왕복: 선택 여부·정착과 무관(종전 그대로)',
+        decidePoke({ ...okFf, isFirefox: false, isLibreOffice: true, selMaybe: true, sinceKeyMs: 0 }), { poke: true, reason: 'ok' });
+
+    const inv = { hasFocus: true, preeditEmpty: true, sensitive: false, popupVisible: false, isFirefox: true };
+    eq('낡음 표시: Firefox·조합 없음 → 표시', decideHanjaInvalidate(inv), true);
+    eq('낡음 표시: Firefox 아님 → 안 함', decideHanjaInvalidate({ ...inv, isFirefox: false }), false);
+    eq('낡음 표시: 조합 중(대상①) → 안 함', decideHanjaInvalidate({ ...inv, preeditEmpty: false }), false);
+    eq('낡음 표시: 포커스 없음 → 안 함', decideHanjaInvalidate({ ...inv, hasFocus: false }), false);
+    eq('낡음 표시: 비밀번호 칸 → 안 함', decideHanjaInvalidate({ ...inv, sensitive: true }), false);
+    eq('낡음 표시: 팝업 → 안 함', decideHanjaInvalidate({ ...inv, popupVisible: true }), false);
+
+    // 선택을 없애는 키
+    const P = { shift: false, ctrlAltSuper: false }, S = { shift: true, ctrlAltSuper: false }, C = { shift: false, ctrlAltSuper: true };
+    const kc = [
+        ['←', 0xff51, P, true], ['Shift+←', 0xff51, S, false], ['End', 0xff57, P, true], ['Shift+End', 0xff57, S, false],
+        ['KP_Left', 0xff96, P, true], ['BackSpace', 0xff08, P, true], ['Delete', 0xffff, P, true], ['Enter', 0xff0d, P, true],
+        ['Tab', 0xff09, P, true], ['a', 0x61, P, true], ['Shift+A', 0x41, S, true], ['한글 keysym(유니코드)', 0x0100ac00, P, true],
+        ['Ctrl+A', 0x61, C, false], ['Ctrl+C', 0x63, C, false], ['Ctrl+←', 0xff51, C, false],
+        ['Escape', 0xff1b, P, false], ['F9', 0xffc6, P, false], ['Hangul_Hanja', 0xff34, P, false],
+    ];
+    for (const [nm, kv, m, want] of kc) eq(`선택 해제 키: ${nm}`, keyClearsSelection(kv, m), want);
+    eq('선택 남음: PRIMARY 가 해제 사건보다 늦음', selectionMaybe({ primaryChangedAtMs: 20, selClearAtMs: 10 }), true);
+    eq('선택 남음: 해제 사건이 더 늦음', selectionMaybe({ primaryChangedAtMs: 10, selClearAtMs: 20 }), false);
+    eq('선택 남음: PRIMARY 변경 본 적 없음', selectionMaybe({ primaryChangedAtMs: 0, selClearAtMs: 0 }), false);
+    eq('선택 남음: 같은 시각은 해제로 본다', selectionMaybe({ primaryChangedAtMs: 10, selClearAtMs: 10 }), false);
+
+    // 보고 넘기기
+    eq('보고 넘김: 보류 없음', shouldForwardSurrounding({ holdUntilMs: 0, nowMs: 100, pokeAwaitingReply: false }), true);
+    eq('보고 넘김: 보류 중 → 안 넘김', shouldForwardSurrounding({ holdUntilMs: 600, nowMs: 100, pokeAwaitingReply: false }), false);
+    eq('보고 넘김: 보류 중이어도 왕복 응답은 넘김', shouldForwardSurrounding({ holdUntilMs: 600, nowMs: 100, pokeAwaitingReply: true }), true);
+    eq('보고 넘김: 보류 기한 지남', shouldForwardSurrounding({ holdUntilMs: 600, nowMs: 600, pokeAwaitingReply: false }), true);
+
+    // 배선
+    const bh = bodyOf(khSrc, '_beforeHanjaProcessKey(keyval, before) {') ?? '';
+    const iInv = bh.indexOf('shouldInvalidateBeforeHanja()');
+    eq('한자키 직전: Firefox 낡음 표시는 KEY 힌트 + 보고 보류',
+        /shouldInvalidateBeforeHanja\(\)\) \{\s*this\._sendHint\(HINT_KEY, keyval, 0\);\s*this\._inputMethod\.beginFirefoxHold\(\);/.test(bh), true);
+    eq('한자키 직전: 낡음 표시가 왕복보다 먼저', iInv > 0 && iInv < bh.indexOf('pokeSurroundingReport('), true);
+    eq('한자키 직전: PRIMARY 비어 있음(kind 7) 다음에 낡음 표시', bh.indexOf('_maybeSendPrimaryEmpty()') < iInv, true);
+    eq('한자키 직전: 왕복에 선택 남음 여부를 싣는다', bh.includes('pokeSurroundingReport({ ...(before ?? {}), selMaybe: this._selectionMaybe() })'), true);
+    const vf = bodyOf(imSrc, 'vfunc_filter_key_event(event) {') ?? '';
+    const iPrev = vf.indexOf('this._prevKeyEventTimeMs = this._lastKeyEventTimeMs;');
+    eq('vfunc: 직전 키 시각을 갱신 직전에 보관', iPrev > 0 && iPrev < vf.indexOf('this._lastKeyEventTimeMs = Date.now();'), true);
+    const pk = bodyOf(imSrc, 'pokeSurroundingReport(before) {') ?? '';
+    eq('왕복 판정에 Firefox·정착·선택 남음을 넘긴다', pk.includes('isFirefox: this.isFocusWindowFirefox()') &&
+        pk.includes('sinceKeyMs: this.msSinceLastActivity()') && pk.includes('selMaybe: before?.selMaybe'), true);
+    const act = bodyOf(imSrc, 'msSinceLastActivity() {') ?? '';
+    eq('정착은 직전 키·문서 변경 중 늦은 것부터', act.includes('Math.max(this._prevKeyEventTimeMs, this._lastDocChangeMs)'), true);
+    const nd = bodyOf(imSrc, '_noteDocumentChanged() {') ?? '';
+    eq('문서 변경이 시각을 남기고 보류를 푼다', nd.includes('this._lastDocChangeMs = Date.now();') && nd.includes('this._ffHoldUntilMs = 0;'), true);
+    const ss = bodyOf(imSrc, 'vfunc_set_surrounding(text, cursor, anchor) {') ?? '';
+    eq('보고 넘김은 shouldForwardSurrounding 로 판정', ss.includes('shouldForwardSurrounding(') &&
+        /if \(forward && this\._dbusIME\?\.isConnected\)/.test(ss), true);
+    eq('왕복 응답을 넘긴 뒤 보류를 푼다', ss.includes('if (pokeAwaitingReply) this._ffHoldUntilMs = 0;'), true);
+    eq('포커스 변화가 보류를 푼다', (bodyOf(imSrc, 'vfunc_focus_in(_focus) {') ?? '').includes('this._ffHoldUntilMs = 0;') &&
+        (bodyOf(imSrc, 'vfunc_focus_out() {') ?? '').includes('this._ffHoldUntilMs = 0;'), true);
+    const inb = bodyOf(imSrc, 'shouldInvalidateBeforeHanja() {') ?? '';
+    eq('낡음 표시 판정은 decideHanjaInvalidate', inb.includes('decideHanjaInvalidate('), true);
+    eq('Firefox 판정도 셸 모달이면 거짓', (bodyOf(imSrc, 'isFocusWindowFirefox() {') ?? '').includes('Main.modalCount > 0'), true);
+    const hv = bodyOf(khSrc, '_handleVfuncKey(keyval, keycode, state, event) {') ?? '';
+    eq('vfunc 키: 큐 판정보다 먼저 선택 해제 키를 센다', hv.indexOf('this._noteSelClearKey(keyval, state);') >= 0 &&
+        hv.indexOf('this._noteSelClearKey(keyval, state);') < hv.indexOf('if (this._processingKey)'), true);
+    const sk = bodyOf(khSrc, '_noteSelClearKey(keyval, state) {') ?? '';
+    eq('선택 해제 키: 수정자·한자키는 세지 않는다', sk.includes('MODIFIER_KEYSYMS.has(keyval) || this._hanjaKeysyms.has(keyval)'), true);
+    const ap = bodyOf(khSrc, '_reportAppPress(btnMask = 0) {') ?? '';
+    eq('앱 창 눌림: 왼쪽 버튼만 선택 해제 사건', /if \(btnMask === Clutter\.ModifierType\.BUTTON1_MASK\) this\._selClearAtMs = /.test(ap), true);
+    eq('앱 창 눌림: 버튼 마스크를 넘겨받는다', khSrc.includes('setAppPressHandler((btnMask) => this._reportAppPress(btnMask))') &&
+        imSrc.includes('this._appPressHandler(btnMask);'), true);
+    eq('선택 해제 키: 팝업이 떠 있으면 세지 않는다(후보 탐색·Esc)', sk.includes('if (this._inputMethod.isPopupShown?.()) return;') &&
+        sk.indexOf('isPopupShown') < sk.indexOf('keyClearsSelection('), true);
+    eq('mutter 확정(reset)·포커스 아웃 로컬 확정도 정착 시각을 남긴다',
+        (bodyOf(imSrc, 'vfunc_reset() {') ?? '').includes('this._lastDocChangeMs = Date.now();') &&
+        (bodyOf(imSrc, 'vfunc_focus_out() {') ?? '').includes('this._lastDocChangeMs = Date.now();'), true);
+    eq('hanja_key 탐침에 ff·since_act_ms·sel_maybe', bh.includes('ff=${st.ff}') && bh.includes('since_act_ms=${sinceAct}') && bh.includes('sel_maybe='), true);
 }
 {
     const { pokeCancelledByPreedit, isLibreOfficeWmClass, cacheStateName, decidePoke } = sf;
@@ -637,7 +747,7 @@ eq('창 FocusIn 직후 재송신(extension.js)',
     eq('_beforeHanjaProcessKey: 한자키일 때만(develop 게이트 없음 — S2·S5)',
         before !== null && /^\{\s*if \(!this\._hanjaKeysyms\.has\(keyval\)\) return;/.test(before), true);
     eq('_beforeHanjaProcessKey: hanja_key 탐침 후 왕복', before !== null &&
-        before.indexOf("unimProbe('hanja_key'") > 0 && before.indexOf("unimProbe('hanja_key'") < before.indexOf('pokeSurroundingReport(before)'), true);
+        before.indexOf("unimProbe('hanja_key'") > 0 && before.indexOf("unimProbe('hanja_key'") < before.indexOf('pokeSurroundingReport('), true);
     eq('hint_sent 탐침은 develop 게이트 안에서 버튼 상태를 읽는다',
         /if \(isUnimDevelop\(\)\) unimProbe\('hint_sent', `kind=\$\{kind\} btn=/.test(khSrc), true);
     eq('primary_owner 탐침은 develop 게이트 안', /if \(isUnimDevelop\(\)\) \{[^}]*?unimProbe\('primary_owner'/.test(khSrc), true);
@@ -733,11 +843,11 @@ eq('창 FocusIn 직후 재송신(extension.js)',
     const np = bodyOf(imSrc, '_noteAppPress() {') ?? '';
     eq('_noteAppPress: 판정은 shouldReportAppPress, direct=false', np.includes('shouldReportAppPress(') && np.includes('direct: false'), true);
     eq('_noteAppPress: 셸 모달 중에는 앱 창 안으로 보지 않는다', np.includes('Main.modalCount === 0'), true);
-    eq('_noteAppPress: 분류 정보를 넘기지 않는다', np.includes('this._appPressHandler()'), true);
+    eq('_noteAppPress: 분류 정보 없이 버튼 마스크만 넘긴다', np.includes('this._appPressHandler(btnMask)'), true);
     eq('_noteAppPress: 팝업은 reset 핸들러가 닫기 전에 묻는다', (bodyOf(imSrc, 'vfunc_reset() {') ?? '').indexOf('_noteAppPress()') <
         (bodyOf(imSrc, 'vfunc_reset() {') ?? '').indexOf('this._resetHandler'), true);
     eq('cursor-jump 직접 경로는 앱 눌림을 보내지 않는다', !(imSrc.slice(imSrc.indexOf('외부 cursor 점프 감지'), imSrc.indexOf('외부 cursor 점프 감지') + 1200)).includes('_noteAppPress'), true);
-    const ra = bodyOf(khSrc, '_reportAppPress() {') ?? '';
+    const ra = bodyOf(khSrc, '_reportAppPress(btnMask = 0) {') ?? '';
     eq('_reportAppPress: kind 8 을 한 번 보낸다', ra.includes('this._sendHint(HINT_POINTER_APP)') && (ra.match(/_sendHint\(/g) ?? []).length === 1, true);
     eq('_reportAppPress: classifyPointer·_pointerState 를 건드리지 않는다', !ra.includes('classifyPointer') && !ra.includes('_pointerState'), true);
     eq('KeyHandler 가 앱 눌림 핸들러를 IM 에 연결', khSrc.includes('this._inputMethod.setAppPressHandler('), true);

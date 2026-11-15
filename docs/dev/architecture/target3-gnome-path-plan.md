@@ -21,6 +21,7 @@
 - `delete_surrounding(0,0)`·`request_surrounding` 사용: 효과가 없다(A Q1·Q2)
 - PRIMARY **내용** 읽기: §2.10.1 퇴역. mimetype **개수**만 본다(S5)
 - Firefox·GTK4 앱에 빈 preedit 왕복 적용: Firefox 에서는 compositionstart 부작용이 있고, 둘 다 키마다 보고하므로 필요도 없다
+  - **2026-11-15 정정(v1.9)**: 실세션에서 Firefox 는 키마다 보고하지 **않고** 확정 직후 보고가 한 박자 늦었다. 기현님 승인으로 Firefox 도 왕복(정착 200ms)과 한자키 직전 낡음 표시를 한다. compositionstart·선택 삭제는 실측 뒤 판단(HANJA_WORD_SPEC §2.4b.6 Firefox)
 - FIELD_FOCUS 에 버튼 상태를 싣는 안(B 후보 5): 사례 11 의 결과가 cursor0 으로 같아 효과가 0 이다. select-on-focus 전제가 [추]라서 보류한다
 - 보고와 키 순번 매기기(B E-1 위험): 계측 필드만 넣고 동작 수정은 다음 범위로 넘긴다
 - GNOME 경로 L3 하네스 신설(§5 참조)

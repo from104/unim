@@ -482,6 +482,24 @@ fn sw_stale_after_hint_key_and_pointer() {
     assert!(e.surrounding_stale());
 }
 
+/// HANJA_WORD_SPEC §2.4b.6 Firefox(v1.9) — 확장이 한자키 직전에 보내는 KEY 힌트(한자키 keysym 0xff34)는
+/// 낡음만 세우고 선택 가능 표시는 건드리지 않는다(풀지도, 세우지도 않는다).
+#[test]
+fn sw_hint_key_hanja_keysym_only_marks_stale() {
+    let mut e = eng("국어교육", 4);
+    e.surrounding_hint(SURROUNDING_HINT_PRIMARY_CHANGED, 0, 0);
+    assert!(e.selection_possible());
+    e.surrounding_hint(SURROUNDING_HINT_KEY, 0xff34, 0);
+    assert!(e.surrounding_stale());
+    assert!(e.selection_possible(), "선택 보호가 풀리면 안 된다");
+
+    let mut e = eng("국어교육", 4);
+    assert!(!e.selection_possible());
+    e.surrounding_hint(SURROUNDING_HINT_KEY, 0xff34, 0);
+    assert!(e.surrounding_stale());
+    assert!(!e.selection_possible(), "선택 보호를 새로 세우지도 않는다");
+}
+
 #[test]
 fn sw_primary_changed_not_stale() {
     let mut e = eng("국어교육", 4);
