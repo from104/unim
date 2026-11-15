@@ -14,12 +14,15 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 - Hanja output format setting — choose 漢字, 한자(漢字) or 漢字(한자) ([Settings] › [Hanja Output Format], `unim-cli config set hanja-output-format`)
 - Per-character meanings shown for multi-syllable hanja candidates
 - Hanja conversion of the word under the cursor — put the cursor anywhere in an already typed Hangul word (start, middle or end) and press the hanja key, no selection needed (GTK and Qt apps connected through the UNIM input method modules; GTK, Qt, Chromium-based apps and LibreOffice through the GNOME (Wayland) extension; Windows TSF apps. Firefox on GNOME falls back to the emoji popup)
+- Hanja user dictionary — register names, organisations and technical terms missing from the built-in dictionary as "Hangul → Hanja (+ meaning)"; they come first among the hanja candidates (after favourites) and work for the word just typed, selections and the word under the cursor. Edits apply from the next hanja key ([Settings] › [Hanja User Dictionary], `unim-cli dict hanja add 서기현 徐基鉉`)
 - Status notifications (toasts) for easy-to-miss input method events such as an automatic correction, entering a password field or a blocked Korean/English toggle (Linux and Windows, [Settings] › [Notifications], `unim-cli config set notify-enabled` and friends)
 
 ### Changed
 
 - The Korean/English and auto-correction toggle beeps now differ in pitch and count — Korean/on plays two high beeps, English/off one low beep
 - Logs no longer record the text you type (lengths only)
+- The auto-correction "User Dictionary" is now called "Auto-correction Dictionary" to tell it apart from the Hanja User Dictionary (file and `unim-cli dict user-dict` unchanged)
+- Hanja conversion of the word under the cursor is now on by default on GNOME
 
 ### Fixed
 
@@ -30,6 +33,8 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 - GNOME: fixed selected text being erased in GTK4 apps (Text Editor and others) when the hanja key opened the emoji popup over a selection
 - Fixed Korean/English toggling stalling and keys leaking to the app after long sessions with the global mode share (input contexts of closed apps are now reclaimed too)
 - Fixed the daemon loading a fresh copy of the hanja dictionary for every input field, which made its memory use grow sharply
+- Fixed the auto-correction dictionary and suppression-word files being wiped when a hand edit broke their format: they were read as empty lists and the next save (settings, CLI or the automatic suppression learning) overwrote them. A broken file is now left untouched and reported with its path, and can be archived to start fresh
+- Fixed deleting an auto-correction dictionary or suppression word in the settings window removing a different word when the CLI had changed the list in the meantime
 
 ## [0.4.4] 2026-09-21
 
