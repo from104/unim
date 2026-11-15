@@ -106,8 +106,9 @@ pub fn should_consume(ctx: &ImeContext, cfg: &Config, vkey: u32, key_state: *con
         return false;
     }
 
-    // 한자/F9 키
-    if keycode == KeyCode::Hanja || keycode == KeyCode::F9 {
+    // 한자키 — 사용자 설정 `hanja_keys`(기본 Hanja·F9)를 엔진과 같은 기준으로 판정한다
+    // (test_key_down 과 동일). 고정 목록이면 다른 키로 바꾼 사용자의 한자키가 앱으로 샌다.
+    if engine.is_hanja_key(keycode) {
         return true;
     }
 

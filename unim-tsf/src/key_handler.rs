@@ -182,8 +182,10 @@ pub fn test_key_down(
         return false;
     }
 
-    // 한자/F9 키
-    if keycode == KeyCode::Hanja || keycode == KeyCode::F9 {
+    // 한자키 — 사용자 설정 `hanja_keys`(기본 Hanja·F9)를 엔진과 같은 기준으로 판정한다.
+    // 고정 목록이면 F3 등 다른 키로 바꾼 사용자는 OnTestKeyDown 에서 탈락해, 사전
+    // 확인을 거치는 앱(winit/Slint 설정 창 등)에서 OnKeyDown 이 불리지 않는다.
+    if engine.is_hanja_key(keycode) {
         return true;
     }
 
