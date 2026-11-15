@@ -823,7 +823,7 @@ pub struct HanjaEntry {
    - idle + 선택 없음: 대상③ — 커서가 걸친 한글 구간의 사전 일치 후보를 길이↓·등급(커서에서
      끝남 0 / 시작 1 / 가로지름 2)·시작↑ 로 정렬(`SurroundingWord`, 능력 `REPLACE` ∧
      (`SELECTION_RELIABLE` ∨ `POINTER_HINTS`) · 신선 · 선택 거부 플래그 없음 · 커서≠0).
-3. hanja_dict.search(target) → 후보 리스트 (즐겨찾기 우선 stable sort)
+3. hanja_search(target) → 후보 리스트 (사용자 사전 → 내장, 즐겨찾기 우선 stable sort — HANJA_USERDICT_SPEC §3)
 4. hanja_mode = true, 대상 필드 저장, ShowHanja(뜻은 display_meaning)
 5. InputResult::hanja_candidates() 반환
 6. (프론트엔드가 팝업 표시)
