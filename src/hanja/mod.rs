@@ -4,6 +4,8 @@
 
 pub mod bookmark;
 pub mod dict;
+pub mod user_dict;
 
 pub use bookmark::HanjaBookmarkStore;
 pub use dict::{HanjaDictionary, HanjaEntry};
+pub use user_dict::{EntryError, HanjaUserDict, HanjaUserEntry, HanjaUserIndex, LoadError};
