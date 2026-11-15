@@ -195,14 +195,7 @@ class UnimInputMethod extends Clutter.InputMethod {
          */
         this._lastKeyEventTimeMs = 0;
         /**
-         * 직전 키 이벤트 시각(ms) — `vfunc_filter_key_event` 가 `_lastKeyEventTimeMs` 를 갱신하기
-         * 직전 값. 한자키 처리 시점에 "한자키 앞 키로부터 지난 시간"(Firefox 왕복 정착)을 잰다.
-         */
-        this._prevKeyEventTimeMs = 0;
-        /** 마지막 문서 변경(확정·삭제) 시각(ms, `Date.now()`) — Firefox 왕복 정착을 키와 함께 잰다. */
-        this._lastDocChangeMs = 0;
-        /**
-         * Firefox 낡음 표시 뒤 왕복 응답이 아닌 보고를 데몬에 넘기지 않는 기한(단조 ms). 0 이면 없음.
+         * Firefox 낡음 표시 뒤 보고를 데몬에 넘기지 않는 기한(단조 ms). 0 이면 없음.
          * 문서 변경·포커스 변화에서 푼다(HANJA_WORD_SPEC §2.4b.6 Firefox).
          */
         this._ffHoldUntilMs = 0;
@@ -337,7 +330,6 @@ class UnimInputMethod extends Clutter.InputMethod {
 
         // 키 이벤트 timestamp 갱신 — vfunc_set_cursor_location 의 cursor 점프
         // 감지에서 "최근 키 입력에 의한 cursor 이동인지" 구분에 사용.
-        this._prevKeyEventTimeMs = this._lastKeyEventTimeMs;
         this._lastKeyEventTimeMs = Date.now();
 
         const eventType = event.type();
@@ -522,7 +514,6 @@ class UnimInputMethod extends Clutter.InputMethod {
             this._preeditText = '';
             try {
                 // commit 이 먼저 (_flushPreedit 과 같은 이유 — 조합 자리 앵커 유지)
-                this._lastDocChangeMs = Date.now();
                 this.commit(localPreedit);
                 this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
             } catch (e) {
@@ -583,8 +574,6 @@ class UnimInputMethod extends Clutter.InputMethod {
         if (this._preeditText.length > 0) {
             const flushed = this._preeditText;
             this._preeditText = '';
-            // mutter 가 방금 조합을 확정했다 — Firefox 왕복 정착(msSinceLastActivity)에 센다.
-            this._lastDocChangeMs = Date.now();
             // 엔진 상태 초기화. 단 데몬의 Reset 은 비운 조합을 **CommitText 시그널로
             // 되쏜다**(unim-dbus/src/service.rs 의 reset(): `Self::commit_text(...)`).
             // 그 메아리는 비동기라 **캐럿이 이미 이동한 뒤에** 도착하고, 그대로 커밋하면
@@ -627,7 +616,7 @@ class UnimInputMethod extends Clutter.InputMethod {
             });
             if (!d.send) return;
             this._lastAppPress = { mask: btnMask, atMs: nowMs };
-            this._appPressHandler(btnMask);
+            this._appPressHandler();
         } catch (e) {
             unimError('IME', `앱 눌림 보고 오류(무시): ${e.message}`);
         }
@@ -699,18 +688,7 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     /**
-     * 한자키 직전 키 이벤트·마지막 문서 변경(확정·삭제) 중 늦은 것으로부터 지난 시간(ms). 둘 다 기록이
-     * 없으면 매우 큰 값. 키가 큐에서 늦게 처리되거나(확정이 방금) 마우스로 후보를 고른 직후에도
-     * 확정 바로 뒤의 왕복을 막는다.
-     * @returns {number}
-     */
-    msSinceLastActivity() {
-        const last = Math.max(this._prevKeyEventTimeMs, this._lastDocChangeMs);
-        return last > 0 ? Date.now() - last : Number.MAX_SAFE_INTEGER;
-    }
-
-    /**
-     * Firefox 낡음 표시 직후 부른다 — `FIREFOX_HOLD_MS` 동안 왕복 응답이 아닌 보고를 데몬에 넘기지 않는다.
+     * Firefox 낡음 표시 직후 부른다 — `FIREFOX_HOLD_MS` 동안 보고를 데몬에 넘기지 않는다.
      */
     beginFirefoxHold() {
         this._ffHoldUntilMs = GLib.get_monotonic_time() / 1000 + FIREFOX_HOLD_MS;
@@ -718,7 +696,7 @@ class UnimInputMethod extends Clutter.InputMethod {
 
     /**
      * 한자키를 엔진에 보내기 직전 마지막 보고를 낡은 것으로 표시해야 하는지(`decideHanjaInvalidate`).
-     * KeyHandler 가 참이면 KEY 힌트를 보낸 뒤 왕복을 건다.
+     * KeyHandler 가 참이면 KEY 힌트를 보내고 보고를 잠시 막는다(`beginFirefoxHold`).
      * @returns {boolean}
      */
     shouldInvalidateBeforeHanja() {
@@ -775,8 +753,8 @@ class UnimInputMethod extends Clutter.InputMethod {
      * (GLib.idle_add)에 `null` 로 되돌린다 — 같은 idle 안의 done 은 mutter 가 병합하기 때문이다.
      * 250ms 안에 보고가 없으면 타임아웃으로 되돌린다.
      *
-     * LibreOffice·Firefox 창에서만 발동한다(`decidePoke`, 순수 함수 — Firefox 는 캐시가 신선해 보여도
-     * 왕복하되 직전 키 뒤 정착 시간을 지킨다). 일반 로그는 `poke start/end` 뿐이고
+     * LibreOffice 창에서만 발동한다(`decidePoke`, 순수 함수 — Firefox 는 빈 조합이 선택을 지워 제외).
+     * 일반 로그는 `poke start/end` 뿐이고
      * 세부는 develop 탐침에만 남는다.
      * 호출 위치: KeyHandler 가 한자키를 processKey 로 넘기기 직전. 로그에 평문은 없다.
      *
@@ -792,11 +770,8 @@ class UnimInputMethod extends Clutter.InputMethod {
             sensitive: this.isSensitivePurpose(),
             popupVisible: this._isPopupVisible(),
             isLibreOffice: this.isFocusWindowLibreOffice(),
-            isFirefox: this.isFocusWindowFirefox(),
             inFlight: this._poke !== null,
             cacheState,
-            sinceKeyMs: this.msSinceLastActivity(),
-            selMaybe: before?.selMaybe,
         });
         if (!d.poke) {
             unimProbe('poke_skip', `why=${d.reason}`);
@@ -1045,7 +1020,7 @@ class UnimInputMethod extends Clutter.InputMethod {
             sensitive: this.isSensitivePurpose(),
             nowMs: GLib.get_monotonic_time() / 1000,
         });
-        // Firefox 낡음 표시 뒤에는 왕복 응답만 넘긴다 — 한 박자 늦은 보고로 엔진이 재판정하지 않게.
+        // Firefox 낡음 표시 뒤에는 넘기지 않는다 — 한 박자 늦은 보고로 엔진이 재판정하지 않게.
         const pokeAwaitingReply = this._poke !== null && !this._poke.reported;
         const forward = shouldForwardSurrounding({
             holdUntilMs: this._ffHoldUntilMs,
@@ -1126,7 +1101,6 @@ class UnimInputMethod extends Clutter.InputMethod {
     /** 확장이 문서를 직접 바꿨다 — 마지막 스냅샷은 더는 현재 문서가 아니다. @private */
     _noteDocumentChanged() {
         this._facts = factsOnDocumentChanged(this._facts);
-        this._lastDocChangeMs = Date.now();
         this._ffHoldUntilMs = 0;
     }
 
