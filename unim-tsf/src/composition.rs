@@ -1831,8 +1831,7 @@ fn around_cursor_matches(range_text: &[u16], expect: &str, before: u32, after: u
 
 /// 대상③ 교체 EditSession — 커서 기준 앞 `before`·뒤 `after` 자 범위 `[c−a, c+b)` 를
 /// 한 읽기-쓰기 세션에서 검증하고 `text` 로 치환한다(HANJA_WORD_SPEC §4.4·§2.4b.5).
-/// `move_only` 면 검증 뒤 캐럿만 범위 끝(c+b)으로 옮기고 텍스트는 건드리지 않는다
-/// (`replace_around_cursor` 의 1단계).
+/// `verify_only` 면 검증만 하고 문서를 건드리지 않는다(sink 비대칭 앱의 synth 교체 전 대조).
 /// 결과(이유 코드)는 `result_slot` 에 싣는다(DoEditSession 자체는 항상 Ok — 호출부가 슬롯을 본다).
 #[implement(ITfEditSession)]
 struct ReplaceAroundCursorEditSession {
@@ -1841,7 +1840,7 @@ struct ReplaceAroundCursorEditSession {
     after: u32,
     expect: String,
     text: String,
-    move_only: bool,
+    verify_only: bool,
     result_slot: Arc<Mutex<Option<std::result::Result<(), &'static str>>>>,
 }
 
@@ -1904,9 +1903,9 @@ impl ReplaceAroundCursorEditSession_Impl {
             return Err("verify_mismatch");
         }
 
-        // 3b. 1단계: 캐럿만 범위 끝으로 옮기고 끝낸다(텍스트 무변경).
-        if self.move_only {
-            return move_caret_to_end(&self.context, ec, &range).map_err(|_| "range_failed");
+        // 3b. 대조만 — 실제 교체는 호출부가 세션 밖에서 synth 로 한다.
+        if self.verify_only {
+            return Ok(());
         }
 
         // 4. 치환. 교체 range 를 selection 으로 명시해 Blink 의 "selection 밖 편집" 무시를 막는다.
@@ -1939,11 +1938,11 @@ impl ITfEditSession_Impl for ReplaceAroundCursorEditSession_Impl {
 /// (범위 획득 실패·세션 거부·캐럿 이동 실패) · `selection`(선택이 생김) · `delete_failed`
 /// (이동량 불일치·SetText 실패) · `verify_mismatch`(범위 텍스트 ≠ expect).
 ///
-/// 커서 뒤가 있으면(`after > 0`) 두 단계로 나눈다 — ① 범위를 검증하고 캐럿만 단어 끝(c+b)
-/// 으로 옮긴 뒤 ② 새 세션에서 캐럿 앞 `before+after` 자를 다시 검증하고 치환한다. Chrome
-/// (Blink)은 캐럿을 걸친 범위의 `SetText` 에서 캐럿 뒤 부분을 문서에 반영하지 않는다(실측:
-/// 「학|교」 → 「학교(學校)교」, 로그는 ok). 캐럿 앞 범위 치환은 반영된다. ①의 캐럿 이동을
-/// 앱이 무시하면 ②의 검증이 어긋나 아무것도 바꾸지 않는다(①은 캐럿만 남긴다).
+/// sink 비대칭 앱(OnTestKeyDown 미발화 — Chrome/Blink 등, `synth_input::sink_asymmetric`)은
+/// 같은 세션에서 범위를 대조만 하고, 세션 밖에서 synth(Delete×b·BS×a·UNICODE)로 바꾼다.
+/// Blink 는 캐럿을 걸친 범위의 `SetText` 에서 캐럿 뒤 부분을 문서에 반영하지 않고(실측:
+/// 「학|교」 → 「학교(學校)교」, 로그는 ok), TSF 로 옮긴 캐럿도 화면 캐럿에 반영하지 않는다
+/// (실측). 대상①·ATF 가 이 앱들에서 이미 쓰는 synth 경로와 같은 판정이다(앱 이름 휴리스틱 없음).
 pub fn replace_around_cursor(
     context: &ITfContext,
     tid: u32,
@@ -1952,10 +1951,16 @@ pub fn replace_around_cursor(
     expect: &str,
     text: &str,
 ) -> std::result::Result<(), &'static str> {
-    if after > 0 {
+    if crate::synth_input::sink_asymmetric() {
         run_around_cursor_session(context, tid, before, after, expect, text, true)?;
+        let (t, k) = crate::synth_input::sink_counters();
+        crate::register::dbg_log(&format!(
+            "surrounding word replace: sink-asymmetric(test={t} kd={k}) → synth del_after={after} del={before}"
+        ));
+        crate::synth_input::send_around_cursor_batch(before, after, text);
+        return Ok(());
     }
-    run_around_cursor_session(context, tid, before + after, 0, expect, text, false)
+    run_around_cursor_session(context, tid, before, after, expect, text, false)
 }
 
 /// `ReplaceAroundCursorEditSession` 을 동기 읽기-쓰기 세션 1회로 돌린다.
@@ -1966,7 +1971,7 @@ fn run_around_cursor_session(
     after: u32,
     expect: &str,
     text: &str,
-    move_only: bool,
+    verify_only: bool,
 ) -> std::result::Result<(), &'static str> {
     let slot: Arc<Mutex<Option<std::result::Result<(), &'static str>>>> =
         Arc::new(Mutex::new(None));
@@ -1976,7 +1981,7 @@ fn run_around_cursor_session(
         after,
         expect: expect.to_string(),
         text: text.to_string(),
-        move_only,
+        verify_only,
         result_slot: slot.clone(),
     };
     let session_intf: ITfEditSession = session.into();
