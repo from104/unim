@@ -1768,6 +1768,24 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
                 "OnCompositionTerminated: IMMEDIATE -> fallback (pending={}, hwnd={:#x}, by_time={}, known_cuas={})",
                 pending, focus_hwnd, by_time, known_cuas
             ));
+        } else if !immediate {
+            // 키와 동떨어진 종료 — 같은 입력란 안 마우스 클릭 등으로 앱이 조합을 끝냈다
+            // (Chrome·메모장·Word 실측 2026-11-17). 포커스는 그대로라 OnSetFocus 정리가
+            // 오지 않으므로, 여기서 비우지 않으면 엔진 preedit 이 살아남아 다음 키가 옮겨진
+            // 캐럿에 그 글자를 다시 조합한다(단어 모드 「학교」 조합 중 클릭 → 「국가」 →
+            // 「학교학교국가」). 조합 텍스트는 종료로 이미 문서에 확정됐으므로 preedit 만
+            // 버린다. 캐럿이 옮겨졌을 수 있어 최근 확정 음절(대상①)·ATF 버퍼도 비운다.
+            let dropped = {
+                let mut engine = self.engine.lock().unwrap();
+                let n = engine.preedit_str().chars().count();
+                engine.remove_preedit();
+                engine.recent_clear();
+                n
+            };
+            self.atf_state.lock().unwrap().reset_on_focus();
+            crate::register::dbg_log(&format!(
+                "OnCompositionTerminated: 지연 종료(앱 확정) → preedit 폐기 dropped={dropped} hwnd={focus_hwnd:#x}"
+            ));
         }
         Ok(())
     }

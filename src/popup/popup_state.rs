@@ -801,6 +801,20 @@ mod tests {
     }
 
     #[test]
+    fn hanja_and_special_home_row_not_handled() {
+        // 홈 행(ASDFGHJKL 위치)은 이모지 카테고리 단축키일 뿐 — 한자·특수문자 팝업에서는
+        // 기타 키로 재처리돼야 한다(POPUP_SPEC §3.4·§4.5). 소비하면 글자가 사라진다.
+        let mut hanja = make_hanja(9);
+        for i in 0..9 {
+            assert_eq!(hanja.handle_key(PopupKey::CatLetter(i)), PopupKeyResult::NotHandled);
+        }
+        hanja.handle_key(PopupKey::Period); // expanded 에서도 같다
+        assert_eq!(hanja.handle_key(PopupKey::CatLetter(0)), PopupKeyResult::NotHandled);
+        let mut special = make_special(20);
+        assert_eq!(special.handle_key(PopupKey::CatLetter(3)), PopupKeyResult::NotHandled);
+    }
+
+    #[test]
     fn hanja_expanded_letter_out_of_range_no_change() {
         let mut state = make_hanja(10); // 페이지 1: 10개 → cols=2
         state.handle_key(PopupKey::Period);
