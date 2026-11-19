@@ -677,6 +677,10 @@ make dev-xim PREFIX=/usr
 | 2 | **root-window 스타일 미지원** | 4가지 스타일 중 1가지 미지원. 현대 IME에서 거의 사용되지 않아 실무 영향 없음 |
 | 3 | **XIM_GET_IC_VALUES 미구현** | `xim` crate 내부에서 기본 처리. 커스텀 IC 속성이 없으므로 문제 없음 |
 
+## 13a. 프로토콜 한계 — 한자 단어 변환
+
+XIM 프로토콜에는 surrounding text(커서 주변 글자)와 선택을 IM 에 전하는 수단이 없다(규격의 문자열 변환 `XNStringConversionCallback` 은 쓰지 않으며, 구현한 클라이언트를 확인하지 못했다). 그래서 XIM 앱의 한자 단어 변환은 **대상①(방금 입력한 단어, 엔진 버퍼 기반·검증 없음)만** 되고, 대상②(선택)·③(커서가 걸친 단어)은 idle 한자키가 이모지로 간다. 버퍼 드리프트는 스팟 점프 Reset(HANJA_WORD_SPEC [Q9](a))으로 줄인다. 경로별 표·원인·기여 항목은 [`HANJA_WORD_SPEC.md` §2.10·§2.11](../../docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리).
+
 ---
 
 ## 14. 참조

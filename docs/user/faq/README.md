@@ -5,8 +5,10 @@
 
 ---
 
+## Q1. How is UNIM different from other Korean IMEs?
+
 <!-- @platform:linux -->
-## Q1. How is UNIM different from ibus-hangul, fcitx-hangul, kime, nimf?
+**🐧 Linux** — compared with ibus-hangul, fcitx-hangul, kime, nimf
 
 | Item | UNIM | ibus-hangul | fcitx-hangul | kime | nimf |
 |------|------|-------------|--------------|------|------|
@@ -24,9 +26,32 @@
 | License | (see project license) | LGPL/GPL | GPL | GPLv3 | LGPL |
 
 **One-liner**: UNIM's design is "one Rust core plugged into every environment", and it differentiates further on user-experience features (AutoTypeFix, learned suppression dictionary) that other IMEs do not have.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows** — compared with Microsoft Korean IME, Nalgaeset, Saenaru
+
+| Item | UNIM | Microsoft Korean IME | Nalgaeset (날개셋) | Saenaru (새나루) |
+|------|------|----------------------|--------------------|------------------|
+| Distribution | MSI installer | Built into Windows | MSI installer | Installer |
+| Latest release | 0.4.5 (2026) | Updated with Windows | 11.01 (2026-10) | 1.1.0-p1 (2010) — none since |
+| Open source | ✅ MIT, Rust | ✗ | — | ✅ |
+| Input framework | TSF | — | TSF | — |
+| 64-bit / 32-bit apps | ✅ / ✅ (`unim_tsf32.dll`, Q30) | ✅ / ✅ (built in) | x64, x86, ARM64 installers | — |
+| Korean layouts | Dubeolsik, Sebeolsik 390 / 391 / Sunarae, Anmatae | Dubeolsik, Sebeolsik 390 / Final | Dubeolsik, Sebeolsik and more | Dubeolsik, Sebeolsik 390 / Final / Sunarae (+ optional legacy layouts) |
+| User layouts | ✅ JSON file (same format as Linux, Q7) | — | ✅ design your own | — |
+| Hanja word conversion | ✅ in TSF apps; legacy-input apps convert only the word just typed (Q37) | — | ✅ in TSF apps; other apps convert only the last character | ✅ word-unit editing mode |
+| Same engine and settings as Linux | ✅ | ✗ | ✗ | ✗ |
+
+`—` means we could not confirm it from public sources (checked 2026-11); it does not mean the feature is missing. The Hancom IME ships with Hancom Office and has no public spec we could find, so it is left out.
+
+- **UNIM-only features**: AutoTypeFix (automatic Korean↔English typo fix: forward, reverse, learning), the 9-cell / 81-cell Hanja grid, and the symbol and emoji popups. We found no equivalent in the other IMEs' public documentation.
+- **Hanja word-conversion limits come from the app's input framework, not the IME.** Nalgaeset also states that apps without TSF support convert only the last character. UNIM's version of this limit is in Q37.
+- **You don't need to remove your old IME.** Windows lets you register several and switch between them (Q2).
+- NavilIME (GPL-3.0) is another open-source TSF IME, but it has not been updated since 2020.
+<!-- @endplatform -->
 
 ---
-<!-- @endplatform -->
 
 ## Q2. Can UNIM coexist with another IME on the same desktop?
 
@@ -735,7 +760,8 @@ Steps are in the "Step-by-step tutorial" of [user manual §4.2](../user-guide/RE
 | The word is not in the dictionary | Convert one character at a time |
 | You just selected with `Shift`+arrows, `Ctrl`+`A`, dragging or double-click (apps going through the GNOME extension) | Press an arrow key without `Shift`, or click, to clear the selection |
 | You just switched windows or clicked (apps going through the GNOME extension) | Press an arrow key once, then press the key again |
-| Terminal, XIM app, Chromium on X11, etc. | These environments cannot see text you already wrote. It works only right after typing the word (while composing) |
+| Terminal, XIM app, Chromium on X11, etc. | These environments cannot see text you already wrote. It works only right after typing the word (while composing) (Q37) |
+| An old-input-method (IMM32) app on Windows (except Qt apps such as Telegram) | Same. It works only right after typing the word (while composing) (Q37) |
 | You pressed `Hanja` past the last candidate in the hanja popup | By design. After the last candidate it moves on to the emoji popup |
 
 If text was selected when the emoji popup opened, confirming an emoji replaces the selection with it. Press `Esc` to close the popup and keep the selection. The full table is in [user manual §4.2](../user-guide/README.md#when-the-emoji-popup-appears).
@@ -777,6 +803,35 @@ The first popup is the **longest word** the cursor touches. For a shorter word, 
 - The candidate list does not change while the popup is open.
 
 The diagram and table are under "Pick the length you want in a compound word" in [user manual §4.2](../user-guide/README.md#42-hanja-conversion).
+
+---
+
+## Q37. Some apps cannot convert words I already typed.
+
+**It is a limit of the input method protocol the app uses.** In these apps, press `Hanja` right after typing the word, before adding a particle or a space. Pressing it with the cursor on, or a selection over, a word you already typed opens the emoji popup. No text is deleted or changed.
+
+Hanja word conversion comes in three forms, and they need different things.
+
+| Form | What the input method needs |
+|---|---|
+| The word just typed | The characters the input method itself remembers you just typed. From the app it only needs "delete N characters and insert the hanja" |
+| The word at the cursor, a selected range | The **text around the cursor and the selection** in the app's document. The app has to tell the input method |
+
+Modern input method protocols (Windows TSF, the Linux GTK/Qt input-method modules, Wayland text-input) report the surrounding text. Old ones do not.
+
+- **Windows IMM32**: the input method holds only the characters being composed and cannot see the document. It can look around the cursor only if the app answers a separate "reconversion" request; whether an app answers, and whether answering changes its selection, differs per app. UNIM uses this request only in **Qt apps (measured with Telegram)**, where that behaviour has been checked.
+- **Linux XIM**: the protocol has no way to exchange the surrounding text.
+- **Chromium/Electron apps on X11**: Chromium does not pass the surrounding text to the GTK input method.
+- **Terminals**: the screen is not an editable document, so there is no surrounding text.
+- **Pure Wayland (KDE, Sway, etc.)**: the surrounding text arrives, but the input method cannot see mouse selections, so the word-at-the-cursor method is still turned off.
+
+**What to do**
+
+1. Type the word and press `Hanja` **before adding a particle or a space**. It converts in one step.
+2. For a word you already typed, delete it, retype it and press the key right after.
+3. On Linux, check whether the app can be connected through a UNIM input-method module instead of XIM (GTK/Qt modules — [user manual §3](../user-guide/README.md#3-per-environment-setup)). With a module all three forms usually work (exceptions are in the §4.2 table).
+
+What works in which app is tabulated in [user manual §4.2 "Differences by app"](../user-guide/README.md#differences-by-app). If you can help push past these limits (measuring other request methods, upstream patches, etc.), see [README — Known limitations and help wanted](https://github.com/from104/unim#known-limitations-and-help-wanted).
 
 ---
 

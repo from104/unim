@@ -227,6 +227,7 @@ li { margin: 0.35rem 0; }
 </li>
 <li><a href="#faq">UNIM FAQ (한국어)</a>
 <ol>
+<li><a href="#faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</a></li>
 <li><a href="#faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</a></li>
 <li><a href="#faq--q3-어떤-환경이-가장-안정적인가">Q3. 어떤 환경이 가장 안정적인가?</a></li>
 <li><a href="#faq--q4-autotypefix는-정확히-어떻게-동작">Q4. AutoTypeFix는 정확히 어떻게 동작?</a></li>
@@ -255,6 +256,7 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">Q33. 한자 를 눌렀는데 한자 대신 이모지가 뜹니다.</a></li>
 <li><a href="#faq--q35-조사가-붙은-단어는-어떻게-바꾸나요-대한민국은">Q35. 조사가 붙은 단어는 어떻게 바꾸나요? (대한민국은)</a></li>
 <li><a href="#faq--q36-원하는-길이의-단어가-첫-후보로-안-뜹니다">Q36. 원하는 길이의 단어가 첫 후보로 안 뜹니다.</a></li>
+<li><a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</a></li>
 <li><a href="#faq--더-읽을-거리">더 읽을 거리</a></li>
 </ol>
 </li>
@@ -579,12 +581,29 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <p>같은 <code>한자</code> 키라도 앱이 입력기에 <strong>주변 글자와 커서 위치를 알려 주는지</strong>에 따라 되는 범위가 다르다. 세 부류로 나뉜다.</p>
 <p><strong>🪟 Windows</strong></p>
 <div class="tablewrap"><table><thead><tr><th>부류</th><th>대표 환경·앱</th><th>입력 중인 단어</th><th>커서가 걸친 단어</th><th>선택한 범위</th></tr></thead><tbody>
-<tr><td><strong>모두 된다</strong></td><td>메모장·워드패드·Word 등 TSF 방식으로 연결되는 앱</td><td>됨</td><td>됨</td><td>됨</td></tr>
+<tr><td><strong>모두 된다</strong></td><td>메모장·워드패드·Word·크롬 등 TSF 방식으로 연결되는 앱</td><td>됨</td><td>됨</td><td>됨</td></tr>
+<tr><td><strong>옛 입력 방식(IMM32) 앱 가운데 Qt 앱</strong></td><td>텔레그램 등</td><td>됨</td><td>띄어쓰기로 나뉜 덩어리 전체가 사전 단어일 때만 됨</td><td>같음</td></tr>
+<tr><td><strong>방금 입력한 단어만 된다</strong></td><td>그 밖의 옛 입력 방식(IMM32) 앱</td><td>됨</td><td>안 됨 (한자 키를 누르면 이모지)</td><td>안 됨</td></tr>
 </tbody></table>
 </div>
 <ul>
-<li>크롬·한컴·카카오톡 등에서 커서 방식과 선택 방식이 되는지는 확인 중이다. 안 되는 앱에서는 이모지가 뜨고, 글자는 바뀌지 않는다.</li>
-<li>콘솔이나 옛 입력 방식을 쓰는 앱(WezTerm·텔레그램 등)도 같은 방식으로 연결되지만, 앱이 문서의 주변 글자를 알려 주지 않으면 그 앱에서는 커서 방식과 선택 방식이 쉬고 이모지가 뜬다.</li>
+<li><strong>옛 입력 방식 앱은 입력기에 지금 조합 중인 글자만 보여 준다.</strong> 이미 쓴 글자는 입력기가 볼 수 없으므로, 단어를 친 직후 조사나 공백을 붙이기 전에 <code>한자</code> 를 누른다. 이유는 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">FAQ Q37</a>에 있다.</li>
+<li><strong>텔레그램 같은 Qt 앱</strong>에서는 UNIM 이 앱에 "커서가 있는 단어"를 물어 그 단어를 선택한 뒤 바꾼다. 그래서 다음처럼 동작한다.
+<ul>
+<li>띄어쓰기로 나뉜 덩어리를 통째로만 바꾼다. <code>학교에서</code>처럼 조사가 붙은 덩어리는 사전에 없어서 바뀌지 않는다.</li>
+<li>바꾸거나 취소한 뒤에는 커서가 단어 끝에 있다.</li>
+<li>선택을 풀려고 단어를 한 번 다시 쳐 넣으므로, 그 입력이 앱의 실행 취소(<code>Ctrl</code>+<code>Z</code>) 기록에 남는다. 이모지를 부르려고 글 뒤에서 <code>한자</code> 를 눌러도 단어를 한 번 다시 친 뒤 이모지가 뜬다.</li>
+<li>팝업을 다른 곳 클릭으로 닫으면 단어가 선택된 채 남을 수 있다. 그 상태에서 글자를 치면 단어가 그 글자로 바뀌므로, 방향키로 선택을 먼저 푼다.</li>
+<li>팝업이 떠 있는 동안 <code>Delete</code>·<code>Ctrl</code>+<code>X</code> 는 앱으로 가서 선택된 단어를 지운다.</li>
+<li>다시 쳐 넣은 단어는 앱이 새 입력에 주는 서식을 따른다(굵게 등이 풀릴 수 있다).</li>
+<li>커서가 단어 뒤 공백 다음에 있으면 바뀌지 않는다. <code>←</code> 로 단어 끝에 놓고 누른다.</li>
+<li>Qt 앱 가운데 확인한 것은 텔레그램뿐이다.</li>
+</ul>
+</li>
+<li>조합 글자를 앱이 직접 그리지 않는 일부 옛 입력 방식 앱에서는 방금 입력한 단어도 한 글자만 바뀔 수 있다.</li>
+<li>옛 입력 방식 앱에서는 <a href="#user-guide--46-단어-단위-입력-조합-확정-단위">단어 단위 입력</a>을 켜 두어도 글자(음절) 단위로 확정한다. 방금 입력한 단어의 한자 변환은 그대로 된다.</li>
+<li>한컴오피스·카카오톡 같은 32비트 앱, Electron 앱, 콘솔(명령 프롬프트·Windows Terminal)에서는 아직 확인하지 못했다. 써 본 결과를 알려 주면 표에 반영한다(<a href="https://github.com/from104/unim#%EC%95%8C%EB%A0%A4%EC%A7%84-%ED%95%9C%EA%B3%84%EC%99%80-%EB%8F%84%EC%9B%80-%EC%9A%94%EC%B2%AD">README — 알려진 한계와 도움 요청</a>).</li>
+<li>안 되는 곳에서는 이모지가 뜨고, 글자는 지워지거나 바뀌지 않는다.</li>
 <li>비밀번호 칸에서는 한자 변환이 꺼져 있다.</li>
 </ul>
 <h5 id="user-guide--이모지-팝업이-뜨는-경우">이모지 팝업이 뜨는 경우</h5>
@@ -1030,6 +1049,28 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.</p>
 </blockquote>
 <hr />
+<h3 id="faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</h3>
+<p><strong>🪟 Windows</strong> — Microsoft 한국어 IME, 날개셋, 새나루와 비교</p>
+<div class="tablewrap"><table><thead><tr><th>항목</th><th>UNIM</th><th>Microsoft 한국어 IME</th><th>날개셋 한글 입력기</th><th>새나루</th></tr></thead><tbody>
+<tr><td>배포</td><td>MSI 설치본</td><td>Windows 기본 내장</td><td>MSI 설치본</td><td>설치본</td></tr>
+<tr><td>최근 판</td><td>0.4.5 (2026)</td><td>Windows 와 함께 갱신</td><td>11.01 (2026-10)</td><td>1.1.0-p1 (2010) — 이후 새 판 없음</td></tr>
+<tr><td>소스 공개</td><td>✅ MIT, Rust</td><td>✗</td><td>—</td><td>✅</td></tr>
+<tr><td>입력 규격</td><td>TSF</td><td>—</td><td>TSF</td><td>—</td></tr>
+<tr><td>64비트 / 32비트 앱</td><td>✅ / ✅ (<code>unim_tsf32.dll</code>, Q30)</td><td>✅ / ✅ (OS 내장)</td><td>x64·x86·ARM64 설치본</td><td>—</td></tr>
+<tr><td>한국어 자판</td><td>두벌식, 세벌식 390·391·순아래, 안마태</td><td>두벌식, 세벌식 390·최종</td><td>두벌식·세벌식 등</td><td>두벌식, 세벌식 390·최종·순아래 (+ 설치 시 새두벌·옛두벌 등)</td></tr>
+<tr><td>사용자 자판</td><td>✅ JSON 파일 (리눅스와 같은 형식, Q7)</td><td>—</td><td>✅ 직접 설계</td><td>—</td></tr>
+<tr><td>한자 단어 변환</td><td>✅ TSF 앱. 옛 입력 방식 앱은 방금 친 단어만 (Q37)</td><td>—</td><td>✅ TSF 앱. 그 밖의 앱은 마지막 한 글자</td><td>✅ 단어 단위 편집 모드</td></tr>
+<tr><td>리눅스와 같은 엔진·설정</td><td>✅</td><td>✗</td><td>✗</td><td>✗</td></tr>
+</tbody></table>
+</div>
+<p><code>—</code> 는 공개 자료로 확인하지 못한 항목이다(2026-11 조사). 없다는 뜻이 아니다. 한컴 입력기는 한컴오피스와 함께 깔리는 입력기라 공식 사양을 찾지 못해 표에서 뺐다.</p>
+<ul>
+<li><strong>UNIM 쪽 고유 기능</strong>: AutoTypeFix(한↔영 오타 자동 교정, 순방향·역방향·학습), 한자 9칸/81칸 그리드, 특수문자·이모지 팝업. 다른 입력기의 공개 자료에서는 같은 기능을 확인하지 못했다.</li>
+<li><strong>한자 단어 변환의 한계는 입력기가 아니라 앱 쪽 규격에서 온다.</strong> 날개셋도 TSF 를 지원하지 않는 앱에서는 마지막 한 글자만 바꾼다고 밝힌다. UNIM 의 같은 한계는 Q37 에 정리했다.</li>
+<li><strong>오래 쓴 입력기를 지울 필요는 없다.</strong> 여러 입력기를 등록해 두고 골라 쓰는 구조다(Q2).</li>
+<li>그 밖에 TSF 기반 오픈소스 입력기 NavilIME(GPL-3.0)가 있으나 2020년 뒤로 갱신이 없다.</li>
+</ul>
+<hr />
 <h3 id="faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</h3>
 <p><strong>🪟 Windows</strong></p>
 <p><strong>공존해도 된다.</strong> Windows는 입력기(TSF — Text Services Framework, 윈도우의 입력기 규격)를 <strong>여러 개 등록해 두고 골라 쓰는</strong> 구조라, 리눅스처럼 "하나만 남기고 지워야" 하는 상황이 아니다. UNIM MSI도 기존 입력기를 지우지 않고 목록에 <strong>추가</strong>만 한다.</p>
@@ -1351,7 +1392,8 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <tr><td>단어가 사전에 없다</td><td>한 글자씩 바꾼다</td></tr>
 <tr><td>방금 <code>Shift</code>+방향키·<code>Ctrl</code>+<code>A</code>·드래그·더블클릭으로 선택했다 (GNOME에서 확장을 거치는 앱)</td><td><code>Shift</code> 없이 방향키를 한 번 누르거나 클릭해 선택을 푼다</td></tr>
 <tr><td>창을 바꾸거나 클릭한 직후다 (GNOME에서 확장을 거치는 앱)</td><td>방향키를 한 번 누르고 다시 누른다</td></tr>
-<tr><td>터미널·XIM 앱·X11 크롬 등이다</td><td>이 환경은 이미 쓴 단어를 볼 수 없다. 단어를 친 직후(조합 중)에만 된다</td></tr>
+<tr><td>터미널·XIM 앱·X11 크롬 등이다</td><td>이 환경은 이미 쓴 단어를 볼 수 없다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
+<tr><td>Windows 의 옛 입력 방식(IMM32) 앱이다 (텔레그램 같은 Qt 앱 제외)</td><td>같다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
 <tr><td>한자 팝업에서 <code>한자</code> 를 끝까지 눌렀다</td><td>의도된 동작이다. 마지막 후보 뒤에는 이모지로 간다</td></tr>
 </tbody></table>
 </div>
@@ -1371,6 +1413,30 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <li>팝업이 열려 있는 동안 후보 목록은 바뀌지 않는다.</li>
 </ul>
 <p>그림과 표는 <a href="#user-guide--42-한자-변환-hanja">사용자 매뉴얼 §4.2</a>의 "합성어에서 원하는 길이 고르기"에 있다.</p>
+<hr />
+<h3 id="faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</h3>
+<p><strong>앱이 쓰는 입력 방식의 한계다.</strong> 이런 앱에서는 단어를 친 직후, 조사나 공백을 붙이기 전에 <code>한자</code> 를 누르면 된다. 이미 쓴 단어에 커서를 두거나 선택한 뒤 누르면 이모지가 뜬다. 글자가 지워지거나 바뀌지는 않는다.</p>
+<p>한자 단어 변환에는 세 가지가 있고, 필요한 것이 다르다.</p>
+<div class="tablewrap"><table><thead><tr><th>방식</th><th>입력기에 필요한 것</th></tr></thead><tbody>
+<tr><td>방금 입력한 단어</td><td>입력기가 스스로 기억한 방금 친 글자. 앱에게 받을 것은 "몇 글자 지우고 한자 넣기"뿐이다</td></tr>
+<tr><td>커서가 걸친 단어·선택한 범위</td><td>앱 문서의 <strong>커서 주변 글자와 선택</strong>. 앱이 입력기에 알려 줘야 한다</td></tr>
+</tbody></table>
+</div>
+<p>요즘 입력 방식(Windows TSF, 리눅스 GTK·Qt 입력기 모듈, Wayland text-input)은 주변 글자를 알려 준다. 옛 입력 방식은 알려 주지 않는다.</p>
+<ul>
+<li><strong>Windows IMM32</strong>: 입력기는 지금 조합 중인 글자만 갖고, 문서는 보지 못한다. 앱이 따로 "재변환" 요청에 답해야만 커서 앞뒤를 볼 수 있는데, 답하는지와 답하면서 선택을 바꾸는지가 앱마다 다르다. UNIM 은 그 동작을 확인한 <strong>Qt 앱(텔레그램에서 실측)</strong> 에서만 이 요청을 쓴다.</li>
+<li><strong>리눅스 XIM</strong>: 프로토콜에 주변 글자를 주고받는 수단이 없다.</li>
+<li><strong>X11 에서 도는 크롬·Electron 앱</strong>: 크롬이 GTK 입력기에 주변 글자를 넘기지 않는다.</li>
+<li><strong>터미널</strong>: 화면이 편집 문서가 아니라 주변 글자가 없다.</li>
+<li><strong>순수 Wayland(KDE·Sway 등)</strong>: 주변 글자는 오지만 입력기가 마우스 선택을 알 수 없어, 커서가 걸친 단어 방식은 아직 꺼 두었다.</li>
+</ul>
+<p><strong>이렇게 한다</strong></p>
+<ol>
+<li>단어를 치고 <strong>조사·공백을 붙이기 전에</strong> <code>한자</code> 를 누른다. 한 번에 바뀐다.</li>
+<li>이미 쓴 단어라면 그 단어를 지우고 다시 친 직후에 누른다.</li>
+<li>리눅스라면 그 앱을 UNIM 입력기 모듈로 연결할 수 있는지 본다(XIM 대신 GTK·Qt 모듈 — <a href="#user-guide--3-환경별-설정-가이드">사용자 매뉴얼 §3</a>). 모듈로 연결되면 대부분 세 방식이 모두 된다(예외는 매뉴얼 §4.2 표).</li>
+</ol>
+<p>앱별로 되는 것과 안 되는 것은 <a href="#user-guide--앱별-차이">사용자 매뉴얼 §4.2 "앱별 차이"</a>에 표로 있다. 이 한계를 넘는 일(새 요청 방식 실측, 업스트림 패치 등)을 도울 수 있다면 <a href="https://github.com/from104/unim#%EC%95%8C%EB%A0%A4%EC%A7%84-%ED%95%9C%EA%B3%84%EC%99%80-%EB%8F%84%EC%9B%80-%EC%9A%94%EC%B2%AD">README — 알려진 한계와 도움 요청</a>을 본다.</p>
 <hr />
 <h3 id="faq--더-읽을-거리">더 읽을 거리</h3>
 <ul>
@@ -1517,7 +1583,7 @@ taskkill /f /im ctfmon.exe
 <hr />
 <h3 id="troubleshooting--5-한자-팝업이-안-뜸">5. "한자 팝업이 안 뜸"</h3>
 <blockquote>
-<p><strong>한자 대신 이모지 팝업이 뜨거나, 단어가 아니라 한 글자만 바뀌는 경우</strong>는 고장이 아니라 동작 규칙 때문인 경우가 대부분이다. 먼저 <a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">FAQ Q33</a>와 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32</a>를 본다. 팝업이 <strong>아예</strong> 뜨지 않을 때만 아래를 진행한다.</p>
+<p><strong>한자 대신 이모지 팝업이 뜨거나, 단어가 아니라 한 글자만 바뀌는 경우</strong>는 고장이 아니라 동작 규칙 때문인 경우가 대부분이다. 먼저 <a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">FAQ Q33</a>와 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32</a>를 본다. 이미 쓴 단어만 안 바뀌는 앱이라면 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37</a>이다. 팝업이 <strong>아예</strong> 뜨지 않을 때만 아래를 진행한다.</p>
 </blockquote>
 <p><strong>🪟 Windows</strong></p>
 <h4 id="troubleshooting--진단">진단</h4>

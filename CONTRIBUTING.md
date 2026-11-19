@@ -4,6 +4,12 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 기여해 주셔서
 
 여러분의 코드가 원활하게 병합될 수 있도록 아래 가이드라인을 준수해 주시길 부탁드립니다.
 
+> **어디부터 도울지 고민되신다면** — README의 [알려진 한계와 도움 요청](README.md#알려진-한계와-도움-요청)
+> (영문: [Known limitations and help wanted](README.md#known-limitations-and-help-wanted))에 옛 입력 방식
+> (Windows IMM32·리눅스 XIM 등) 때문에 막힌 기능과 아직 실측하지 못한 앱을 모아 두었습니다. 코드가 아니어도
+> 됩니다. 앱 이름·버전과 실측 결과 한 줄도 큰 기여입니다. 규칙과 근거는
+> [`HANJA_WORD_SPEC.md` §2.11](docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리)에 있습니다.
+
 ## 🚨 무관용 원칙 (Zero Tolerance)
 
 UNIM은 커널 수준의 안정성을 지향하는 핵심 시스템 소프트웨어입니다. 따라서 다음 품질 기준을 엄격하게 적용합니다.

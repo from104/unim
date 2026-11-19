@@ -13,6 +13,7 @@
 - **v1.9 상태(2026-11-15)**: **Firefox 한자키 직전 낡음 표시 — 기현님 승인(2026-11-15), 실세션 실측 반영.** v1.8 실세션 확인(TextEditor·gedit·LibreOffice·Chrome 기대대로)에서 Firefox 만 두 문제가 드러났다. ① 키 이동 뒤 보고하지 않아 대상③ 이 늘 이모지로 떨어진다. ② 확정 직후의 보고가 그 확정 전 내용이라(한 박자 늦음) 엔진이 신선한 보고로 믿고 엉뚱한 단어를 고른다(`학교 ␣` 직후 한자키 → 「학」 팝업 → 확정하면 공백이 지워져 `학교學`). ②는 한자키 직전 낡음 표시로 막는다. ①을 풀려고 Firefox 에도 보고 유도(빈 preedit 왕복)를 시험했으나 **빈 조합이 선택을 지웠다**(실측) — 기현님 결정대로 Firefox 왕복은 빼고, Firefox 대상③ 은 이모지로 가는 안전한 실패로 둔다. 바뀐 절: §2.4b.6(Firefox)·§2.4b.8(실측 결과)·§8. 엔진·데몬은 바뀌지 않는다(기존 KEY 힌트 재사용).
 - **v1.10 상태(2026-11-16)**: **GNOME 대상③ 스위치 기본 켬 — 기현님 승인(2026-11-16), 0.4.5.** v1.8·v1.9 실세션 실측(TextEditor·gedit·LibreOffice·Chrome 교체 `REPLACE_VERIFY ok`, Firefox 는 낡음 표시로 이모지)을 마쳐 GSettings `surrounding-word-replace` 기본값을 `true` 로 바꾼다(§6.5 (10)). 끄면 종전대로 대상③ 이 이모지로 돌아간다.
 - **v1.11 상태(2026-11-16)**: **한자 사용자 사전 — 기현님 승인(2026-11-16), 0.4.5.** 후보·단어 판정에 사용자 사전(`~/.config/unim/hanja-userdict.yaml`)을 더한다 — §2.5.1. 규격은 `docs/dev/specs/HANJA_USERDICT_SPEC.md`.
+- **v1.12b 상태(2026-11-19)**: **문서만 — 동작 변경 없음.** 옛 입력 API(Windows IMM32 앱·Linux XIM 등)에서 되는 것과 안 되는 것을 경로별로 한곳에 모았다(**§2.11 신설**). 2026-11-19 기현님 회사컴 실측(IMM32 계열 앱은 방금 입력한 단어만 되고 이미 쓴 단어는 이모지, Telegram 은 재변환으로 됨)과 VM r13 실측을 반영해 §1.3·§2.4b.9·§2.10 의 Windows 행을 TSF 네이티브 문서 / CUAS 문서(Qt·그 밖) / `unim-imm32`(MSI 미탑재) 로 나눴다.
 - 관련 문서: `POPUP_SPEC.md`(팝업 규격), `unim-dbus/SPEC.md`(DBus), `ROADMAP.md` ① 항목, 사용자 매뉴얼 §4.2.
 
 ---
@@ -69,7 +70,7 @@
 |---|---|---|
 | 대상① | Linux 6 프런트엔드(GTK3/4·Qt5/6·XIM·Wayland·GNOME) 전부 + Windows TSF. 단 surrounding 을 준 적 있는 컨텍스트에서 접두 검증이 실패하면(빈 surrounding 포함 — Wayland 미수신 마커, [Q9](b)) `committed>0` 대상① 은 단음절로 퇴화한다(§2.2.3) | 교체 채널을 6종이 이미 구독하고 있다. TSF 는 코어를 직접 링크해 자동 상속 |
 | 대상② | GTK3(v1.4, 위젯 조회만)·GTK4·Qt5/6·TSF. GNOME 확장·순수 Wayland 는 앱이 anchor 를 보내는 경우(GTK4·Qt6·Chromium text-input-v3)에 한해, 신선할 때만(§2.4.6). **XIM 미지원**(종전 idle 동작 유지) | GTK3 는 `gtk_im_context_set_surrounding` 에 anchor 인자가 없지만(`gtk3/src/immodule.c` `set_surrounding` 은 anchor=cursor), v1.4 부터 한자키 직전에 **위젯(GtkEditable·GtkTextView)에 직접 조회**해 선택을 복원하고 `SetSurroundingText` 를 동기로 보낸다(§2.10·§2.4.5, 기현님 승인 2026-10-05). v1.4~v1.5 의 "같은 프로세스 PRIMARY" 폴백은 v1.6 에서 퇴역(§2.10.1). XIM 은 surrounding 개념이 없고 선택 전달 수단이 없다 |
-| 대상③ (v1.6) | surrounding 을 주고 확정 채널(§4.6 `ReplaceSurroundingText`)을 처리하며 선택을 신뢰할 수 있거나(App-pull·Widget) 거부 신호를 보고하는(GNOME 확장) 경로: GTK3 모듈(GtkEditable·GtkTextView)·GTK4 모듈·Qt5/6·GNOME 확장(삭제 글자 수 실측 §6.5 (10) 뒤 활성)·TSF. **순수 Wayland 는 보류**(포인터·PRIMARY 신호 수단 없음 — §2.10, 미결), XIM·IMM32·X11 Chromium(GTK IM)·터미널은 surrounding 이 없어 불가 | 대상이 surrounding 에서 직접 나오므로 "버퍼와 문서 대조" 가 필요 없다. 남는 위험은 IM 이 모르는 선택과 낡은 surrounding 뿐이고 둘 다 이모지로 가는 쪽으로 막는다(§2.4b.6·§2.4b.7) |
+| 대상③ (v1.6) | surrounding 을 주고 확정 채널(§4.6 `ReplaceSurroundingText`)을 처리하며 선택을 신뢰할 수 있거나(App-pull·Widget) 거부 신호를 보고하는(GNOME 확장) 경로: GTK3 모듈(GtkEditable·GtkTextView)·GTK4 모듈·Qt5/6·GNOME 확장(삭제 글자 수 실측 §6.5 (10) 뒤 활성)·TSF. **순수 Wayland 는 보류**(포인터·PRIMARY 신호 수단 없음 — §2.10, 미결), XIM·IMM32(`unim-imm32`·CUAS 비Qt)·X11 Chromium(GTK IM)·터미널은 surrounding 이 없어 불가. Windows 의 IMM32 앱(CUAS 문서)은 Qt 창만 재변환(§2.4c)으로 대체 — 그 밖은 불가(§2.11) | 대상이 surrounding 에서 직접 나오므로 "버퍼와 문서 대조" 가 필요 없다. 남는 위험은 IM 이 모르는 선택과 낡은 surrounding 뿐이고 둘 다 이모지로 가는 쪽으로 막는다(§2.4b.6·§2.4b.7) |
 | 출력 형식 | 단음절 변환에도 동일 적용 | 서식 조립이 `select_hanja` 한 곳이라 키보드·마우스·pull 경로 자동 동기 |
 | Windows | TSF 구현 + cross-compile(`make check-windows`) 검증만. IMM32 **코드 무변경** — 코어 호스트 능력 플래그(`hanja_word_replace_capable`, 기본 **false**, §2.2.2)가 대상① 교체 경로를 끄므로 IMM32·`unim-capi` 는 종전 단음절 동작·바이트 동일 | 이 환경에서 런타임 불가. IMM32 는 `press_key` 뒤 commit/preedit 만 드레인하고 팝업 액션·교체 페이로드를 드레인하지 않는다(`unim-imm32/src/input.rs:110-112,:181`, `lib.rs:224`) — 플래그 없이는 RecentWord 확정이 "국" 을 소실시킨다 |
 | 커밋 | 하지 않음(승인 후) | — |
@@ -183,7 +184,7 @@ preedit 이 있으면 대상① 이 우선한다(모호성 제거).
 | **Widget** | 같은 프로세스 위젯 직접 조회 | GTK3 모듈 GtkEditable·GtkTextView(§2.10) | 사용 | 쓰지 않음 |
 | **App-push** | 앱이 text-input-v3 로 밀어 보낸 anchor(컴포지터 경유, 지연·누락 가능) | GNOME 확장, 순수 Wayland | **신선할 때만**(§2.4b.6) | **씀** — GTK3·LibreOffice·Firefox 는 선택이 있어도 anchor=cursor 를 보낸다(gtk-3-24 imwayland.c:893-901, LO gtkframe.cxx:6068-6084, Firefox IMContextWrapper.cpp L2026-2046) |
 | ~~Guess~~ | PRIMARY 내용으로 추정한 선택 | (v1.2~v1.5 GNOME 확장·GTK3 폴백) | **퇴역 — 쓰지 않는다**(§2.10.1) | — |
-| 없음 | surrounding 자체가 없음 | XIM, X11 Chromium/Electron GTK IM(`SetSurroundingText(){}` 빈 함수), IMM32, 터미널 | ✘ | — |
+| 없음 | surrounding 자체가 없음 | XIM, X11 Chromium/Electron GTK IM(`SetSurroundingText(){}` 빈 함수), IMM32(`unim-imm32`·CUAS 비Qt), 터미널 | ✘ | — |
 
 - 등급은 와이어에 싣지 않는다. 엔진은 컨텍스트의 **능력 비트**(§4.6 `SetClientCapabilities`, TSF 는 엔진 setter)로 안다: `SELECTION_RELIABLE` 이 있으면 App-pull/Widget, 없으면 App-push. 능력을 선언하지 않은 컨텍스트(구 프런트·외부 클라이언트)는 대상③ 이 꺼지고 대상② 는 v1.5 와 같다(바이트 동일).
 - GTK3 모듈은 포커스 위젯이 GtkEditable·GtkTextView 가 아니면(직접 조회 불가) 한자키 직전에 `SurroundingHint(SELECTION_UNKNOWN)` 을 보내 **그 한자키에 한해** 거부 플래그를 세운다 — 그 위젯의 선택은 IM 이 모른다.
@@ -357,7 +358,7 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 - 실측(2026-11-15, 실세션 v1.8): GNOME 경로 키보드 5경우(단어 끝·Shift 선택·BackSpace 뒤·전체 선택·Home/End 뒤)에서 TextEditor·gedit·LibreOffice·Chrome 은 기대대로(교체는 모두 `REPLACE_VERIFY ok`, Writer 는 왕복 3ms → 보류 → 보고 재판정). GTK3·LibreOffice 의 Shift 선택은 보호(이모지), anchor 를 보고하는 TextEditor·Chrome 은 대상②. Firefox 는 대상③ 이 이모지(v1.9 낡음 표시, §2.4b.6 Firefox — 엉뚱한 교체 차단은 실측 확인). 클릭 경우(S4·S5)는 격리 셸 M2 로만 확인.
 
 #### 2.4b.9 surrounding 이 없는 경로
-터미널·XIM·X11 Chromium/Electron(GTK IM)·IMM32·VTE 는 대상③ 이 없다. 조합 중 대상①(방금 입력한 단어, 버퍼 기반 §2.2)만 있고 idle 한자키는 이모지(종전)다.
+터미널·XIM·X11 Chromium/Electron(GTK IM)·`unim-imm32`·VTE 는 대상③ 이 없다. 조합 중 대상①(방금 입력한 단어, 버퍼 기반 §2.2)만 있고 idle 한자키는 이모지(종전)다. Windows TSF 의 CUAS 문서(IMM32 앱)도 같으나 Qt 창만은 §2.4c 재변환이 대상②·③ 을 대신한다. 경로별 정리와 원인은 §2.11.
 
 ### 2.4c CUAS 앱 재변환 — 조합 없을 때 한자키 (v1.12, Windows TSF)
 
@@ -447,8 +448,10 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 | GNOME 확장 — anchor 를 못 주는 앱 (GTK3·LibreOffice gtk3/gtk4 VCL·Firefox) | ✔ (LibreOffice 는 preedit 포함 관측 학습 §2.2.3) | ✘ — 선택이 있어도 anchor=cursor | ✔ 거부 플래그·낡음 게이트·`c==0` 방어 아래(§6.5 (10) 뒤 활성) | R·P | 이 앱들에서는 **문장 중간 선택 변환이 없다** — 커서를 단어에 두고 한자키(대상③). 선택한 채 한자키는 거부 플래그로 이모지. 정확한 선택이 꼭 필요해지면 AT-SPI 질의 PoC(§7). v1.7 의 필드 포커스 보고·캐시 재송신·`expect_text` 캐시 대조·판정 보류는 위 행과 같게 적용된다 |
 | 순수 Wayland (input-method-v2) | ✔ | ✔/✘ 앱에 따라(위 두 행과 같은 구분), App-push 신선할 때만 | **✘ 보류** | R | 바이트 판별(§4.2) + `SurroundingText` → `SetSurroundingText`. IM 이 포인터·PRIMARY 사건을 볼 수단이 없어 GTK3·LibreOffice·Firefox 앱의 마우스 선택을 거를 수 없다 → `P` 를 선언하지 못해 대상③ 이 꺼진다(§2.4b.1-2). ext/wlr data-control 의 primary 변경 신호를 IM 이 받을 수 있는지 실측(§6.5) 뒤 재검토. 확정 채널 구현 시 바이트 = a×3·b×3(구간은 전부 완성 음절) |
 | XIM | ✔ | ✘(idle=이모지) — 선택 전달 수단 없음 | ✘ — surrounding 없음 | — | 교체 채널은 자가 주입 BackSpace N+1(`handler.rs` `PopupEvent::AutoTypeFix`)을 **한 번에 1개씩 직렬 주입**한다 — 일괄 주입하면 libX11 의 단일 FABRICATED 플래그 때문에 되돌린 BS 가 재필터돼 확정 뒤에 도착한다(2026-09 docker L3 실측 `대한大韓` → 직렬화로 해소). 교체 도착 시 preedit 표시 선클리어(마우스 확정 잔상 방지 — `handle_popup_event` 에는 `user_ic` 가 없으므로 `CommitText` 분기처럼 `last_focused_ic_info` 로 IC 를 재구성해 `server.preedit_draw(&mut ic, "")`, NOTHING/POSITION IC 는 PeWindow 숨김 경로. 구현 비용이 크면 선클리어를 포기하고 "마우스 확정 시 잔상 잔여(키보드 확정은 정상)" 로 비고 정정). 스팟 점프 Reset([Q9](a)) |
-| Windows TSF | ✔ | ✔ App-pull(`GetSelection`) | ✔ | 엔진 setter R·S | cross-compile 검증만(§4.4). 엔진 생성 직후 `set_hanja_word_replace_capable(true)`·(v1.6) `set_surrounding_word_caps(R·S)`. 대상③ 은 `read_hanja_surrounding` 이 커서 **뒤**도 읽어야 한다(§4.4) |
-| IMM32 | 대상① 미지원(단음절 유지) | ✘ | ✘ | — | 코드 무변경. 교체 채널·팝업 액션 드레인이 없으므로 코어 플래그 기본 false 로 종전 바이트 동일(§2.2.2 4). `unim-capi` 소비자도 동일 |
+| Windows TSF — TSF 네이티브 문서(메모장·워드패드·Word·Chrome 등) | ✔ | ✔ App-pull(`GetSelection`) | ✔ (Chrome 은 범위 대조 뒤 synth 교체 — 471a219, VM 실측) | 엔진 setter R·S | (v1.12b 구분) VM 실측 메모장·Word·Chrome(2026-11-19 r13). 엔진 생성 직후 `set_hanja_word_replace_capable(true)`·(v1.6) `set_surrounding_word_caps(R·S)`. 대상③ 은 `read_hanja_surrounding` 이 커서 **뒤**도 읽어야 한다(§4.4) |
+| Windows TSF — CUAS 문서, Qt 창(Telegram 등) | ✔ 대조 생략(§2.2.3 CUAS 예외) — 음절 확정 강제(단어 모드 끝-caret 금지) | △ 재변환(§2.4c)이 공백 단위 덩어리를 선택으로 넘길 때 그 덩어리가 사전 단어와 정확히 같을 때만 | △ 같음 — 커서가 걸친 **공백 단위 덩어리 전체**만(부분 단어·조사 붙은 덩어리 ✘), 캐럿은 단어 끝으로 | — | IMM32 앱이 CUAS 로 TSF 에 보이는 경로. TSF 문서에 조합 글자만 보인다(정적 0x4). VM 실측 Telegram(2026-11-17·19), 기현님 회사컴 실측 Telegram ✔(2026-11-19). 한계는 §2.4c·§2.11 |
+| Windows TSF — CUAS 문서, Qt 가 아닌 IMM32 앱 | ✔ 대조 생략(§2.2.3) — 음절 확정 강제 | ✘ (idle=이모지) | ✘ (idle=이모지) | — | 재변환은 선택 부작용을 실측한 Qt 만 켠다(`reconvert::is_qt_window`). 2026-11-19 기현님 회사컴 실측: 방금 입력한 단어만 되고 이미 쓴 단어는 안 된다. 앱별 실측 목록은 아직 없다(§2.11 기여 항목) |
+| `unim-imm32`(IMM32 IME — **MSI 미탑재**, 진단·연구 빌드) | 대상① 미지원(단음절 유지) | ✘ | ✘ | — | 사용자 설치본에는 없다(Windows 의 IMM32 앱은 위 CUAS 행으로 간다). 코드 무변경. 교체 채널·팝업 액션 드레인이 없으므로 코어 플래그 기본 false 로 종전 바이트 동일(§2.2.2 4). `unim-capi` 소비자도 동일 |
 | X11 Chromium/Electron (GTK IM)·터미널(VTE 등) | ✔ (surrounding 없음 → 검증 없이 버퍼 기반) | ✘ | ✘ — surrounding 없음(`SetSurroundingText(){}` 빈 함수, input_method_context_impl_gtk.cc L322-326) | — | idle = 이모지(종전) |
 
 - **선택 삭제 부작용 제거(v3.5, 유지)**: 이모지 팝업이 띄우던 ZWSP preedit(51d083b)가 GTK4 에서 preedit-start 로 선택을 지웠고 cursor-jump flush·COMMIT 모드 reset 으로 ZWSP 가 문서에 커밋되기도 했다 — 확장이 팝업 표시 시 preedit 을 건드리지 않는다. 시험이 정적으로 고정한다.
@@ -474,6 +477,67 @@ App-push 컨텍스트(GNOME 확장)에서는 앱에 선택이 있어도 anchor=c
 - 업스트림 ibus-mozc 도 PRIMARY 감시를 제거했다(google/mozc#779, 2023-07).
 - 대상③ 이 선택 없이 같은 일을 더 적은 키로 하므로, 앱이 IM 에 알리지 않는 선택을 **추정**할 이유가 사라졌다. 남는 위험(알리지 않은 선택이 실제로 있음)은 추정 대신 **거부**로 막는다.
 - 퇴역 대상 코드는 전부 미커밋이다. 지우기 전에 브랜치나 패치로 백업한다(구현 단계 — 기현님 지시 시).
+
+### 2.11 옛 입력 API 의 한계 — 경로별 정리
+
+(v1.12b 신설, 문서만) 이 절은 동작을 바꾸지 않는다. 흩어져 있던 "안 되는 경로" 를 한곳에 모으고 원인과 기여 항목을 적는다. 사용자 문서(매뉴얼 §4.2 "앱별 차이"·FAQ Q37·README "알려진 한계")는 이 절을 원본으로 삼는다.
+
+#### 2.11.1 왜 갈리는가
+
+- **대상①**(방금 입력한 단어)은 IM 이 스스로 기억한 최근 확정 음절 버퍼(§2.2.1)와 preedit 만 있으면 된다. 앱에게서 받을 것은 "지울 글자 수만큼 지우고 한자를 넣는" 교체 채널뿐이다. 그래서 surrounding 이 없는 경로에서도 된다(검증 없이 버퍼를 믿는다 — §2.2.3).
+- **대상②·③**(선택·커서가 걸친 단어)은 앱 문서의 **커서 주변 글자와 선택을 IM 이 읽어야** 하고, 그 범위를 **지우고 바꿀** 수단도 있어야 한다. 현대 API(TSF 문서, GTK·Qt surrounding, text-input-v3)는 둘 다 주지만 옛 API 는 주지 않는다.
+  - **IMM32**(Windows): 조합 문자열 모델이다. IME 는 자기 조합 문자열만 갖고 문서를 보지 못한다. 문서를 들여다보는 길은 `WM_IME_REQUEST`(`IMR_RECONVERTSTRING`·`IMR_DOCUMENTFEED`) 질의뿐인데, 앱이 이를 구현해야 하고 답하는 방식(선택을 바꾸는지, 어디까지 주는지)도 앱마다 다르다. TSF 는 CUAS 로 이런 앱을 TSF 문서처럼 감싸지만 그 문서에는 **조합 글자만** 있다(정적 플래그 0x4, 조합이 없으면 빈 값 — §2.2.3).
+  - **XIM**(X11): 프로토콜에 surrounding 이 없다. 규격의 문자열 변환(`XNStringConversionCallback`)은 UNIM 이 쓰지 않으며, 이를 구현한 클라이언트를 확인하지 못했다.
+  - **X11 Chromium/Electron(GTK IM)**: Chromium 의 GTK IM 연결이 `SetSurroundingText` 를 빈 함수로 둔다(input_method_context_impl_gtk.cc L322-326).
+  - **터미널(VTE 등)**: 화면이 편집 문서가 아니어서 surrounding 을 주지 않는다.
+  - **순수 Wayland**(input-method-v2): surrounding 은 오지만 IM 이 포인터·PRIMARY 사건을 볼 수 없어 IM 이 모르는 선택을 거르지 못한다 → 대상③ 보류(§2.10).
+
+#### 2.11.2 경로별 표 (사용자 문서 원본)
+
+✔ 됨 · △ 조건부 · ✘ 안 됨(한자키 = 이모지, 글자는 바뀌지 않는다). 근거: [V] VM 실측 · [K] 기현님 회사컴 실측 2026-11-19 · [L] 리눅스 실세션·L3 실측 · [D] 설계상(실측 없음).
+
+| 경로 | ① 방금 입력한 단어 | ② 선택 | ③ 커서가 걸친 단어 | 근거 |
+|---|---|---|---|---|
+| Windows TSF 네이티브 문서(메모장·Word·Chrome 등) | ✔ | ✔ | ✔ | [V] |
+| Windows IMM32 앱 중 Qt 창(Telegram 에서 실측) | ✔ 음절 확정 강제 | △ 공백 단위 덩어리가 사전 단어와 같을 때만 | △ 같음(덩어리 전체만) | [V][K] |
+| Windows IMM32 앱 중 Qt 가 아닌 앱 | ✔ 음절 확정 강제(오버레이 폴백 앱은 단음절 — §2.11.3) | ✘ | ✘ | [K](앱 이름 미기록)·[D] |
+| Windows 32비트 앱(한컴·카카오톡 — 32비트 TSF TIP)·Electron·콘솔 | ? | ? | ? | 실측 없음 |
+| Linux GTK3/GTK4/Qt5/Qt6 모듈 | ✔ | ✔(GTK3 은 GtkEditable·GtkTextView 만) | ✔(같은 제한) | [L] |
+| Linux GNOME 확장(Wayland) | ✔ | △ anchor 를 주는 앱만, 신선할 때만 | ✔(Firefox ✘ — 낡음 표시) | [L] |
+| Linux 순수 Wayland | ✔ | △ 앱에 따라 | ✘ 보류 | [D] |
+| Linux XIM·터미널·X11 Chromium/Electron | ✔ 검증 없이 버퍼 기반 | ✘ | ✘ | [L][D] |
+
+#### 2.11.3 옛 경로에서 대상① 의 한계
+
+- **검증이 없다.** 문서를 읽지 못하므로 버퍼가 문서와 어긋났는지 알 수 없다. 버퍼를 비우는 사건(XIM 스팟 점프 Reset [Q9](a), CUAS 조합 중 클릭·키와 떨어진 조합 종료 §2.2.3)이 안전망이다. 실패 방향은 단음절이다.
+- **오버레이 폴백 앱은 대상① 도 단음절이다.** 조합이 문서에 없는(UNIM 이 조합 글자를 오버레이로 그리는) 앱은 대조 생략을 켜지 않는다(§2.2.3 끝) — 클릭이 조합 종료를 부르지 않아 버퍼가 옮겨진 캐럿을 모른다.
+- **CUAS 문서는 음절 확정이 강제된다.** 단어 모드(`commit_unit=Word`)의 끝-caret 이 CUAS 의 첫 조합을 끊어(v1.12a C·C2) 이 문서들은 첫 키부터 음절 단위로 확정한다. 단어 변환은 버퍼로 그대로 된다.
+- **조사·공백을 친 뒤에는 늦다.** 버퍼는 비한글 커밋(공백·문장부호·숫자)과 앱으로 통과한 키(방향키·Enter 등)에서 전부 비므로(§2.2.1 리셋 조건), 옛 경로에서는 "단어를 치고 조사를 붙이기 전에 한자키" 가 유일한 방법이다.
+
+#### 2.11.4 CUAS Qt 재변환(§2.4c)의 알려진 한계 (r13, 2026-11-19)
+
+- 사전에 없는 덩어리(「학교에서」)는 변환하지 않는다 — 부분 단어 선택이 없다.
+- 커서가 단어 중간·시작이었어도 확정·취소 뒤 캐럿은 단어 끝이다. 선택을 풀려고 원문을 다시 치므로 앱의 실행 취소 기록에 남는다. 글 뒤 idle 한자키(이모지용)도 단어를 한 번 다시 친 뒤 이모지 팝업을 연다.
+- 팝업을 바깥 클릭으로 확정 없이 닫으면 선택이 남을 수 있다 — 다음 글자가 단어를 대체한다.
+- 팝업이 열린 동안 Delete·Ctrl+X 는 앱으로 지나가 선택된 단어를 지운다.
+- 팝업이 자모·문장부호 키로 닫혀 그 키가 재처리될 때, 조합 중에는 표시 순서가 「우리 ㅇ학교」처럼 보이지만 확정 결과는 바르다(「우리 학교아 」).
+- 다시 쳐 넣은 단어는 앱이 새 입력에 주는 서식을 따른다(굵게 등이 풀릴 수 있다).
+- 커서가 단어 뒤 공백 다음(「학교 |」)이면 앱이 공백 1자를 주므로 바뀌지 않는다(다시 치기 뒤 이모지).
+- Qt 앱 가운데 실측한 것은 Telegram 뿐이다(VM·회사컴). 다른 Qt 앱은 같은 툴킷 동작을 가정한다.
+- Backspace·F2·Shift+숫자는 엔진 팝업 규칙을 따른다(POPUP_SPEC).
+
+#### 2.11.5 기여를 바라는 항목
+
+README "알려진 한계와 도움 요청" 절이 이 목록을 사용자 말로 옮긴다. 각 항목은 실측이 먼저다 — 로그는 길이·구간만(§2.8).
+
+1. **Windows Qt 가 아닌 IMM32 앱의 이미 쓴 단어 변환**: 앱·툴킷별로 `IMR_RECONVERTSTRING`·`IMR_DOCUMENTFEED` 에 답하는지, 답하면서 선택을 바꾸는지 실측해 §2.4c 허용 목록(`reconvert::is_qt_window`)을 넓히거나, 읽기만 하고 교체는 synth 로 하는 방식을 설계한다.
+2. **Windows 실측 공백**: 32비트 앱(한컴오피스·카카오톡), Electron 앱, 콘솔(conhost·Windows Terminal), Qt 가 아닌 CUAS 앱 목록.
+3. **XIM**: 문자열 변환 콜백을 구현한 클라이언트 조사와 프런트 구현. 없으면 해당 앱을 GTK·Qt 모듈로 연결하는 안내.
+4. **X11 Chromium/Electron**: Chromium GTK IM 연결의 `SetSurroundingText` 구현(업스트림 패치).
+5. **순수 Wayland 대상③**: IM 이 primary 선택 변경 신호를 받을 수단(ext/wlr data-control) 실측(§2.10·§7).
+6. **GNOME Firefox 대상③**: 확정 직후 한 박자 늦은 surrounding 보고(§2.4b.6 Firefox)의 업스트림 원인 확인.
+7. **GNOME GTK3·LibreOffice 선택 변환**: AT-SPI 선택 질의 PoC(§7, 승인 뒤).
+
 
 ---
 
@@ -829,3 +893,4 @@ Mutter `vfunc_set_surrounding` 호출 빈도·오프셋 단위(바이트/문자 
 | 2026-11-16 | v1.11 | **한자 사용자 사전 — 기현님 승인(2026-11-16)** — §2.5.1 후보 = 사용자 사전 → 내장, 단어 판정에도 사용자 사전(HANJA_USERDICT_SPEC) |
 | 2026-11-17 | v1.12 | **Windows CUAS 조합-only 앱(Telegram 등) — 기현님 승인(2026-11-17, 「2안」)** — §2.2.3 CUAS 예외(학습된 CUAS 창에서 조합 글자뿐인 읽기면 키 한 번 대조 생략, 조합 중 클릭은 preedit·버퍼 폐기, 그 밖의 키와 떨어진 종료는 버퍼 비움), §2.4c 신설(idle 한자키 `IMR_RECONVERTSTRING` 재변환 → 선택 변환, 확정 없으면 다시 쳐서 선택 풀기) |
 | 2026-11-19 | v1.12a | §2.2.3·§2.4c 발동 조건 보강 — 학습 여부와 무관하게 **CUAS 문서**(TS_STATUS 정적 0x4)면 발동. Word 단어 모드의 끝-caret 이 CUAS 첫 조합을 끊던 C·C2 를 고치면서 Telegram 이 더는 즉시 종료로 학습되지 않게 됐으므로, 학습에만 걸면 이 두 경로가 꺼진다. Chromium 자체 스토어 문서(0xC)는 학습·선제 주입 제외(키 직후 종료의 폴백은 유지 — Blink 자체 종료 때 preedit 보존). 함께: CUAS 문서는 첫 키부터 음절 단위(word 모드 끝-caret 금지), 조합 종료 시 클릭 검사는 키 직후(<200ms)에도 수행(클릭 종료는 폴백·학습 없이 preedit 폐기), 키와 떨어진 종료는 학습된 창만 폴백. 수정자+한자키는 재변환하지 않음(한자키 자신의 수정자 계열 제외). 재변환 팝업이 미지원 키(자모·문장부호)로 닫혀 재처리될 때는 엔진 출력을 버리고 [원문 다시 치기 → 같은 키 재주입]을 입력 큐 순서로 보낸다(글자를 내지 않는 키는 재주입하지 않는다; → 키로 접기는 CUAS 미러 선택 갱신이 늦어 단어를 지워 기각)(「우리 학교ㅇ」, 엔진 `popup_reprocessed`). 팝업 중 한국어 모드 문자 키는 OnTestKeyDown 에서 소비해 「닫고 재처리」로 보낸다. 알려진 한계: 바깥 클릭으로 확정 없이 닫으면 선택이 남을 수 있다. |
+| 2026-11-19 | v1.12b | **문서만 — 동작 변경 없음.** §2.11 신설(옛 입력 API 경로별 되는 것·안 되는 것, 원인, CUAS Qt 재변환 알려진 한계, 기여 항목). §1.3·§2.4b.9 에 CUAS 문서 반영, §2.10 의 Windows 행을 TSF 네이티브 / CUAS Qt / CUAS 그 밖 / `unim-imm32`(MSI 미탑재) 로 나눔. 근거: 기현님 회사컴 실측(2026-11-19 — IMM32 계열 앱은 방금 입력한 단어만, Telegram 은 됨)·VM r13 |

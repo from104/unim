@@ -542,17 +542,31 @@ The same `Hanja` key does different things depending on whether the app tells th
 - In **special widgets of GTK3 apps** (anything other than ordinary text fields and text areas) both selection and cursor methods rest and the emoji popup opens. The LibreOffice document window in an X11 session and web input fields in Firefox and Thunderbird belong here. In those places press `Hanja` right after typing the word (word being typed).
 - In any app, hanja conversion is **turned off in password fields**.
 - "no" in the table means "the key opens the emoji popup". No text is deleted or changed.
+- The "only the word just typed" group exists because the app, or its input method protocol (XIM etc.), does not tell the input method the surrounding text. No UNIM setting can change that. The reason and workarounds are in [FAQ Q37](../faq/README.md#q37-some-apps-cannot-convert-words-i-already-typed).
 <!-- @endplatform -->
 <!-- @platform:windows -->
 **🪟 Windows**
 
 | Group | Typical environment / app | Word being typed | Word at the cursor | Selected range |
 |---|---|---|---|---|
-| **Everything works** | Notepad, WordPad, Word and other apps connected through TSF | yes | yes | yes |
+| **Everything works** | Notepad, WordPad, Word, Chrome and other apps connected through TSF | yes | yes | yes |
+| **Qt apps among old-input-method (IMM32) apps** | Telegram, etc. | yes | only when the whole space-separated chunk is a dictionary word | same |
+| **Only the word just typed** | Other old-input-method (IMM32) apps | yes | no (the key opens the emoji popup) | no |
 
-- Whether the cursor and selection methods work in Chrome, Hancom, KakaoTalk and similar apps is still being checked. Where they do not, the emoji popup opens and no text changes.
-
-- Console apps and apps using the old input method (WezTerm, Telegram, etc.) connect the same way. But if an app does not tell the input method the surrounding text, the cursor and selection methods rest in that app and the emoji popup opens.
+- **Old-input-method apps show the input method only the characters being composed.** The input method cannot see text you already wrote, so press `Hanja` right after typing the word, before adding a particle or a space. The reason is in [FAQ Q37](../faq/README.md#q37-some-apps-cannot-convert-words-i-already-typed).
+- In **Qt apps such as Telegram**, UNIM asks the app for "the word at the cursor", selects it and then replaces it. So:
+  - Only a whole space-separated chunk is converted. A chunk with a particle attached, such as `학교에서`, is not in the dictionary and is not converted.
+  - After converting or cancelling, the cursor is at the end of the word.
+  - To clear the selection UNIM types the word once more, so that input shows up in the app's undo (`Ctrl`+`Z`) history. Pressing `Hanja` after text to open the emoji popup also retypes the word once before the emoji popup opens.
+  - If you close the popup by clicking elsewhere, the word may stay selected. Typing then replaces the word, so clear the selection with an arrow key first.
+  - While the popup is open, `Delete` and `Ctrl`+`X` go to the app and delete the selected word.
+  - The retyped word takes the formatting the app gives new input (bold etc. may be lost).
+  - With the cursor after the space that follows a word, nothing is converted. Press `←` to the end of the word first.
+  - Of the Qt apps, only Telegram has been checked.
+- In a few old-input-method apps that do not draw the composing text themselves, even the word just typed may convert one character only.
+- In old-input-method apps, characters are committed per syllable even with [word-unit commit](#46-word-unit-commit-composition-commit-granularity) turned on. Hanja conversion of the word just typed still works.
+- 32-bit apps such as Hancom Office and KakaoTalk, Electron apps and consoles (Command Prompt, Windows Terminal) have not been checked yet. Please tell us how they behave ([README — Known limitations and help wanted](https://github.com/from104/unim#known-limitations-and-help-wanted)).
+- Where conversion does not work the emoji popup opens; no text is deleted or changed.
 - Hanja conversion is turned off in password fields.
 <!-- @endplatform -->
 

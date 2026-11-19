@@ -227,6 +227,7 @@ li { margin: 0.35rem 0; }
 </li>
 <li><a href="#faq">UNIM FAQ (English)</a>
 <ol>
+<li><a href="#faq--q1-how-is-unim-different-from-other-korean-imes">Q1. How is UNIM different from other Korean IMEs?</a></li>
 <li><a href="#faq--q2-can-unim-coexist-with-another-ime-on-the-same-desktop">Q2. Can UNIM coexist with another IME on the same desktop?</a></li>
 <li><a href="#faq--q3-which-environments-are-most-stable">Q3. Which environments are most stable?</a></li>
 <li><a href="#faq--q4-how-does-autotypefix-actually-work">Q4. How does AutoTypeFix actually work?</a></li>
@@ -255,6 +256,7 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q33-i-pressed-hanja-and-got-the-emoji-popup-instead-of-hanja">Q33. I pressed Hanja and got the emoji popup instead of hanja.</a></li>
 <li><a href="#faq--q35-how-do-i-convert-a-word-with-a-particle-attached-대한민국은">Q35. How do I convert a word with a particle attached? (대한민국은)</a></li>
 <li><a href="#faq--q36-the-word-of-the-length-i-want-is-not-the-first-candidate">Q36. The word of the length I want is not the first candidate.</a></li>
+<li><a href="#faq--q37-some-apps-cannot-convert-words-i-already-typed">Q37. Some apps cannot convert words I already typed.</a></li>
 <li><a href="#faq--read-more">Read more</a></li>
 </ol>
 </li>
@@ -579,19 +581,30 @@ Digit 1   만세 大韓民國| 만만세
 <p>The same <code>Hanja</code> key does different things depending on whether the app tells the input method <strong>the surrounding text and the cursor position</strong>. Apps fall into three groups.</p>
 <p><strong>🪟 Windows</strong></p>
 <div class="tablewrap"><table><thead><tr><th>Group</th><th>Typical environment / app</th><th>Word being typed</th><th>Word at the cursor</th><th>Selected range</th></tr></thead><tbody>
-<tr><td><strong>Everything works</strong></td><td>Notepad, WordPad, Word and other apps connected through TSF</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td><strong>Everything works</strong></td><td>Notepad, WordPad, Word, Chrome and other apps connected through TSF</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td><strong>Qt apps among old-input-method (IMM32) apps</strong></td><td>Telegram, etc.</td><td>yes</td><td>only when the whole space-separated chunk is a dictionary word</td><td>same</td></tr>
+<tr><td><strong>Only the word just typed</strong></td><td>Other old-input-method (IMM32) apps</td><td>yes</td><td>no (the key opens the emoji popup)</td><td>no</td></tr>
 </tbody></table>
 </div>
 <ul>
-<li>
-<p>Whether the cursor and selection methods work in Chrome, Hancom, KakaoTalk and similar apps is still being checked. Where they do not, the emoji popup opens and no text changes.</p>
+<li><strong>Old-input-method apps show the input method only the characters being composed.</strong> The input method cannot see text you already wrote, so press <code>Hanja</code> right after typing the word, before adding a particle or a space. The reason is in <a href="#faq--q37-some-apps-cannot-convert-words-i-already-typed">FAQ Q37</a>.</li>
+<li>In <strong>Qt apps such as Telegram</strong>, UNIM asks the app for "the word at the cursor", selects it and then replaces it. So:
+<ul>
+<li>Only a whole space-separated chunk is converted. A chunk with a particle attached, such as <code>학교에서</code>, is not in the dictionary and is not converted.</li>
+<li>After converting or cancelling, the cursor is at the end of the word.</li>
+<li>To clear the selection UNIM types the word once more, so that input shows up in the app's undo (<code>Ctrl</code>+<code>Z</code>) history. Pressing <code>Hanja</code> after text to open the emoji popup also retypes the word once before the emoji popup opens.</li>
+<li>If you close the popup by clicking elsewhere, the word may stay selected. Typing then replaces the word, so clear the selection with an arrow key first.</li>
+<li>While the popup is open, <code>Delete</code> and <code>Ctrl</code>+<code>X</code> go to the app and delete the selected word.</li>
+<li>The retyped word takes the formatting the app gives new input (bold etc. may be lost).</li>
+<li>With the cursor after the space that follows a word, nothing is converted. Press <code>←</code> to the end of the word first.</li>
+<li>Of the Qt apps, only Telegram has been checked.</li>
+</ul>
 </li>
-<li>
-<p>Console apps and apps using the old input method (WezTerm, Telegram, etc.) connect the same way. But if an app does not tell the input method the surrounding text, the cursor and selection methods rest in that app and the emoji popup opens.</p>
-</li>
-<li>
-<p>Hanja conversion is turned off in password fields.</p>
-</li>
+<li>In a few old-input-method apps that do not draw the composing text themselves, even the word just typed may convert one character only.</li>
+<li>In old-input-method apps, characters are committed per syllable even with <a href="#user-guide--46-word-unit-commit-composition-commit-granularity">word-unit commit</a> turned on. Hanja conversion of the word just typed still works.</li>
+<li>32-bit apps such as Hancom Office and KakaoTalk, Electron apps and consoles (Command Prompt, Windows Terminal) have not been checked yet. Please tell us how they behave (<a href="https://github.com/from104/unim#known-limitations-and-help-wanted">README — Known limitations and help wanted</a>).</li>
+<li>Where conversion does not work the emoji popup opens; no text is deleted or changed.</li>
+<li>Hanja conversion is turned off in password fields.</li>
 </ul>
 <h5 id="user-guide--when-the-emoji-popup-appears">When the emoji popup appears</h5>
 <p>If you press <code>Hanja</code> and get the emoji popup instead of hanja, it is one of the cases below. <strong>This is not an error.</strong> UNIM skipped the hanja conversion on purpose to protect your text.</p>
@@ -1037,6 +1050,28 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.</p>
 </blockquote>
 <hr />
+<h3 id="faq--q1-how-is-unim-different-from-other-korean-imes">Q1. How is UNIM different from other Korean IMEs?</h3>
+<p><strong>🪟 Windows</strong> — compared with Microsoft Korean IME, Nalgaeset, Saenaru</p>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>UNIM</th><th>Microsoft Korean IME</th><th>Nalgaeset (날개셋)</th><th>Saenaru (새나루)</th></tr></thead><tbody>
+<tr><td>Distribution</td><td>MSI installer</td><td>Built into Windows</td><td>MSI installer</td><td>Installer</td></tr>
+<tr><td>Latest release</td><td>0.4.5 (2026)</td><td>Updated with Windows</td><td>11.01 (2026-10)</td><td>1.1.0-p1 (2010) — none since</td></tr>
+<tr><td>Open source</td><td>✅ MIT, Rust</td><td>✗</td><td>—</td><td>✅</td></tr>
+<tr><td>Input framework</td><td>TSF</td><td>—</td><td>TSF</td><td>—</td></tr>
+<tr><td>64-bit / 32-bit apps</td><td>✅ / ✅ (<code>unim_tsf32.dll</code>, Q30)</td><td>✅ / ✅ (built in)</td><td>x64, x86, ARM64 installers</td><td>—</td></tr>
+<tr><td>Korean layouts</td><td>Dubeolsik, Sebeolsik 390 / 391 / Sunarae, Anmatae</td><td>Dubeolsik, Sebeolsik 390 / Final</td><td>Dubeolsik, Sebeolsik and more</td><td>Dubeolsik, Sebeolsik 390 / Final / Sunarae (+ optional legacy layouts)</td></tr>
+<tr><td>User layouts</td><td>✅ JSON file (same format as Linux, Q7)</td><td>—</td><td>✅ design your own</td><td>—</td></tr>
+<tr><td>Hanja word conversion</td><td>✅ in TSF apps; legacy-input apps convert only the word just typed (Q37)</td><td>—</td><td>✅ in TSF apps; other apps convert only the last character</td><td>✅ word-unit editing mode</td></tr>
+<tr><td>Same engine and settings as Linux</td><td>✅</td><td>✗</td><td>✗</td><td>✗</td></tr>
+</tbody></table>
+</div>
+<p><code>—</code> means we could not confirm it from public sources (checked 2026-11); it does not mean the feature is missing. The Hancom IME ships with Hancom Office and has no public spec we could find, so it is left out.</p>
+<ul>
+<li><strong>UNIM-only features</strong>: AutoTypeFix (automatic Korean↔English typo fix: forward, reverse, learning), the 9-cell / 81-cell Hanja grid, and the symbol and emoji popups. We found no equivalent in the other IMEs' public documentation.</li>
+<li><strong>Hanja word-conversion limits come from the app's input framework, not the IME.</strong> Nalgaeset also states that apps without TSF support convert only the last character. UNIM's version of this limit is in Q37.</li>
+<li><strong>You don't need to remove your old IME.</strong> Windows lets you register several and switch between them (Q2).</li>
+<li>NavilIME (GPL-3.0) is another open-source TSF IME, but it has not been updated since 2020.</li>
+</ul>
+<hr />
 <h3 id="faq--q2-can-unim-coexist-with-another-ime-on-the-same-desktop">Q2. Can UNIM coexist with another IME on the same desktop?</h3>
 <p><strong>🪟 Windows</strong></p>
 <p><strong>Coexistence is fine here.</strong> Windows is built to keep <strong>several input methods registered side by side</strong> — TSF (Text Services Framework) is the architecture UNIM plugs into — and let you pick one, so there is no "remove everything else first" step like on Linux. The UNIM installer only <strong>adds</strong> UNIM to that list; it never removes an existing input method.</p>
@@ -1358,7 +1393,8 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <tr><td>The word is not in the dictionary</td><td>Convert one character at a time</td></tr>
 <tr><td>You just selected with <code>Shift</code>+arrows, <code>Ctrl</code>+<code>A</code>, dragging or double-click (apps going through the GNOME extension)</td><td>Press an arrow key without <code>Shift</code>, or click, to clear the selection</td></tr>
 <tr><td>You just switched windows or clicked (apps going through the GNOME extension)</td><td>Press an arrow key once, then press the key again</td></tr>
-<tr><td>Terminal, XIM app, Chromium on X11, etc.</td><td>These environments cannot see text you already wrote. It works only right after typing the word (while composing)</td></tr>
+<tr><td>Terminal, XIM app, Chromium on X11, etc.</td><td>These environments cannot see text you already wrote. It works only right after typing the word (while composing) (Q37)</td></tr>
+<tr><td>An old-input-method (IMM32) app on Windows (except Qt apps such as Telegram)</td><td>Same. It works only right after typing the word (while composing) (Q37)</td></tr>
 <tr><td>You pressed <code>Hanja</code> past the last candidate in the hanja popup</td><td>By design. After the last candidate it moves on to the emoji popup</td></tr>
 </tbody></table>
 </div>
@@ -1378,6 +1414,30 @@ $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/m
 <li>The candidate list does not change while the popup is open.</li>
 </ul>
 <p>The diagram and table are under "Pick the length you want in a compound word" in <a href="#user-guide--42-hanja-conversion">user manual §4.2</a>.</p>
+<hr />
+<h3 id="faq--q37-some-apps-cannot-convert-words-i-already-typed">Q37. Some apps cannot convert words I already typed.</h3>
+<p><strong>It is a limit of the input method protocol the app uses.</strong> In these apps, press <code>Hanja</code> right after typing the word, before adding a particle or a space. Pressing it with the cursor on, or a selection over, a word you already typed opens the emoji popup. No text is deleted or changed.</p>
+<p>Hanja word conversion comes in three forms, and they need different things.</p>
+<div class="tablewrap"><table><thead><tr><th>Form</th><th>What the input method needs</th></tr></thead><tbody>
+<tr><td>The word just typed</td><td>The characters the input method itself remembers you just typed. From the app it only needs "delete N characters and insert the hanja"</td></tr>
+<tr><td>The word at the cursor, a selected range</td><td>The <strong>text around the cursor and the selection</strong> in the app's document. The app has to tell the input method</td></tr>
+</tbody></table>
+</div>
+<p>Modern input method protocols (Windows TSF, the Linux GTK/Qt input-method modules, Wayland text-input) report the surrounding text. Old ones do not.</p>
+<ul>
+<li><strong>Windows IMM32</strong>: the input method holds only the characters being composed and cannot see the document. It can look around the cursor only if the app answers a separate "reconversion" request; whether an app answers, and whether answering changes its selection, differs per app. UNIM uses this request only in <strong>Qt apps (measured with Telegram)</strong>, where that behaviour has been checked.</li>
+<li><strong>Linux XIM</strong>: the protocol has no way to exchange the surrounding text.</li>
+<li><strong>Chromium/Electron apps on X11</strong>: Chromium does not pass the surrounding text to the GTK input method.</li>
+<li><strong>Terminals</strong>: the screen is not an editable document, so there is no surrounding text.</li>
+<li><strong>Pure Wayland (KDE, Sway, etc.)</strong>: the surrounding text arrives, but the input method cannot see mouse selections, so the word-at-the-cursor method is still turned off.</li>
+</ul>
+<p><strong>What to do</strong></p>
+<ol>
+<li>Type the word and press <code>Hanja</code> <strong>before adding a particle or a space</strong>. It converts in one step.</li>
+<li>For a word you already typed, delete it, retype it and press the key right after.</li>
+<li>On Linux, check whether the app can be connected through a UNIM input-method module instead of XIM (GTK/Qt modules — <a href="#user-guide--3-per-environment-setup">user manual §3</a>). With a module all three forms usually work (exceptions are in the §4.2 table).</li>
+</ol>
+<p>What works in which app is tabulated in <a href="#user-guide--differences-by-app">user manual §4.2 "Differences by app"</a>. If you can help push past these limits (measuring other request methods, upstream patches, etc.), see <a href="https://github.com/from104/unim#known-limitations-and-help-wanted">README — Known limitations and help wanted</a>.</p>
 <hr />
 <h3 id="faq--read-more">Read more</h3>
 <ul>
@@ -1524,7 +1584,7 @@ taskkill /f /im ctfmon.exe
 <hr />
 <h3 id="troubleshooting--5-hanja-popup-never-appears">5. "Hanja popup never appears"</h3>
 <blockquote>
-<p><strong>If the emoji popup appears instead of hanja, or only one character changes instead of the word,</strong> it is usually a behavior rule, not a fault. See <a href="#faq--q33-i-pressed-hanja-and-got-the-emoji-popup-instead-of-hanja">FAQ Q33</a> and <a href="#faq--q32-only-one-character-changes-instead-of-the-whole-word">Q32</a> first. Continue below only if the popup <strong>never</strong> appears.</p>
+<p><strong>If the emoji popup appears instead of hanja, or only one character changes instead of the word,</strong> it is usually a behavior rule, not a fault. See <a href="#faq--q33-i-pressed-hanja-and-got-the-emoji-popup-instead-of-hanja">FAQ Q33</a> and <a href="#faq--q32-only-one-character-changes-instead-of-the-whole-word">Q32</a> first. If only words you already typed fail to convert in some app, see <a href="#faq--q37-some-apps-cannot-convert-words-i-already-typed">Q37</a>. Continue below only if the popup <strong>never</strong> appears.</p>
 </blockquote>
 <p><strong>🪟 Windows</strong></p>
 <h4 id="troubleshooting--diagnosis">Diagnosis</h4>

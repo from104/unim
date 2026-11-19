@@ -227,7 +227,7 @@ li { margin: 0.35rem 0; }
 </li>
 <li><a href="#faq">UNIM FAQ (한국어)</a>
 <ol>
-<li><a href="#faq--q1-다른-한글-imeibus-hangul-fcitx-hangul-kime-nimf와-무엇이-다른가">Q1. 다른 한글 IME(ibus-hangul, fcitx-hangul, kime, nimf)와 무엇이 다른가?</a></li>
+<li><a href="#faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</a></li>
 <li><a href="#faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</a></li>
 <li><a href="#faq--q3-어떤-환경이-가장-안정적인가">Q3. 어떤 환경이 가장 안정적인가?</a></li>
 <li><a href="#faq--q4-autotypefix는-정확히-어떻게-동작">Q4. AutoTypeFix는 정확히 어떻게 동작?</a></li>
@@ -258,6 +258,7 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q34-libreoffice-에서-드래그로-선택한-뒤-한자-변환이-안-됩니다">Q34. LibreOffice 에서 드래그로 선택한 뒤 한자 변환이 안 됩니다.</a></li>
 <li><a href="#faq--q35-조사가-붙은-단어는-어떻게-바꾸나요-대한민국은">Q35. 조사가 붙은 단어는 어떻게 바꾸나요? (대한민국은)</a></li>
 <li><a href="#faq--q36-원하는-길이의-단어가-첫-후보로-안-뜹니다">Q36. 원하는 길이의 단어가 첫 후보로 안 뜹니다.</a></li>
+<li><a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</a></li>
 <li><a href="#faq--더-읽을-거리">더 읽을 거리</a></li>
 </ol>
 </li>
@@ -581,6 +582,7 @@ export XMODIFIERS="@im=unim"
 <li><strong>GTK3 앱의 특수 위젯</strong>(일반 입력칸·텍스트 영역이 아닌 것)에서는 선택과 커서 방식이 모두 쉬고 이모지가 뜬다. X11 세션의 LibreOffice 문서 창, Firefox·Thunderbird 의 웹 입력칸이 여기에 든다. 이런 곳에서는 단어를 친 직후(입력 중인 단어)에 <code>한자</code> 를 누른다.</li>
 <li>어떤 앱에서든 <strong>비밀번호 칸</strong>에서는 한자 변환이 꺼져 있다.</li>
 <li>표의 "안 됨"은 "한자 키를 누르면 이모지가 뜬다"는 뜻이다. 글자가 지워지거나 바뀌지 않는다.</li>
+<li>"방금 입력한 단어만 된다" 부류는 앱이나 그 입력 방식(XIM 등)이 입력기에 주변 글자를 알려 주지 않아서다. UNIM 쪽 설정으로는 풀 수 없다. 이유와 우회 방법은 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">FAQ Q37</a>에 있다.</li>
 </ul>
 <h5 id="user-guide--이모지-팝업이-뜨는-경우">이모지 팝업이 뜨는 경우</h5>
 <p><code>한자</code> 를 눌렀는데 한자 대신 이모지 팝업이 뜨면, 아래 가운데 하나다. <strong>이모지가 뜨는 것은 오류가 아니다.</strong> 글자를 지키려고 일부러 한자 변환을 건너뛴 것이다.</p>
@@ -1191,7 +1193,8 @@ xbindkeys      # 다시 시작
 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.</p>
 </blockquote>
 <hr />
-<h3 id="faq--q1-다른-한글-imeibus-hangul-fcitx-hangul-kime-nimf와-무엇이-다른가">Q1. 다른 한글 IME(ibus-hangul, fcitx-hangul, kime, nimf)와 무엇이 다른가?</h3>
+<h3 id="faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</h3>
+<p><strong>🐧 리눅스</strong> — ibus-hangul, fcitx-hangul, kime, nimf 와 비교</p>
 <div class="tablewrap"><table><thead><tr><th>항목</th><th>UNIM</th><th>ibus-hangul</th><th>fcitx-hangul</th><th>kime</th><th>nimf</th></tr></thead><tbody>
 <tr><td>코어 언어</td><td>Rust</td><td>C</td><td>C</td><td>Rust</td><td>C</td></tr>
 <tr><td>통신 방식</td><td>DBus 데몬 + IM 모듈</td><td>IBus 데몬</td><td>Fcitx 데몬</td><td>임베디드</td><td>데몬</td></tr>
@@ -1543,7 +1546,8 @@ sudo apt remove 'unim*'
 <tr><td>단어가 사전에 없다</td><td>한 글자씩 바꾼다</td></tr>
 <tr><td>방금 <code>Shift</code>+방향키·<code>Ctrl</code>+<code>A</code>·드래그·더블클릭으로 선택했다 (GNOME에서 확장을 거치는 앱)</td><td><code>Shift</code> 없이 방향키를 한 번 누르거나 클릭해 선택을 푼다</td></tr>
 <tr><td>창을 바꾸거나 클릭한 직후다 (GNOME에서 확장을 거치는 앱)</td><td>방향키를 한 번 누르고 다시 누른다</td></tr>
-<tr><td>터미널·XIM 앱·X11 크롬 등이다</td><td>이 환경은 이미 쓴 단어를 볼 수 없다. 단어를 친 직후(조합 중)에만 된다</td></tr>
+<tr><td>터미널·XIM 앱·X11 크롬 등이다</td><td>이 환경은 이미 쓴 단어를 볼 수 없다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
+<tr><td>Windows 의 옛 입력 방식(IMM32) 앱이다 (텔레그램 같은 Qt 앱 제외)</td><td>같다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
 <tr><td>한자 팝업에서 <code>한자</code> 를 끝까지 눌렀다</td><td>의도된 동작이다. 마지막 후보 뒤에는 이모지로 간다</td></tr>
 </tbody></table>
 </div>
@@ -1576,6 +1580,30 @@ sudo apt remove 'unim*'
 <li>팝업이 열려 있는 동안 후보 목록은 바뀌지 않는다.</li>
 </ul>
 <p>그림과 표는 <a href="#user-guide--42-한자-변환-hanja">사용자 매뉴얼 §4.2</a>의 "합성어에서 원하는 길이 고르기"에 있다.</p>
+<hr />
+<h3 id="faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</h3>
+<p><strong>앱이 쓰는 입력 방식의 한계다.</strong> 이런 앱에서는 단어를 친 직후, 조사나 공백을 붙이기 전에 <code>한자</code> 를 누르면 된다. 이미 쓴 단어에 커서를 두거나 선택한 뒤 누르면 이모지가 뜬다. 글자가 지워지거나 바뀌지는 않는다.</p>
+<p>한자 단어 변환에는 세 가지가 있고, 필요한 것이 다르다.</p>
+<div class="tablewrap"><table><thead><tr><th>방식</th><th>입력기에 필요한 것</th></tr></thead><tbody>
+<tr><td>방금 입력한 단어</td><td>입력기가 스스로 기억한 방금 친 글자. 앱에게 받을 것은 "몇 글자 지우고 한자 넣기"뿐이다</td></tr>
+<tr><td>커서가 걸친 단어·선택한 범위</td><td>앱 문서의 <strong>커서 주변 글자와 선택</strong>. 앱이 입력기에 알려 줘야 한다</td></tr>
+</tbody></table>
+</div>
+<p>요즘 입력 방식(Windows TSF, 리눅스 GTK·Qt 입력기 모듈, Wayland text-input)은 주변 글자를 알려 준다. 옛 입력 방식은 알려 주지 않는다.</p>
+<ul>
+<li><strong>Windows IMM32</strong>: 입력기는 지금 조합 중인 글자만 갖고, 문서는 보지 못한다. 앱이 따로 "재변환" 요청에 답해야만 커서 앞뒤를 볼 수 있는데, 답하는지와 답하면서 선택을 바꾸는지가 앱마다 다르다. UNIM 은 그 동작을 확인한 <strong>Qt 앱(텔레그램에서 실측)</strong> 에서만 이 요청을 쓴다.</li>
+<li><strong>리눅스 XIM</strong>: 프로토콜에 주변 글자를 주고받는 수단이 없다.</li>
+<li><strong>X11 에서 도는 크롬·Electron 앱</strong>: 크롬이 GTK 입력기에 주변 글자를 넘기지 않는다.</li>
+<li><strong>터미널</strong>: 화면이 편집 문서가 아니라 주변 글자가 없다.</li>
+<li><strong>순수 Wayland(KDE·Sway 등)</strong>: 주변 글자는 오지만 입력기가 마우스 선택을 알 수 없어, 커서가 걸친 단어 방식은 아직 꺼 두었다.</li>
+</ul>
+<p><strong>이렇게 한다</strong></p>
+<ol>
+<li>단어를 치고 <strong>조사·공백을 붙이기 전에</strong> <code>한자</code> 를 누른다. 한 번에 바뀐다.</li>
+<li>이미 쓴 단어라면 그 단어를 지우고 다시 친 직후에 누른다.</li>
+<li>리눅스라면 그 앱을 UNIM 입력기 모듈로 연결할 수 있는지 본다(XIM 대신 GTK·Qt 모듈 — <a href="#user-guide--3-환경별-설정-가이드">사용자 매뉴얼 §3</a>). 모듈로 연결되면 대부분 세 방식이 모두 된다(예외는 매뉴얼 §4.2 표).</li>
+</ol>
+<p>앱별로 되는 것과 안 되는 것은 <a href="#user-guide--앱별-차이">사용자 매뉴얼 §4.2 "앱별 차이"</a>에 표로 있다. 이 한계를 넘는 일(새 요청 방식 실측, 업스트림 패치 등)을 도울 수 있다면 <a href="https://github.com/from104/unim#%EC%95%8C%EB%A0%A4%EC%A7%84-%ED%95%9C%EA%B3%84%EC%99%80-%EB%8F%84%EC%9B%80-%EC%9A%94%EC%B2%AD">README — 알려진 한계와 도움 요청</a>을 본다.</p>
 <hr />
 <h3 id="faq--더-읽을-거리">더 읽을 거리</h3>
 <ul>
@@ -1679,7 +1707,7 @@ journalctl --user -u gnome-shell -b | grep -i unim
 <hr />
 <h3 id="troubleshooting--5-한자-팝업이-안-뜸">5. "한자 팝업이 안 뜸"</h3>
 <blockquote>
-<p><strong>한자 대신 이모지 팝업이 뜨거나, 단어가 아니라 한 글자만 바뀌는 경우</strong>는 고장이 아니라 동작 규칙 때문인 경우가 대부분이다. 먼저 <a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">FAQ Q33</a>와 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32</a>를 본다. 팝업이 <strong>아예</strong> 뜨지 않을 때만 아래를 진행한다.</p>
+<p><strong>한자 대신 이모지 팝업이 뜨거나, 단어가 아니라 한 글자만 바뀌는 경우</strong>는 고장이 아니라 동작 규칙 때문인 경우가 대부분이다. 먼저 <a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">FAQ Q33</a>와 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32</a>를 본다. 이미 쓴 단어만 안 바뀌는 앱이라면 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37</a>이다. 팝업이 <strong>아예</strong> 뜨지 않을 때만 아래를 진행한다.</p>
 </blockquote>
 <p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--진단-3">진단</h4>

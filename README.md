@@ -34,9 +34,47 @@ Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
   switches mode automatically and picks a candidate in as few as two extra keystrokes,
   with no separate character-map app or search box. Hanja conversion works on a whole
   word too, not just a single syllable, and on a word you already wrote: just put the
-  cursor on it — no selection needed.
+  cursor on it — no selection needed (in apps that report the surrounding text to the
+  input method — see the limits below).
 - Designed around minimizing keystrokes and letting the software fix mistakes
   instead of the user.
+
+### Known limitations and help wanted
+
+Converting a word **you already wrote** (cursor on it, or selected) needs the app to tell
+the input method the text around the cursor. Legacy input method protocols do not, so
+there only **the word just typed** can be converted — press the hanja key before adding a
+particle or a space. Elsewhere the key opens the emoji popup; no text is changed.
+
+| Where | Word just typed | Word at the cursor / selection |
+|---|---|---|
+| Windows TSF apps (Notepad, Word, Chrome, …) | yes | yes |
+| Windows IMM32 (legacy) apps — Qt apps (measured with Telegram) | yes | only whole space-separated chunks found in the dictionary |
+| Windows IMM32 (legacy) apps — other | yes | **no** |
+| Linux GTK/Qt input-method modules, GNOME extension | yes | yes (some per-app exceptions) |
+| Linux XIM, terminals, Chromium/Electron on X11 | yes | **no** |
+| Linux pure Wayland (KDE, Sway, …) | yes | selection depends on the app; word at the cursor **not yet** |
+
+These limits come from the protocols, not from a setting, so we need help to move past them.
+Contributions — measurements, design notes or patches — are very welcome:
+
+1. **Windows IMM32 apps other than Qt**: which apps or toolkits answer the
+   `IMR_RECONVERTSTRING` / `IMR_DOCUMENTFEED` requests, and whether answering changes
+   the app's selection. With those measurements the reconversion path can be extended
+   beyond Qt.
+2. **Windows apps not yet measured**: 32-bit apps (Hancom Office, KakaoTalk), Electron
+   apps, consoles (conhost, Windows Terminal).
+3. **XIM**: a client that implements the XIM string-conversion callback, or a way to
+   move such apps onto the GTK/Qt modules.
+4. **Chromium/Electron on X11**: Chromium's GTK input-method bridge leaves
+   `SetSurroundingText` empty — an upstream patch would unlock it.
+5. **Pure Wayland**: a way for the input method to learn about pointer or primary-selection
+   changes (e.g. data-control) so that "word at the cursor" can be enabled safely.
+6. **Firefox on GNOME**: it reports the surrounding text one step late, so the word at the
+   cursor falls back to emoji.
+
+The exact rules and evidence are in [`HANJA_WORD_SPEC.md` §2.11](docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리).
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); issues go to [GitHub Issues](https://github.com/from104/unim/issues).
 
 Full English documentation: [`help/unim-help-en.html`](help/unim-help-en.html).
 Korean documentation follows below.
@@ -223,7 +261,10 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 누르시면 더 짧은 단어가 차례로 뜹니다. 선택 방식은 단어마다 `Shift`+`←` 를 여러 번
 눌러야 하지만, 이 방식은 **한자키 한 번 + 숫자 한 번**입니다. 단계별 설명은
 [사용자 매뉴얼 §4.2](docs/user/user-guide/README-ko.md#42-한자-변환-hanja)에 있습니다.
-터미널처럼 앱이 주변 글자를 알려 주지 않는 곳에서는 방금 친 단어만 바꿀 수 있습니다.
+다만 **이미 쓴 단어를 바꾸는 것은 앱이 커서 주변 글자를 입력기에 알려 줄 때만 됩니다.**
+터미널, 리눅스 XIM 앱, X11에서 도는 크롬·Electron 앱, Windows의 옛 입력 방식(IMM32) 앱처럼
+알려 주지 않는 곳에서는 방금 친 단어만 바꿀 수 있습니다. 단어를 치고 조사나 공백을 붙이기 전에
+한자키를 눌러 주십시오. 자세한 범위는 [알려진 한계와 도움 요청](#알려진-한계와-도움-요청)에 있습니다.
 
 ### 한자는 두 번만 더 누르면 끝납니다
 
@@ -400,6 +441,46 @@ X11 세션을 쓰시거나 GNOME으로 우회해 주십시오.
 알려 주지 않는지는 실사용 사례가 쌓여야 알 수 있는데, 리눅스·Windows 양쪽 다 사례가 충분치 않아
 앱별 대응이 아직 다 들어가 있지 못합니다. 비밀번호 칸에서 교정이 발동하는 앱을 만나시면
 앱 이름과 버전을 [Issues](https://github.com/from104/unim/issues)로 알려 주시기 바랍니다.
+
+## 알려진 한계와 도움 요청
+
+**이미 쓴 단어의 한자 변환**(커서를 단어에 두거나 선택한 뒤 한자키)은 앱이 입력기에
+**커서 주변 글자와 선택**을 알려 줘야 됩니다. 옛 입력 방식은 이것을 알려 주지 않으므로,
+그런 앱에서는 **방금 친 단어**만 바꿀 수 있습니다. 안 되는 곳에서 한자키를 누르시면 이모지
+팝업이 뜨고, 글자는 지워지거나 바뀌지 않습니다.
+
+| 환경 | 방금 친 단어 | 커서가 걸친 단어·선택 |
+|---|---|---|
+| Windows TSF 앱 (메모장·Word·크롬 등) | 됨 | 됨 |
+| Windows 옛 입력 방식(IMM32) 앱 — Qt 앱 (텔레그램에서 실측) | 됨 | 띄어쓰기로 나뉜 덩어리 전체가 사전 단어일 때만 됨 |
+| Windows 옛 입력 방식(IMM32) 앱 — 그 밖 | 됨 | **안 됨** |
+| 리눅스 GTK·Qt 입력기 모듈, GNOME 확장 | 됨 | 됨 (앱별 예외가 조금 있습니다) |
+| 리눅스 XIM, 터미널, X11의 크롬·Electron | 됨 | **안 됨** |
+| 리눅스 순수 Wayland (KDE·Sway 등) | 됨 | 선택은 앱에 따라 됨, 커서가 걸친 단어는 **아직 안 됨** |
+
+앱별 세부는 [사용자 매뉴얼 §4.2 "앱별 차이"](docs/user/user-guide/README-ko.md#앱별-차이),
+이유는 [FAQ Q37](docs/user/faq/README-ko.md#q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다),
+정확한 규칙과 근거는 [`HANJA_WORD_SPEC.md` §2.11](docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리)에 있습니다.
+
+**이 한계는 설정이 아니라 입력 방식(프로토콜) 쪽에서 오는 것이라, 혼자서는 넘기 어렵습니다.
+도움을 부탁드립니다.** 실측 결과 한 줄, 설계 의견, 패치 모두 반갑습니다.
+
+1. **Windows의 Qt가 아닌 IMM32 앱** — 어떤 앱·툴킷이 재변환 요청(`IMR_RECONVERTSTRING`·
+   `IMR_DOCUMENTFEED`)에 답하는지, 답하면서 앱의 선택을 바꾸는지 알려 주시면 지금은 Qt에만 켜 둔
+   재변환을 다른 앱으로 넓힐 수 있습니다.
+2. **Windows에서 아직 확인하지 못한 앱** — 32비트 앱(한컴오피스·카카오톡), Electron 앱,
+   콘솔(명령 프롬프트·Windows Terminal).
+3. **XIM** — XIM 문자열 변환 콜백을 구현한 클라이언트, 또는 그런 앱을 GTK·Qt 모듈로 옮길 방법.
+4. **X11의 크롬·Electron** — 크롬의 GTK 입력기 연결이 `SetSurroundingText` 를 비워 두고 있어,
+   업스트림 패치가 있으면 풀립니다.
+5. **순수 Wayland** — 입력기가 포인터·PRIMARY 선택 변화를 알 수단(data-control 등)이 확인되면
+   커서가 걸친 단어 방식을 안전하게 켤 수 있습니다.
+6. **GNOME의 Firefox** — 확정 직후 주변 글자를 한 박자 늦게 알려 주어, 커서가 걸친 단어가
+   이모지로 넘어갑니다.
+
+시작은 [`CONTRIBUTING.md`](CONTRIBUTING.md), 제보는 [Issues](https://github.com/from104/unim/issues)로
+부탁드립니다. 제보하실 때 앱 이름·버전과, 방금 친 단어·커서 방식·선택 방식 각각이 되었는지를 적어
+주시면 표에 바로 반영하겠습니다.
 
 ## 로드맵
 

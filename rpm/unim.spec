@@ -430,6 +430,11 @@ fi
   selection erased by the emoji popup on GNOME, toggle stalls with the global
   mode share, hanja dictionary loaded once per input field, auto-correction
   word lists wiped after a hand edit broke their format.
+- Fix: home-row letter keys swallowed while the hanja or symbol popup was open
+  (they now close the popup and are typed).
+- Known limitation: converting a word already written needs the app to report
+  the surrounding text; with XIM, terminals and Chromium/Electron on X11 only
+  the word just typed converts (see README).
 * Mon Sep 21 2026 from104 <from104@gmail.com> - 0.4.4-1
 - GNOME: the extension now follows the daemon across restarts; after a package
   update or `unim-daemon --replace`, Hangul input stopped working until the
