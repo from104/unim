@@ -15,7 +15,7 @@ C-API 라이브러리는 Rust 빌드 산출물로 생성됩니다. 먼저 워크
 ```bash
 cd /path/to/unim
 cargo build -p unim-capi --release
-# 산출물: target/release/libunim.{so,a}, unim-capi/include/unim.h
+# 산출물: target/release/libunim_capi.{so,a}, unim-capi/include/unim.h
 ```
 
 예제 컴파일:
@@ -25,7 +25,7 @@ cd examples/capi-c
 gcc -I../../unim-capi/include \
     -L../../target/release \
     -o minimal_session minimal_session.c \
-    -lunim -ldl -lpthread
+    -lunim_capi -ldl -lpthread
 LD_LIBRARY_PATH=../../target/release ./minimal_session
 ```
 

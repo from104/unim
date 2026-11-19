@@ -12,7 +12,8 @@ unim-test-common = { path = "../common-rs", features = ["dbus"] }
 
 # Wayland
 wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# staging: text-input-v3 / unstable: primary-selection-v1 (PRIMARY 소유)
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
 calloop = "0.13"
 calloop-wayland-source = "0.3.0"

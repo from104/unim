@@ -155,9 +155,9 @@ fn merge_field<T: Clone + std::fmt::Debug>(dst: &mut T, baseline: Option<&T>, ui
 ///
 /// GTK-소유 필드: `engine.{default_category, mode_sharing, toggle_keys,
 /// hanja_keys, toggle_announce_beep, ignore_key_repeat, auto_typefix,
-/// auto_english}`, `engine.korean.{layout, active_rule_sets,
-/// layout_rule_sets, bidirectional_combine, chord_window_ms, commit_unit}`,
-/// `engine.english.layout`.
+/// auto_english, notify}`, `engine.korean.{layout, active_rule_sets,
+/// layout_rule_sets, bidirectional_combine, chord_window_ms, commit_unit,
+/// hanja_output_format}`, `engine.english.layout`.
 ///
 /// M-08/GAP-config-03(검증 보완): 위 목록은 종전엔 "GTK-소유 필드는 disk 값을
 /// 무조건 덮어쓴다" 는 뜻이었다 — 그래서 TSF/Slint 가 이미 막은 시나리오(다이얼로그가
@@ -188,6 +188,7 @@ pub fn merge_gtk_ui_owned(disk: &mut Config, ui: &Config) {
     merge_field(&mut d.ignore_key_repeat, be.map(|e| &e.ignore_key_repeat), &u.ignore_key_repeat);
     merge_field(&mut d.auto_typefix, be.map(|e| &e.auto_typefix), &u.auto_typefix);
     merge_field(&mut d.auto_english, be.map(|e| &e.auto_english), &u.auto_english);
+    merge_field(&mut d.notify, be.map(|e| &e.notify), &u.notify);
     merge_field(&mut d.korean.layout, bk.map(|k| &k.layout), &u.korean.layout);
     merge_field(
         &mut d.korean.active_rule_sets,
@@ -206,5 +207,10 @@ pub fn merge_gtk_ui_owned(disk: &mut Config, ui: &Config) {
     );
     merge_field(&mut d.korean.chord_window_ms, bk.map(|k| &k.chord_window_ms), &u.korean.chord_window_ms);
     merge_field(&mut d.korean.commit_unit, bk.map(|k| &k.commit_unit), &u.korean.commit_unit);
+    merge_field(
+        &mut d.korean.hanja_output_format,
+        bk.map(|k| &k.hanja_output_format),
+        &u.korean.hanja_output_format,
+    );
     merge_field(&mut d.english.layout, be.map(|e| &e.english.layout), &u.english.layout);
 }

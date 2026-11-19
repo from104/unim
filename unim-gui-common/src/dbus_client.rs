@@ -475,10 +475,10 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, top_row='{}', pos=({},{},{}x{}){}",
-                    target,
+                    "[Popup] ShowHanjaPopup 수신: target={}자, count={}, top_row={}자, pos=({},{},{}x{}){}",
+                    target.chars().count(),
                     candidates.len(),
-                    top_row,
+                    top_row.chars().count(),
                     x,
                     y,
                     w,
@@ -507,8 +507,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowSpecialPopup 수신: target='{}', count={}, pos=({},{},{}x{}){}",
-                    target,
+                    "[Popup] ShowSpecialPopup 수신: target={}자, count={}, pos=({},{},{}x{}){}",
+                    target.chars().count(),
                     characters.len(),
                     x,
                     y,
@@ -643,8 +643,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             )>() {
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}, was={} now={}",
-                    target,
+                    "[Popup] HanjaCandidatesReordered 수신: target={}자, count={}, new_cursor={}, page={}, was={} now={}",
+                    target.chars().count(),
                     hanjas.len(),
                     new_cursor,
                     page,

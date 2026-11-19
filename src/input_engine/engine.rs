@@ -6,8 +6,14 @@
 
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
-use super::types::{AtfHotkey, AtfToggleKind, AutoEnglishTrigger, InputResult, PopupAction};
-use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
+use super::types::{
+    AtfHotkey, AtfToggleKind, AutoEnglishTrigger, HanjaReplacement, HanjaSource, InputResult,
+    PopupAction,
+};
+use crate::config::{
+    CommitUnit, Config, ContentPurpose, EnglishLayout, HanjaOutputFormat, InputCategory,
+    KoreanLayout,
+};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -16,6 +22,16 @@ use crate::popup::PopupState;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+/// surrounding preedit 포함 학습용 직전 보고 관측(조합 중·cursor==anchor 보고 한 건).
+///
+/// `head` = 커서 앞 텍스트에서 preedit 을 뺀 앞부분, `tail` = 그 보고 시점 preedit 의 끝 글자.
+/// 평문 로그 금지(§2.8) — 비교에만 쓰고 기록하지 않는다.
+#[derive(Debug, Clone)]
+pub(super) struct PreeditLearnObs {
+    pub(super) head: String,
+    pub(super) tail: char,
+}
 
 /// "무효 키 집합이 바뀔 때만 로그" 게이트의 메모 — 필드 라벨별 마지막 서명(B2).
 ///
@@ -113,14 +129,118 @@ pub struct InputEngine {
     pub(super) korean_layout: KoreanLayout,
     /// 한자 사전 (Arc로 래핑하여 공유)
     pub(super) hanja_dict: std::sync::Arc<crate::hanja::HanjaDictionary>,
+    /// 한자 사용자 사전 층 스냅샷 — 새 팝업을 여는 한자키에서만 갱신한다
+    /// (HANJA_USERDICT_SPEC §3.3). 조회는 `hanja_lookup.rs` 의 헬퍼로만.
+    pub(super) hanja_user: std::sync::Arc<crate::hanja::HanjaUserIndex>,
+    /// 시험 전용: true 면 `refresh_hanja_user_layer` 가 전역 층을 읽지 않는다.
+    #[cfg(test)]
+    pub(super) hanja_user_pinned: bool,
     /// 한자 즐겨찾기 저장소 (영구 저장)
     pub(super) hanja_bookmarks: crate::hanja::HanjaBookmarkStore,
     /// 현재 한자 후보 목록
     pub(super) hanja_candidates: Vec<crate::hanja::HanjaEntry>,
     /// 한자 선택 모드 활성화 여부
     pub(super) hanja_mode: bool,
-    /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
+    /// 한자 변환 대상 = 사전 키 = 팝업 헤더 = 즐겨찾기 키 (어절 가능 — "대한민국").
     pub(super) hanja_target: String,
+    /// 최근 확정 음절 버퍼 — 이 컨텍스트가 앱에 커밋한 텍스트 끝의 한글 완성 음절열
+    /// (≤ `RECENT_SYLLABLE_CAP`). preedit 은 포함하지 않는다(HANJA_WORD_SPEC §2.2.1).
+    pub(super) recent_syllables: String,
+    /// `press_key` 래퍼가 키 진입 시 저장한 `commit_buffer.len()` — 이후 커밋 델타를
+    /// `recent_absorb_commit_delta` 가 버퍼에 흡수하는 기준점.
+    pub(super) recent_mark: usize,
+    /// 현재 한자 팝업 대상의 출처. 팝업 밖에서는 `Syllable`(기본).
+    pub(super) hanja_source: HanjaSource,
+    /// 확정 접두 길이 — target 중 이미 앱에 확정돼 확정 시 지워야 하는 글자 수.
+    /// `RecentWord` 만 > 0.
+    pub(super) hanja_committed_chars: u32,
+    /// 취소·포커스 이탈 시 재커밋할 텍스트 = 팝업 진입 당시 preedit 전체(대상② 는 "").
+    pub(super) hanja_recommit: String,
+    /// 확정 문자열 앞에 그대로 붙일 문자열 (단어 모드 비일치 접두 / 대상② 앞 공백).
+    pub(super) hanja_commit_prefix: String,
+    /// 확정 문자열 뒤에 그대로 붙일 문자열 (대상② 뒤 공백).
+    pub(super) hanja_commit_suffix: String,
+    /// 대상① 교체 페이로드(out-of-band). 호스트가 `take_hanja_replacement()` 로 드레인.
+    pub(super) pending_hanja_replacement: Option<HanjaReplacement>,
+    /// 한자 확정 출력 형식 — `config.engine.korean.hanja_output_format` 캐시.
+    pub(super) hanja_output_format: HanjaOutputFormat,
+    /// 호스트 능력 플래그: 교체 페이로드를 드레인하는 호스트(Linux 데몬·TSF)만 true.
+    /// false(기본)면 버퍼 글자를 포함하는 접미(대상① `RecentWord`)를 채택하지 않아
+    /// IMM32·`unim-capi` 소비자는 종전 단음절과 바이트 동일. `reset()`·재구성에서 보존.
+    pub(super) hanja_word_replace_capable: bool,
+    /// surrounding text 가 preedit(조합 텍스트)을 포함하는 호스트(TSF)만 true.
+    /// 접두 정합성 검증의 `prefix+pre` 절을 이 플래그로 게이트한다. `reset()` 에서 보존.
+    pub(super) surrounding_includes_preedit: bool,
+    /// 호스트 선언(키 한 번 한정): 이 문서는 조합 앞의 확정 텍스트를 보여 주지 못한다
+    /// (CUAS 조합-only 문서 — Telegram 등 Qt IMM32 앱). true 면 §2.2.3 접두 대조를 생략하고
+    /// 최근 확정 음절 버퍼를 믿는다(surrounding 을 한 번도 못 받은 XIM 과 같은 신뢰 수준).
+    /// 기본 false — 호스트가 키마다 켜고 끈다. Linux 경로는 켜지 않는다.
+    pub(super) surrounding_prefix_unverifiable: bool,
+    /// 이번 키에서 팝업이 미지원 키로 닫히고 그 키가 재처리됐는지(popup_dispatch NotHandled).
+    /// 매 `press_key` 시작에서 내린다. 호스트가 팝업 확정과 "닫고 재처리"를 가르는 데 쓴다
+    /// (Windows 재변환 선택 풀기 순서 — HANJA_WORD_SPEC §2.4c).
+    pub(super) popup_reprocessed: bool,
+    /// 관측으로 학습한 "이 컨텍스트의 surrounding 은 preedit 을 포함한다"(LibreOffice VCL 등).
+    /// `set_surrounding_text` 의 두 보고 대조로만 켜지고(`learn_obs`), 포커스 이동
+    /// (`clear_learned_includes_preedit`)·엔진 재생성(`new`)에서 해제된다. `reset()` 에서는
+    /// 보존한다(앱·포커스 컨텍스트 속성). 접두 검증의 `prefix+pre` 절만 이 값을 읽는다.
+    pub(super) learned_includes_preedit: bool,
+    /// 학습용 직전 보고 관측(저장 surrounding 과 무관한 비교 전용). 확정·비움·조합 종료·
+    /// 리셋·불일치 보고에서 지운다.
+    pub(super) learn_obs: Option<PreeditLearnObs>,
+    /// 이 컨텍스트가 `set_surrounding_text` 를 한 번이라도 받았는지(빈 값 포함).
+    ///
+    /// true 인 컨텍스트에서는 surrounding 이 비어 있어도 접두 검증을 **실패**로 본다
+    /// (Wayland 미수신 마커 `("",0,0)` — HANJA_WORD_SPEC Q9(b)). 앱·포커스 컨텍스트
+    /// 속성이라 `reset()` 에서 보존하고, 엔진 재생성(`new`)에서만 false 로 시작한다.
+    pub(super) surrounding_seen: bool,
+    /// 클라이언트 능력 비트(`SURROUNDING_CAP_*`) — 대상③·낡음 게이트의 전제. 0(기본)이면
+    /// v1.5 와 바이트 동일. `reset()`·재생성(carry)에서 보존한다(HANJA_WORD_SPEC §2.4b).
+    pub(super) surrounding_caps: u32,
+    /// 이 컨텍스트의 프런트 종류 꼬리표(`gtk3|gtk4|qt5|qt6|gnome|tsf|xim|wayland|ibus|unknown`) —
+    /// 대상③ 판정 로그 전용(동작 무관). 코어는 클라이언트를 모르므로 호스트가 `set_client_tag`
+    /// 로 넣는다. `reset()`·재생성(carry)에서 보존한다.
+    pub(super) client_tag: &'static str,
+    /// 마지막 surrounding 보고 뒤 커서·문서를 바꿀 사건(확정·통과 키·포인터)이 있었는가.
+    pub(super) surrounding_stale: bool,
+    /// 앱에 선택이 있을 수 있다는 거부 플래그(드래그·Shift+이동·Ctrl+A·FocusIn 등).
+    pub(super) selection_possible: bool,
+    /// `selection_possible` 을 올린 원인(로그용).
+    pub(super) selection_flag_cause: super::surrounding_word::SelFlagCause,
+    /// 다음 한자키 한 번에만 걸리는 "선택 불명" 표시(I3).
+    pub(super) selection_unknown_once: bool,
+    /// pull 경로에서 대상③ 후보가 소진돼 이어지는 폴백 키가 이모지를 열어야 함.
+    pub(super) surrounding_word_exhausted: bool,
+    /// 호스트가 넘긴 단조 ms(`set_now_ms`) — push 컨텍스트의 R5~R8 전용. 코어는 시계를 읽지 않는다.
+    pub(super) sw_now_ms: u64,
+    /// 마지막 surrounding 보고(R5) — 포커스·Reset 때 비워 포커스 뒤 첫 보고를 기준점으로만 쓴다.
+    pub(super) sw_last_report: Option<super::surrounding_word::SwReport>,
+    /// "키 없는 커서 이동" 후보 시각(R5).
+    pub(super) sw_move_at: Option<u64>,
+    /// 마지막 select 신호 시각(R6 창 판정).
+    pub(super) sw_last_select_ms: Option<u64>,
+    /// 선택 가능 표시의 원인 비트 누적(push 전용, `SURROUNDING_HINT_PRIMARY_EMPTY` 판단용).
+    pub(super) sel_cause_bits: u8,
+    /// 마지막 surrounding 보고가 비어 있지 않은 문맥이었는가(push 전용) — nosur 판정 보류(S3) 조건.
+    pub(super) sw_had_report: bool,
+    /// 판정을 미룬 한자키의 기한(R7·R8). 이월하지 않는다(R10).
+    pub(super) sw_pending_defer: Option<u64>,
+    /// 보류가 시작된 시각(= 그 한자키의 `now_ms`) — 총 대기 상한 계산용(`poll_deferred_hanja`).
+    pub(super) sw_defer_start: u64,
+    /// 마지막 포커스 표시(FocusIn·FIELD_FOCUS) 시각 — 포커스 직후 앱이 스스로 옮긴 커서(선택 복원 등)를
+    /// 사용자 클릭으로 세지 않기 위한 기준(R5).
+    pub(super) sw_focus_at: Option<u64>,
+    /// `resume_deferred_hanja` 안에서만 true — 두 번째 Defer 금지(R9).
+    pub(super) sw_no_defer: bool,
+    /// 마지막 대상③ 판정 이유 코드(진단·적합성 시험용).
+    pub(super) sw_last_reason: &'static str,
+    /// 이번 `press_key` 진입 시 내려진 `surrounding_word_exhausted` 값(한자 idle 분기용).
+    pub(super) sw_exhausted_key: bool,
+    /// 대상③ 후보 목록(순서대로 한자키 재타로 순환)과 현재 위치·앞/뒤 삭제 글자 수.
+    pub(super) hanja_sw_cands: Vec<super::surrounding_word::SwCand>,
+    pub(super) hanja_sw_idx: usize,
+    pub(super) hanja_sw_before: u32,
+    pub(super) hanja_sw_after: u32,
     /// 특수문자 모드 활성화 여부
     pub(super) special_char_mode: bool,
     /// 현재 특수문자 후보 목록
@@ -143,6 +263,12 @@ pub struct InputEngine {
     /// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널
     /// (`popup_pending_action` 선례). 호스트가 `take_atf_toggle()` 로 소비한다.
     pub(super) pending_atf_toggle: Option<AtfToggleKind>,
+    /// 직전 `press_key` 가 ContentPurpose(Password/Pin) 때문에 한/영 전환을 거부했는가.
+    ///
+    /// `press_key` 진입 시 `false` 로 리셋되므로 드레인 없이 "마지막 호출" 의미를 갖는다.
+    /// `InputResult`(`repr(C)` ABI)에 필드를 더하지 않는 out-of-band 채널
+    /// (`pending_atf_toggle` 선례). 호스트가 `last_toggle_blocked()` 로 읽는다.
+    pub(super) last_toggle_blocked: bool,
     /// 마지막으로 매칭된 ATF 핫키(키코드, 시각) — 오토리핏 디바운스용.
     ///
     /// 키 홀드 시 프런트가 자동반복 키다운을 흘려보내면 press_key 가 연속 호출돼
@@ -239,8 +365,16 @@ impl InputEngine {
 
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
-        // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
-        let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
+        // 한자 사전 — 프로세스당 한 번만 파싱해 모든 엔진이 Arc 로 공유한다.
+        // 사전은 불변이고 한 벌이 약 100MB 라, 엔진(=데몬 컨텍스트)마다 새로 파싱하면
+        // 컨텍스트 수만큼 메모리가 쌓이고 glibc 가 해제분을 OS 에 돌려주지 않는다
+        // (2026-09 CI 기능 시험에서 데몬이 수 GB 까지 불어 러너가 죽음).
+        static SHARED_HANJA_DICT: std::sync::OnceLock<
+            std::sync::Arc<crate::hanja::HanjaDictionary>,
+        > = std::sync::OnceLock::new();
+        let hanja_dict = SHARED_HANJA_DICT
+            .get_or_init(|| std::sync::Arc::new(crate::hanja::HanjaDictionary::new()))
+            .clone();
 
         let commit_unit = config.engine.korean.commit_unit;
         let word_mode_apps = config.engine.korean.word_mode_apps.clone();
@@ -256,10 +390,56 @@ impl InputEngine {
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
             hanja_dict,
+            // 단위 시험은 전역 층(override)과 격리하려고 빈 층으로 고정해 시작한다.
+            #[cfg(test)]
+            hanja_user: std::sync::Arc::new(crate::hanja::HanjaUserIndex::empty()),
+            #[cfg(not(test))]
+            hanja_user: crate::hanja::user_dict::shared_index(),
+            #[cfg(test)]
+            hanja_user_pinned: true,
             hanja_bookmarks: crate::hanja::HanjaBookmarkStore::load_default(),
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),
+            recent_syllables: String::new(),
+            recent_mark: 0,
+            hanja_source: HanjaSource::Syllable,
+            hanja_committed_chars: 0,
+            hanja_recommit: String::new(),
+            hanja_commit_prefix: String::new(),
+            hanja_commit_suffix: String::new(),
+            pending_hanja_replacement: None,
+            hanja_output_format: config.engine.korean.hanja_output_format,
+            hanja_word_replace_capable: false,
+            surrounding_includes_preedit: false,
+            surrounding_prefix_unverifiable: false,
+            popup_reprocessed: false,
+            learned_includes_preedit: false,
+            learn_obs: None,
+            surrounding_seen: false,
+            surrounding_caps: 0,
+            client_tag: "unknown",
+            surrounding_stale: false,
+            selection_possible: false,
+            selection_flag_cause: Default::default(),
+            selection_unknown_once: false,
+            surrounding_word_exhausted: false,
+            sw_exhausted_key: false,
+            sw_now_ms: 0,
+            sw_last_report: None,
+            sw_move_at: None,
+            sel_cause_bits: 0,
+            sw_had_report: false,
+            sw_last_select_ms: None,
+            sw_pending_defer: None,
+            sw_defer_start: 0,
+            sw_focus_at: None,
+            sw_no_defer: false,
+            sw_last_reason: "",
+            hanja_sw_cands: Vec::new(),
+            hanja_sw_idx: 0,
+            hanja_sw_before: 0,
+            hanja_sw_after: 0,
             special_char_mode: false,
             special_char_candidates: Vec::new(),
             special_char_target: String::new(),
@@ -278,6 +458,7 @@ impl InputEngine {
                 "ATF 토글 단축키(역방향)",
             ),
             pending_atf_toggle: None,
+            last_toggle_blocked: false,
             last_atf_hotkey: None,
             auto_english_enabled: config.engine.auto_english.enabled,
             auto_english_triggers: Self::parse_auto_english_triggers(
@@ -605,6 +786,24 @@ impl InputEngine {
         self.pending_atf_toggle.take()
     }
 
+    /// 직전 `press_key` 가 비밀번호 칸(`ContentPurpose::Password|Pin`) 때문에 한/영 전환을
+    /// 거부했는지 돌려준다(읽기 전용 — 드레인 아님).
+    ///
+    /// 다음 `press_key` 진입 때 `false` 로 되돌아간다. 호스트가 `press_key` 직후 호출해
+    /// "한/영 전환 막힘" 알림 여부를 정한다. `InputResult` 레이아웃은 건드리지 않는다.
+    pub fn last_toggle_blocked(&self) -> bool {
+        self.last_toggle_blocked
+    }
+
+    /// 한자 단어 교체 페이로드를 드레인한다(1회성 — `take`).
+    ///
+    /// 대상①(`RecentWord`, 확정 접두 > 0) 확정 프레임에서만 `Some` 이다. 호스트
+    /// (Linux `engine_worker` / Windows `key_handler`)가 팝업 액션 드레인 직후 호출해
+    /// 교체 채널로 내보낸다. `take_atf_toggle` 과 같은 out-of-band 채널.
+    pub fn take_hanja_replacement(&mut self) -> Option<HanjaReplacement> {
+        self.pending_hanja_replacement.take()
+    }
+
     /// ATF 토글 핫키 3목록을 config 에서 재파싱해 반영한다 (hot-reload 재적용).
     ///
     /// GUI/CLI 로 핫키를 편집한 뒤 `engine_worker` 의 reload 루프가 살아있는 컨텍스트에
@@ -623,6 +822,47 @@ impl InputEngine {
             &config.engine.auto_typefix.toggle_reverse_keys,
             "ATF 토글 단축키(역방향)",
         );
+    }
+
+    /// 한자 출력 형식 캐시를 config 에서 반영한다 (비파괴 hot-reload — 조합 유지).
+    pub fn set_hanja_output_format(&mut self, config: &Config) {
+        self.hanja_output_format = config.engine.korean.hanja_output_format;
+    }
+
+    /// 호스트 능력 플래그 설정 — 교체 페이로드(`take_hanja_replacement`)를 드레인하는
+    /// 호스트만 true 로 켠다(HANJA_WORD_SPEC §2.2.2 4). 기본 false.
+    pub fn set_hanja_word_replace_capable(&mut self, capable: bool) {
+        self.hanja_word_replace_capable = capable;
+    }
+
+    /// surrounding text 가 조합 텍스트를 포함하는 호스트(TSF)가 true 로 켠다
+    /// (HANJA_WORD_SPEC §2.2.3). 기본 false.
+    pub fn set_surrounding_includes_preedit(&mut self, includes: bool) {
+        self.surrounding_includes_preedit = includes;
+    }
+
+    /// 호스트가 "이 문서는 조합 앞 확정 텍스트를 보여 주지 못한다"고 선언한다(HANJA_WORD_SPEC
+    /// §2.2.3 CUAS 예외). 켜져 있는 동안 대상① 접두 대조를 생략한다. 키 한 번 단위로 켜고
+    /// 끄는 것은 호출자 책임(TSF 한자키 경로). 기본 false.
+    /// 이번 키에서 팝업이 닫히고 그 키가 재처리됐는지(`popup_reprocessed`).
+    pub fn popup_reprocessed(&self) -> bool {
+        self.popup_reprocessed
+    }
+
+    pub fn set_surrounding_prefix_unverifiable(&mut self, on: bool) {
+        self.surrounding_prefix_unverifiable = on;
+    }
+
+    /// 관측 학습으로 켜진 "surrounding 이 preedit 을 포함" 상태(진단·테스트용).
+    pub fn learned_includes_preedit(&self) -> bool {
+        self.learned_includes_preedit
+    }
+
+    /// 학습 상태·관측을 해제한다 — 포커스 이동(FocusIn)에서 호출(앱이 바뀌면 보고 방식도
+    /// 바뀐다). FocusOut·Reset 은 엔진 재생성(`new`)이 같은 효과.
+    pub fn clear_learned_includes_preedit(&mut self) {
+        self.learned_includes_preedit = false;
+        self.learn_obs = None;
     }
 
     /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
@@ -669,12 +909,28 @@ impl InputEngine {
 
     /// 입력 카테고리를 설정합니다.
     pub fn set_input_category(&mut self, category: InputCategory) {
-        if self.input_category != category {
-            self.flush_preedit();
-            self.input_category = category;
+        if self.sync_input_category(category) {
             // 상태 파일 업데이트
             self.update_status_file();
         }
+    }
+
+    /// 상태 파일(`status::set_status`)을 쓰지 않고 입력 카테고리만 맞춘다. 바뀌었으면 `true`.
+    ///
+    /// 전역 모드를 여러 컨텍스트에 퍼뜨리는 **일괄 루프 전용**이다 — 상태 파일은 전역 1개라
+    /// 호출자가 한 번만 쓴다. 컨텍스트마다 [`Self::set_input_category`] 를 부르면 살아 있는
+    /// 컨텍스트 수 N 만큼 `File::create` 가 엔진 워커 스레드에서 직렬로 일어나, N 이 크면
+    /// 한/영 전환 직후 워커가 수백 ms 멈춘다(2026-10 CI L3: N≈350 에서 0.3~0.9초 정지 →
+    /// Qt·GTK 모듈의 500ms DBus 타임아웃으로 키가 앱에 새고 CreateInputContext 가 실패).
+    pub fn sync_input_category(&mut self, category: InputCategory) -> bool {
+        if self.input_category == category {
+            return false;
+        }
+        self.flush_preedit();
+        // 한/영 전환은 최근 확정 음절 문맥을 끊는다(HANJA_WORD_SPEC §2.2.1).
+        self.recent_clear();
+        self.input_category = category;
+        true
     }
 
     /// 단어별 preedit 모드(단어 단위 누적)를 켜거나 끕니다.
@@ -694,6 +950,16 @@ impl InputEngine {
     /// 반환한다 — `set_word_mode` 런타임 토글이 반영된다.
     pub fn is_word_mode(&self) -> bool {
         self.korean_context.is_accumulate_word()
+    }
+
+    /// 주어진 ASCII 문자가 현재 한글 레이아웃에서 자모로 매핑되는 키인지 판정한다.
+    ///
+    /// 두벌식은 영문자만, 세벌식은 숫자·문장부호까지 자모에 대응한다. 영문 라이브 보유
+    /// (Word ATF 순방향)가 레이아웃 자모 키에서 끊기지 않게 하는 술어다. 키맵이 없으면 false.
+    pub fn is_hangul_layout_char(&self, c: char) -> bool {
+        self.keyboard_map
+            .as_ref()
+            .is_some_and(|m| m.contains_key(&c))
     }
 
     /// 현재 조합 확정 단위(`CommitUnit`)를 반환합니다.
@@ -756,8 +1022,17 @@ impl InputEngine {
     /// - config 파생 캐시(키맵·`key_meta`·영문 키맵·한자사전 Arc·레이아웃·toggle/hanja
     ///   키·auto_english·라벨) — 재생성 없이 그대로 유효(동일 config 기준).
     /// - `input_category` — 호출부가 필요 시 별도 `set_input_category` 로 지정.
-    /// - `content_purpose`/`surrounding_*`/`saved_category` — 앱·포커스 컨텍스트(조합
-    ///   상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - `content_purpose`/`surrounding_*`(`surrounding_seen` 포함)/`saved_category` —
+    ///   앱·포커스 컨텍스트(조합 상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - 호스트 능력 플래그(`hanja_word_replace_capable`·`surrounding_includes_preedit`)
+    ///   ·학습 상태 `learned_includes_preedit`(관측 `learn_obs` 만 비움)
+    ///   ·`hanja_output_format` — 호스트/config 속성.
+    /// - 대상③ 능력·신선도·선택 거부 상태(`surrounding_caps`·`surrounding_stale`·
+    ///   `selection_possible`·`selection_unknown_once`·`surrounding_word_exhausted`) —
+    ///   앱·포커스 컨텍스트 속성이라 보존한다(대상 후보 `hanja_sw_*` 만 비운다).
+    ///
+    /// 한자 단어 상태(최근 확정 음절 버퍼·`hanja_source` 등 대상 필드·교체 페이로드)는
+    /// 비운다 — 리셋은 버퍼 리셋 조건이다(HANJA_WORD_SPEC §2.2.1).
     /// - `accumulate_word`(단어 누적 플래그) — `korean_context.clear()` 가 버퍼만 비우고
     ///   플래그는 유지. config 기반 재동기화가 필요한 호출부는 리셋 후 `set_word_mode`
     ///   로 명시 지정한다(예: `auto_typefix`).
@@ -777,6 +1052,14 @@ impl InputEngine {
         self.special_char_target.clear();
         self.popup_state = None;
         self.popup_pending_action = None;
+        self.reset_hanja_word_fields();
+        // push: 판정을 미룬 한자키는 조용히 취소, 기준점은 비운다(R10·R5).
+        self.sw_cancel_defer("reset");
+        self.sw_last_report = None;
+        self.recent_clear();
+        self.recent_mark = 0;
+        self.learn_obs = None;
+        self.pending_hanja_replacement = None;
 
         // 고정키 래치 마스킹 잔류도 비운다 — 조합 리셋 시점의 미소비 마스크가
         // 이후 무관한 첫 키의 수정자를 잘못 지우지 않게 한다.
@@ -826,7 +1109,12 @@ impl InputEngine {
         self.flush_preedit();
         let text = self.commit_buffer.clone();
         self.commit_buffer.clear();
-        if text.is_empty() { None } else { Some(text) }
+        if text.is_empty() {
+            None
+        } else {
+            self.note_surrounding_commit();
+            Some(text)
+        }
     }
 
     /// chord idle 만료 flush: idle timer 경로 전용 (preedit 유지).
@@ -846,6 +1134,9 @@ impl InputEngine {
         let Some(entries) = self.chord_buffer.force_flush() else {
             return (None, self.preedit_cache.clone());
         };
+        // 최근 확정 음절 버퍼 기준점: 이 flush 가 새로 커밋한 부분만 흡수한다(호스트가
+        // 이미 드레인한 이전 커밋이 남아 있어도 이중 push 하지 않도록).
+        self.recent_mark = self.recent_mark.min(self.commit_buffer.len());
         if !preview_was_injected {
             self.apply_chord_entries(entries);
         } else {
@@ -855,8 +1146,12 @@ impl InputEngine {
         let commit = if self.commit_buffer.is_empty() {
             None
         } else {
+            // 타이머 경로는 press_key 래퍼를 거치지 않으므로 여기서 최근 확정 음절
+            // 버퍼를 채운다(비밀번호 차단 중이면 recent_push_char 가 스스로 비운다).
+            self.recent_absorb_commit_delta();
             Some(std::mem::take(&mut self.commit_buffer))
         };
+        self.recent_mark = 0;
         (commit, self.preedit_cache.clone())
     }
 
@@ -929,7 +1224,7 @@ impl InputEngine {
     /// `build_korean_context` 빌더로 컨텍스트를 다시 만들어 즉시 반영한다.
     /// hot-reload 경로(`engine_worker`)에서 `reload_if_changed` 직후 호출.
     ///
-    /// 다른 상태(`hanja_dict`/`hanja_bookmarks`/`input_category` 등)는 보존.
+    /// 다른 상태(`hanja_dict`/`hanja_user`/`hanja_bookmarks`/`input_category` 등)는 보존.
     pub fn rebuild_korean_context(&mut self, config: &Config) {
         self.flush_preedit();
 
@@ -948,6 +1243,9 @@ impl InputEngine {
         self.commit_unit = config.engine.korean.commit_unit;
         // 단어 모드 앱 목록도 재동기화 (config.yaml/CLI 편집 → maybe_reload_config 반영).
         self.word_mode_apps = config.engine.korean.word_mode_apps.clone();
+        // 한자 출력 형식 캐시 재동기화 + 최근 확정 음절 버퍼 폐기(자판이 바뀌면 문맥 무의미).
+        self.hanja_output_format = config.engine.korean.hanja_output_format;
+        self.recent_clear();
 
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);
@@ -1204,6 +1502,19 @@ mod tests {
 
         type_ganan(&mut engine, &word_config);
         assert_eq!(engine.preedit_str(), "가나", "rebuild 후 단어 누적 일관");
+    }
+
+    /// 한글 레이아웃 자모 키 술어: 두벌식은 영문자만, 세벌식 390 은 숫자도 자모.
+    #[test]
+    fn hangul_layout_char_predicate() {
+        let mut engine = InputEngine::new(&Config::default());
+        engine.set_korean_layout("ko_2bulstd".to_string());
+        assert!(engine.is_hangul_layout_char('m'));
+        assert!(!engine.is_hangul_layout_char('4'));
+        engine.set_korean_layout("ko_3bul390".to_string());
+        assert!(engine.is_hangul_layout_char('4'), "390 의 '4' 는 ㅛ");
+        assert!(engine.is_hangul_layout_char('m'));
+        assert!(!engine.is_hangul_layout_char(' '));
     }
 
     /// set_korean_layout 재구성 경로도 기존 commit_unit 캐시를 유지·반영한다.

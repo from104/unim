@@ -64,6 +64,11 @@ dnf -y install xorg-x11-server-Xvfb xwininfo xdotool ImageMagick libXft-devel fo
     echo "⚠️  Xvfb/xwininfo/xdotool 중 일부가 이 배포판에 없다 — functional-test.sh 가 감지해 스킵한다 " \
          "(el10 은 2026-09 기준 EPEL10 이 아직 Xvfb 를 패키징하지 않음, 코드 문제 아님)"
 
+# 알림 단언용 가짜 알림 서버(tests/harness/mock_notifyd.py)가 쓰는 PyGObject. 없으면
+# harness 가 알림 단언만 건너뛴다(타이핑 판정은 그대로) — 설치 실패로 중단하지 않는다.
+dnf -y install python3-gobject-base || \
+    echo "⚠️  python3-gobject-base 없음 — 알림 단언(mock_notifyd.py)을 건너뛴다"
+
 # spec 의 BuildRequires 를 그대로 해석 — 이름이 그 배포판에 실재하는지의
 # 검증을 겸한다 (해석 실패 = 즉시 이 스텝에서 죽는다).
 dnf builddep -y rpm/unim.spec

@@ -38,8 +38,10 @@ def print_result(res: H.ScenarioResult) -> None:
         print(f"  {Y}⊘ SKIP{Z} {res.name} {D}— {res.skipped}{Z}")
         return
 
-    if res.ok:
+    if res.ok and not res.notify_problems:
         mark = f"{G}✓ PASS{Z}"
+    elif res.notify_problems:
+        mark = f"{R}✗ FAIL{Z}"
     elif res.known_issue:
         mark = f"{Y}✗ KNOWN{Z}"
     else:
@@ -57,6 +59,16 @@ def print_result(res: H.ScenarioResult) -> None:
             got = s.actual.get(k)
             flag = " " if got == want else f"{R}←{Z}"
             print(f"         {k:10} 기대 {want!r}  실제 {got!r} {flag}")
+
+    if res.notify_checked:
+        if res.notify_problems:
+            print(f"      {R}알림 단언 실패{Z}")
+            for p in res.notify_problems:
+                print(f"         {R}←{Z} {p}")
+        else:
+            print(f"      {G}알림 단언 통과{Z}")
+    elif res.notify_note:
+        print(f"      {Y}{res.notify_note}{Z}")
 
     if res.screenshot:
         print(f"      {D}스크린샷 {res.screenshot}{Z}")
@@ -117,7 +129,9 @@ def main() -> int:
                 res = H.run_scenario(app, sc,
                                      allow_layout_change=args.allow_layout_change,
                                      keep_open=args.keep_open)
-                if res.ok or res.skipped or res.known_issue or attempt >= SCENARIO_RETRIES:
+                if (res.skipped or attempt >= SCENARIO_RETRIES
+                        or (res.ok and not res.notify_problems)
+                        or (res.known_issue and not res.notify_problems)):
                     break
                 attempt += 1
                 print(f"  {Y}↻ 재시도 {attempt}/{SCENARIO_RETRIES}{Z} {sc['name']}")
@@ -126,6 +140,8 @@ def main() -> int:
             total += 1
             if res.skipped:
                 skipped += 1
+            elif res.notify_problems:
+                failed += 1        # 알림 단언은 known_fail 로 가려지지 않는다
             elif res.ok:
                 passed += 1
             elif res.known_issue:

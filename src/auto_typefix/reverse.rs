@@ -5,7 +5,7 @@ use crate::typefix_blacklist::{BlacklistGate, Direction};
 use crate::typefix_userdict::UserDictGate;
 
 use super::buffer::KeystrokeBuffer;
-use super::{AutoTypeFixResult, DICTIONARY};
+use super::{AtfOutcome, AtfSuppressReason, AutoTypeFixResult, DICTIONARY};
 
 /// 역방향: 한글모드에서 영문 오타 감지
 ///
@@ -15,27 +15,27 @@ use super::{AutoTypeFixResult, DICTIONARY};
 /// `user_dict`에 등록된 단어는 내장 영어 사전(`DICTIONARY`) 조회와
 /// `eng_word_min_length` 검사를 우회한다. CLI 명령어(`git`, `ls`, `rustc` 등)
 /// 같은 짧고 특수한 단어를 위한 사용자 whitelist.
-pub fn check_reverse(
+pub fn check_reverse_outcome(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
     korean_layout: &str,
     english_layout: &str,
     blacklist: &dyn BlacklistGate,
     user_dict: &dyn UserDictGate,
-) -> Option<AutoTypeFixResult> {
+) -> AtfOutcome {
     if !config.reverse || buffer.len() < 2 {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // keycode → 영문 문자열 (지정된 영문 레이아웃 기준으로 복원)
     let eng = buffer.to_ascii_string(english_layout);
     if eng.is_empty() || !eng.chars().all(|c| c.is_ascii_alphabetic()) {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // 학습형 억제: 해당 시퀀스가 blacklist에서 활성 상태이면 즉시 억제.
     if blacklist.is_suppressed(&eng, Direction::Reverse, korean_layout, english_layout) {
-        return None;
+        return AtfOutcome::Suppressed(AtfSuppressReason::Blacklist);
     }
 
     let lower = eng.to_lowercase();
@@ -45,7 +45,7 @@ pub fn check_reverse(
     if !in_user_dict {
         // 길이 기준 체크
         if eng.len() < config.eng_word_min_length as usize {
-            return None;
+            return AtfOutcome::NoMatch;
         }
     }
 
@@ -59,13 +59,13 @@ pub fn check_reverse(
     // 사용자 사전 단어도 이 검사는 유지: 자연스러운 한글 문장 타이핑 중
     // 의도치 않은 교정을 막기 위함.
     if config.skip_on_complete_syllable && !buffer.has_preedit && buffer.committed_chars > 0 {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     if !in_user_dict {
         // 영어 사전 매칭
         if !DICTIONARY.contains(lower.as_str()) {
-            return None;
+            return AtfOutcome::NoMatch;
         }
     }
 
@@ -73,13 +73,13 @@ pub fn check_reverse(
     let screen_chars = buffer.committed_chars as u32 + if buffer.has_preedit { 1 } else { 0 };
 
     if screen_chars == 0 {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // 원래 한글 텍스트 복원 (되돌리기용) — 정확한 복원은 어려우므로 빈 문자열
     // 되돌리기 시 delete_chars + eng 삭제 후 원래 한글을 재입력해야 하므로
     // engine reset 후 keystroke replay가 필요
-    Some(AutoTypeFixResult {
+    AtfOutcome::Fix(AutoTypeFixResult {
         delete_chars: screen_chars,
         commit_text: eng.clone(),
         corrected: eng,
@@ -91,4 +91,24 @@ pub fn check_reverse(
         // (음절 모드 또는 확정 섞임)이거나 word 모드가 아니면 false → 기존 삭제 경로 바이트 동일.
         replace_composition: buffer.word_mode && buffer.committed_chars == 0,
     })
+}
+
+/// 역방향 감지의 교정 결과만 필요한 호출자용 래퍼 ([`check_reverse_outcome`] 의 `Fix` 만 반환).
+pub fn check_reverse(
+    buffer: &KeystrokeBuffer,
+    config: &AutoTypeFixConfig,
+    korean_layout: &str,
+    english_layout: &str,
+    blacklist: &dyn BlacklistGate,
+    user_dict: &dyn UserDictGate,
+) -> Option<AutoTypeFixResult> {
+    check_reverse_outcome(
+        buffer,
+        config,
+        korean_layout,
+        english_layout,
+        blacklist,
+        user_dict,
+    )
+    .into_fix()
 }

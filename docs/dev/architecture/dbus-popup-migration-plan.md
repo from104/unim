@@ -65,7 +65,7 @@
 ### 호출자
 - popup-service `popup/{hanja,special,emoji}.rs` — 위 헬퍼들의 유일한 호출자 (GNOME ext popup JS 는 Phase 3 에서 제거 완료).
 - popup-service `main.rs` 의 DBus watcher — daemon `InputContext` signal 구독.
-- GNOME extension `dbus_ime.js` — `ShowEmojiPopupV2`·`HidePopup` 구독 (ZWSP preedit trick 용).
+- GNOME extension `dbus_ime.js` — `ShowEmojiPopupV2`·`HidePopup` 구독 (ZWSP preedit trick 용). *(POPUP_SPEC v3.5 / 2026-10-04: ZWSP preedit 우회는 GTK4 선택 삭제를 일으켜 제거됨)*
 
 ## 목표 아키텍처
 
@@ -250,7 +250,7 @@ daemon engine state 변경 → popup_event → 위와 같이 popup-service signa
 4. 다른 popup signal(ShowHanjaPopup·ShowSpecialPopup 등) 은 GNOME ext 가 이미 구독 안 함 (Phase 3 에서 제거). 영향 없음.
 5. `CommitText` signal 은 daemon InputContext 유지 — IM commit 본연이라 popup 책임 아님.
 
-**검증**: (B)(T)(L). GNOME Shell 재시작 후 emoji popup 트리거 시 ZWSP preedit 가 정상 설정되는지 (log check).
+**검증**: (B)(T)(L). GNOME Shell 재시작 후 emoji popup 트리거 시 ZWSP preedit 가 정상 설정되는지 (log check). *(v3.5 에서 ZWSP preedit 제거 — 이 검증 항목은 폐기)*
 
 **롤백**: dbus_ime.js 한 영역만 변경. revert 즉시 가능.
 

@@ -82,6 +82,101 @@ pub fn atomic_write(path: &Path, content: impl AsRef<[u8]>) -> io::Result<()> {
     Ok(())
 }
 
+/// 읽을 수 없는 사용자 파일(파싱 실패·지원하지 않는 버전·읽기 오류)에 대한 저장 거부 오류.
+///
+/// `io::Error` 안에 실려 나가므로 호출자는 [`is_unreadable_err`] 로 구분해 사용자에게
+/// "파일이 깨졌다" 를 안내할 수 있다.
+#[derive(Debug)]
+pub struct UnreadableFile(pub PathBuf);
+
+impl std::fmt::Display for UnreadableFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "읽을 수 없는 파일이라 저장을 거부함 (덮어쓰면 단어가 사라짐): {}",
+            self.0.display()
+        )
+    }
+}
+
+impl std::error::Error for UnreadableFile {}
+
+pub fn unreadable_error(path: &Path) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, UnreadableFile(path.to_path_buf()))
+}
+
+/// 저장이 [`UnreadableFile`] 때문에 거부된 오류인지.
+pub fn is_unreadable_err(e: &io::Error) -> bool {
+    e.get_ref().is_some_and(|i| i.is::<UnreadableFile>())
+}
+
+/// [`read_yaml`] 결과.
+pub enum YamlRead<T> {
+    /// 파일 없음 또는 빈 파일 — 새로 만들어도 안전.
+    Missing,
+    /// 정상 파싱.
+    Parsed(T),
+    /// 존재하지만 읽거나 파싱할 수 없음. 덮어쓰기 금지.
+    Unreadable,
+}
+
+/// YAML 파일을 읽는다. 실패 시 위치(줄·열)만 로그에 남긴다 — 단어는 사용자 데이터라
+/// serde 오류 문구를 싣지 않는다. `log` 는 true 일 때만 기록(저장 전 점검은 조용히).
+pub fn read_yaml<T: serde::de::DeserializeOwned>(path: &Path, what: &str, log: bool) -> YamlRead<T> {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return YamlRead::Missing,
+        Err(_) => {
+            if log {
+                crate::unim_log!("ENGINE", "{what} 읽기 실패 — 읽기 전용(빈 목록)으로 동작");
+            }
+            return YamlRead::Unreadable;
+        }
+    };
+    if content.trim().is_empty() {
+        return YamlRead::Missing;
+    }
+    match serde_yaml::from_str::<T>(&content) {
+        Ok(v) => YamlRead::Parsed(v),
+        Err(e) => {
+            if log {
+                let loc = e.location();
+                crate::unim_log!(
+                    "ENGINE",
+                    "{what} 파싱 실패 (줄 {}, 열 {}) — 읽기 전용(빈 목록)으로 동작",
+                    loc.as_ref().map_or(0, |l| l.line()),
+                    loc.as_ref().map_or(0, |l| l.column())
+                );
+            }
+            YamlRead::Unreadable
+        }
+    }
+}
+
+/// 깨진 파일을 `<path>.broken-YYYYMMDD-HHMMSS` 로 옮긴다(덮어쓰지 않음). 새 파일로 시작할 때 쓴다.
+pub fn quarantine(path: &Path) -> io::Result<PathBuf> {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let make = |suffix: &str| -> PathBuf {
+        let mut s = path.as_os_str().to_owned();
+        s.push(format!(".broken-{stamp}{suffix}"));
+        PathBuf::from(s)
+    };
+    let mut target = make("");
+    let mut n = 0u32;
+    while target.exists() {
+        n += 1;
+        if n > 1000 {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "보관 이름을 정할 수 없음",
+            ));
+        }
+        target = make(&format!("-{n}"));
+    }
+    fs::rename(path, &target)?;
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

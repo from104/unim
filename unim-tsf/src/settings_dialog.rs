@@ -16,13 +16,17 @@ use std::sync::OnceLock;
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::{GetStockObject, HBRUSH, WHITE_BRUSH};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, GetStockObject, MonitorFromWindow, HBRUSH, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, WHITE_BRUSH,
+};
 use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use unim::config::{
-    CommitUnit, Config, InputCategory, ModeSharingMode,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode, NotifyCorner,
+    NotifyLanguage, NOTIFY_DURATION_MAX, NOTIFY_DURATION_MIN, NOTIFY_EVENT_NAMES,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -57,6 +61,7 @@ const TAB_GENERAL: i32 = 0;
 const TAB_TYPEFIX: i32 = 1;
 const TAB_BLACKLIST: i32 = 2;
 const TAB_USERDICT: i32 = 3;
+const TAB_NOTIFY: i32 = 4;
 
 // ─── 컨트롤 ID 상수 ─────────────────────────────────────────────────────────
 // 일반 탭 (1xxx, 4xxx, 5xxx)
@@ -66,6 +71,7 @@ const ID_CMB_ENG_LAYOUT: u32 = 4002;
 const ID_CMB_DEFAULT_CAT: u32 = 4003;
 const ID_CMB_MODE_SHARING: u32 = 4004;
 const ID_CMB_COMMIT_UNIT: u32 = 4005;
+const ID_CMB_HANJA_OUTPUT_FORMAT: u32 = 4006;
 
 const ID_CHK_BIDIR_COMBINE: u32 = 5001;
 const ID_TRK_CHORD_MS: u32 = 5002;
@@ -82,6 +88,16 @@ const ID_EDT_AUTO_ENG_TRIGGERS: u32 = 5021;
 const ID_CHK_TOGGLE_BEEP: u32 = 5030;
 // 조합키 자동반복 억제 (접근성, 지체장애)
 const ID_CHK_IGNORE_REPEAT: u32 = 5031;
+
+// 알림 탭 (상황 알림/토스트, NOTIFY_SPEC §5)
+const ID_CHK_NOTIFY_ENABLED: u32 = 5040;
+const ID_TRK_NOTIFY_DURATION: u32 = 5041;
+const ID_LBL_NOTIFY_DURATION: u32 = 5042;
+const ID_CMB_NOTIFY_LANGUAGE: u32 = 5043;
+const ID_CMB_NOTIFY_CORNER: u32 = 5044;
+const ID_CHK_NOTIFY_SHOW_TEXT: u32 = 5045;
+/// 이벤트 체크박스 — `NOTIFY_EVENT_NAMES[i]` 의 ID 는 `ID_CHK_NOTIFY_EVENT_BASE + i`.
+const ID_CHK_NOTIFY_EVENT_BASE: u32 = 5050;
 
 // 오타 교정 탭 (1xxx, 2xxx, 3xxx)
 
@@ -137,7 +153,14 @@ const ID_UD_BTN_DELETE: u32 = 9106;
 // ─── 다이얼로그 크기 ─────────────────────────────────────────────────────────
 
 const DLG_W: i32 = 500;
-const DLG_H: i32 = 760;
+// U9: 자판 그룹에 "한자 출력 형식" 행이 추가되어 일반 탭이 28px 더 필요해졌다.
+// 고정 픽셀 크기라 DPI 인식이 없고(별도 DPI awareness 설정 없음) 부모 중앙 배치 후
+// 작업 영역 clamp(아래 `clamp_to_work_area`)만 거치므로, 870 처럼 크게 올리면
+// 900px 안팎의 작업 영역(1600x900/1440x900 100%, 1080p 125%)에서 OK/취소/적용 버튼이
+// 작업 영역 밖으로 밀려날 수 있다. 신규 행 1개분(+28)만 흡수하도록 760+28=788 로 제한한다.
+// 세벌식 390/391(룰셋 4개, +108px)은 이 행 추가 이전부터 있던 별개의 페이지 오버플로우이며
+// 이 단위(U9) 범위 밖이다 — open_issues 참조.
+const DLG_H: i32 = 788;
 
 /// 탭 컨트롤 영역 (상단)
 const TAB_X: i32 = 8;
@@ -258,6 +281,8 @@ struct DlgState {
     hwnd_page_blacklist: HWND,
     /// 탭4 "사용자 사전" 페이지 컨테이너
     hwnd_page_userdict: HWND,
+    /// 탭5 "알림" 페이지 컨테이너
+    hwnd_page_notify: HWND,
     /// 현재 선택된 탭 인덱스
     cur_tab: i32,
     /// 동적 룰셋 체크박스 목록 (일반 탭)
@@ -663,7 +688,7 @@ unsafe fn build_page_general(page: HWND, config: &Config) -> i32 {
     let full_w = PAGE_W - lm * 2;
 
     // ── 자판 그룹 ─────────────────────────────────────────────────────────────
-    create_groupbox(page, " 자판 ", lm - 4, y - 4, full_w + 8, row_h * 3 + gap * 4, );
+    create_groupbox(page, " 자판 ", lm - 4, y - 4, full_w + 8, row_h * 4 + gap * 5, );
     y += 6;
 
     // 한국어 자판
@@ -692,6 +717,16 @@ unsafe fn build_page_general(page: HWND, config: &Config) -> i32 {
         .unwrap_or(0);
     create_combobox(page, ID_CMB_COMMIT_UNIT, lm + lbl_w + 4, y, cmb_w, 200,
         &cu_items, cu_sel);
+    y += row_h + gap;
+
+    // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — 자판 그룹 4번째 행.
+    create_static(page, "한자 출력 형식:", lm, y, lbl_w, row_h);
+    let hof_items: Vec<&str> = HanjaOutputFormat::all().iter().map(|f| f.display_name()).collect();
+    let hof_sel = HanjaOutputFormat::all().iter()
+        .position(|&f| f == config.engine.korean.hanja_output_format)
+        .unwrap_or(0);
+    create_combobox(page, ID_CMB_HANJA_OUTPUT_FORMAT, lm + lbl_w + 4, y, cmb_w, 200,
+        &hof_items, hof_sel);
     y += row_h + gap * 2;
 
     // ── 규칙 세트 (동적 — 자판 콤보 변경 시 재구성) ───────────────────────────
@@ -806,7 +841,7 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
     y += row_h + gap * 2;
 
     // ── 접근성 (I7) ──────────────────────────────────────────────────────────
-    // 한/영 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음)으로 무시각 확인.
+    // 한/영 전환 시 차등 비프음(한글=높은 음 2번, 영문=낮은 음 1번)으로 무시각 확인.
     create_static(page, "[ 접근성 ]", lm, y, 200, row_h);
     y += row_h + 2;
     create_checkbox(page, "한/영 전환 소리 알림(비프)", ID_CHK_TOGGLE_BEEP,
@@ -821,6 +856,94 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
     create_static(page, "[ 기본 입력기 ]", lm, y, 200, row_h);
     y += row_h + 4;
     create_button(page, "기본 입력기로 설정", ID_BTN_SET_DEFAULT, lm, y, 150, 26);
+    let _ = y;
+}
+
+// ─── 탭5 "알림" 페이지 컨트롤 생성 ─────────────────────────────────────────
+
+/// 이벤트 설정명(`NOTIFY_EVENT_NAMES`)의 체크박스 라벨 — 순서가 `NOTIFY_EVENT_NAMES` 와 같다.
+const NOTIFY_EVENT_LABELS: [&str; 9] = [
+    "자동 교정됨",
+    "자동 교정 건너뜀",
+    "임시 제외 학습",
+    "비밀번호 칸 진입 (칸당 1회, 10분 뒤 재알림)",
+    "비밀번호 칸 벗어남",
+    "한/영 전환 막힘 (비밀번호 칸)",
+    "한/영 모드 변경",
+    "자동 교정 켜짐/꺼짐",
+    "기능 결과 (GNOME 확장 전용)",
+];
+
+unsafe fn build_page_notify(page: HWND, config: &Config) {
+    let n = &config.engine.notify;
+    let lm = 12i32;
+    let mut y = 10i32;
+    let row_h = 22i32;
+    let gap = 6i32;
+    let trk_w = 300i32;
+    let trk_h = 26i32;
+    let lbl_val_w = 50i32;
+    let lbl_w = 120i32;
+    let cmb_w = 180i32;
+    let chk_w = PAGE_W - lm * 2;
+    let lbl_x = lm + trk_w + gap;
+
+    create_static(page, "[ 상황 알림 ]", lm, y, 350, row_h);
+    y += row_h + gap;
+    create_checkbox(page, "상황 알림 사용", ID_CHK_NOTIFY_ENABLED,
+        lm + 10, y, chk_w - 10, row_h, n.enabled);
+    y += row_h + gap * 2;
+
+    // 표시 시간 슬라이더 (ms)
+    create_static(page, "표시 시간 (ms, 500~5000)", lm, y, 280, row_h);
+    create_value_label(page, ID_LBL_NOTIFY_DURATION, &n.duration_ms.to_string(),
+        lbl_x, y, lbl_val_w, row_h);
+    y += row_h;
+    create_trackbar(page, ID_TRK_NOTIFY_DURATION, lm, y, trk_w, trk_h,
+        NOTIFY_DURATION_MIN as i32, NOTIFY_DURATION_MAX as i32, n.duration_ms as i32);
+    y += trk_h + gap * 2;
+
+    // 언어
+    create_static(page, "알림 언어:", lm, y, lbl_w, row_h);
+    let lang_sel = match n.language {
+        NotifyLanguage::Auto => 0,
+        NotifyLanguage::Ko => 1,
+        NotifyLanguage::En => 2,
+    };
+    create_combobox(page, ID_CMB_NOTIFY_LANGUAGE, lm + lbl_w + 4, y, cmb_w, 120,
+        &["자동", "한국어", "영어"], lang_sel);
+    y += row_h + gap;
+
+    // 표시 모서리 (Windows 렌더러가 사용)
+    create_static(page, "표시 위치:", lm, y, lbl_w, row_h);
+    let corner_sel = match n.corner {
+        NotifyCorner::Auto => 0,
+        NotifyCorner::TopRight => 1,
+        NotifyCorner::BottomRight => 2,
+        NotifyCorner::TopLeft => 3,
+        NotifyCorner::BottomLeft => 4,
+    };
+    create_combobox(page, ID_CMB_NOTIFY_CORNER, lm + lbl_w + 4, y, cmb_w, 150,
+        &["자동 (우하단)", "우상단", "우하단", "좌상단", "좌하단"], corner_sel);
+    y += row_h + gap * 2;
+
+    // 교정 전후 텍스트 표시 — 민감정보 경고(D1).
+    create_checkbox(page, "교정 전후 텍스트 표시", ID_CHK_NOTIFY_SHOW_TEXT,
+        lm + 10, y, chk_w - 10, row_h, n.show_text);
+    y += row_h + 2;
+    create_static(page,
+        "※ 감지 못 한 비밀번호 칸에서 입력 일부가 알림에 보일 수 있습니다.",
+        lm + 30, y, chk_w - 30, row_h);
+    y += row_h + gap * 2;
+
+    // 이벤트별 스위치
+    create_static(page, "[ 알림 이벤트 ]", lm, y, 200, row_h);
+    y += row_h + 2;
+    for (i, label) in NOTIFY_EVENT_LABELS.iter().enumerate() {
+        create_checkbox(page, label, ID_CHK_NOTIFY_EVENT_BASE + i as u32,
+            lm + 10, y, chk_w - 10, row_h, n.event_enabled(NOTIFY_EVENT_NAMES[i]));
+        y += row_h + 2;
+    }
     let _ = y;
 }
 
@@ -859,7 +982,7 @@ unsafe fn build_page_typefix(page: HWND, config: &Config) {
     create_checkbox(page, "재트리거 학습 억제 (rollback detection)", ID_CHK_ATF_ROLLBACK,
         lm + 20, y, chk_w, row_h, atf.rollback_detection);
     y += row_h + gap;
-    create_checkbox(page, "사용자 사전 사용", ID_CHK_ATF_USER_DICT,
+    create_checkbox(page, "자동 교정 사전 사용", ID_CHK_ATF_USER_DICT,
         lm + 20, y, chk_w, row_h, atf.user_dict_enabled);
     y += row_h + gap * 2;
 
@@ -932,6 +1055,27 @@ unsafe fn listbox_add(hwnd: HWND, text: &str) {
 unsafe fn listbox_get_sel(hwnd: HWND) -> Option<usize> {
     let r = SendMessageW(hwnd, LB_GETCURSEL, Some(WPARAM(0)), Some(LPARAM(0))).0;
     if r < 0 { None } else { Some(r as usize) }
+}
+
+// ─── 단어 목록 저장 실패 안내 ────────────────────────────────────────────────
+
+unsafe fn tsf_msgbox(hwnd: HWND, text: &str, flags: MESSAGEBOX_STYLE) {
+    let msg_w = to_wide_nul(text);
+    let title_w = to_wide_nul("UNIM 설정");
+    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()), flags);
+}
+
+/// 단어 목록(억제 단어·사용자 사전) 저장 실패 안내. 읽을 수 없는 파일 때문이면 위치와 함께 알린다.
+unsafe fn report_list_save_err(hwnd: HWND, e: &std::io::Error, path: Option<std::path::PathBuf>) {
+    let text = if unim::atomic_io::is_unreadable_err(e) {
+        format!(
+            "단어 파일을 읽을 수 없어(깨졌거나 더 새 버전) 단어가 사라지지 않도록 저장하지 않았습니다.\n파일은 그대로입니다:\n{}\n\n직접 고치거나, 명령 프롬프트에서 unim-cli dict user-dict clear / dict blacklist clear 로 보관하고 새로 시작할 수 있습니다.",
+            path.map(|p| p.display().to_string()).unwrap_or_default()
+        )
+    } else {
+        format!("저장 실패:\n{}", e)
+    };
+    tsf_msgbox(hwnd, &text, MB_OK | MB_ICONERROR);
 }
 
 // ─── 억제 단어 탭 리프레시 ──────────────────────────────────────────────────
@@ -1040,7 +1184,7 @@ unsafe fn build_page_userdict(page: HWND, userdict: &UserDictionary) {
     let edit_w = full_w - lbl_w - 8;
     let list_h = PAGE_H - 170;
 
-    create_static(page, "[ 사용자 사전 (역방향 교정 허용 단어 목록) ]", lm, y, full_w, row_h);
+    create_static(page, "[ 자동 교정 사전 (역방향 교정 허용 단어 목록) ]", lm, y, full_w, row_h);
     y += row_h + gap;
 
     // ListBox
@@ -1113,7 +1257,8 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
     tab_insert(hwnd_tab, 0, "일반");
     tab_insert(hwnd_tab, 1, "오타 교정");
     tab_insert(hwnd_tab, 2, "억제 단어");
-    tab_insert(hwnd_tab, 3, "사용자 사전");
+    tab_insert(hwnd_tab, 3, "자동 교정 사전");
+    tab_insert(hwnd_tab, 4, "알림");
 
     // ── 탭1 페이지 컨테이너 ──────────────────────────────────────────────────
     let hwnd_page_general = CreateWindowExW(
@@ -1171,6 +1316,20 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
     ).unwrap_or_default();
     state.hwnd_page_userdict = hwnd_page_userdict;
 
+    // ── 탭5 페이지 컨테이너 ──────────────────────────────────────────────────
+    let hwnd_page_notify = CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        PAGE_CLASS_NAME,
+        PCWSTR::null(),
+        WS_CHILD | WS_CLIPSIBLINGS,  // 초기에는 숨김
+        PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
+        Some(hwnd_tab),
+        None,
+        Some(crate::dll_instance().into()),
+        None,
+    ).unwrap_or_default();
+    state.hwnd_page_notify = hwnd_page_notify;
+
     // ── 일반 탭 컨트롤 배치 ──────────────────────────────────────────────────
     let rule_sets_start_y = build_page_general(hwnd_page_general, &state.config);
     // chord_slider_y 에 rule_sets_start_y 를 보존 — 자판 변경 시 rebuild_rule_sets 에서 재사용
@@ -1187,6 +1346,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
 
     // ── 사용자 사전 탭 컨트롤 배치 ──────────────────────────────────────────
     build_page_userdict(hwnd_page_userdict, &state.userdict);
+
+    // ── 알림 탭 컨트롤 배치 ──────────────────────────────────────────────────
+    build_page_notify(hwnd_page_notify, &state.config);
 
     // ── 하단 버튼 (메인 창 자식) ─────────────────────────────────────────────
     let btn_y = DLG_H - 44;
@@ -1205,6 +1367,7 @@ unsafe fn switch_tab(state: &mut DlgState, tab_idx: i32) {
         (state.hwnd_page_typefix,   TAB_TYPEFIX),
         (state.hwnd_page_blacklist, TAB_BLACKLIST),
         (state.hwnd_page_userdict,  TAB_USERDICT),
+        (state.hwnd_page_notify,    TAB_NOTIFY),
     ];
 
     for &(hwnd_page, idx) in pages {
@@ -1250,6 +1413,15 @@ unsafe fn collect_general(state: &mut DlgState) {
         let all = CommitUnit::all();
         if idx < all.len() {
             state.config.engine.korean.commit_unit = all[idx];
+        }
+    }
+
+    // 한자 출력 형식 (漢字/한글(한자)/한자(한글)) — 콤보 인덱스 = HanjaOutputFormat::all() 순서.
+    if let Some(h) = get_ctrl(pg, ID_CMB_HANJA_OUTPUT_FORMAT) {
+        let idx = combobox_get_sel(h);
+        let all = HanjaOutputFormat::all();
+        if idx < all.len() {
+            state.config.engine.korean.hanja_output_format = all[idx];
         }
     }
 
@@ -1344,9 +1516,48 @@ unsafe fn collect_typefix(state: &mut DlgState) {
     state.config.engine.auto_typefix.observation_timeout_secs  = trk(ID_TRK_OBS_TIMEOUT) as u8;
 }
 
+unsafe fn collect_notify(state: &mut DlgState) {
+    let pg = state.hwnd_page_notify;
+    let n = &mut state.config.engine.notify;
+
+    if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_ENABLED) {
+        n.enabled = checkbox_checked(h);
+    }
+    if let Some(h) = get_ctrl(pg, ID_TRK_NOTIFY_DURATION) {
+        n.duration_ms = (trackbar_get_pos(h).max(0) as u32)
+            .clamp(NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX);
+    }
+    if let Some(h) = get_ctrl(pg, ID_CMB_NOTIFY_LANGUAGE) {
+        n.language = match combobox_get_sel(h) {
+            1 => NotifyLanguage::Ko,
+            2 => NotifyLanguage::En,
+            _ => NotifyLanguage::Auto,
+        };
+    }
+    if let Some(h) = get_ctrl(pg, ID_CMB_NOTIFY_CORNER) {
+        n.corner = match combobox_get_sel(h) {
+            1 => NotifyCorner::TopRight,
+            2 => NotifyCorner::BottomRight,
+            3 => NotifyCorner::TopLeft,
+            4 => NotifyCorner::BottomLeft,
+            _ => NotifyCorner::Auto,
+        };
+    }
+    if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_SHOW_TEXT) {
+        n.show_text = checkbox_checked(h);
+    }
+    // 이벤트 체크박스 → events 리스트 (미지 원소는 보존).
+    for (i, name) in NOTIFY_EVENT_NAMES.iter().enumerate() {
+        if let Some(h) = get_ctrl(pg, ID_CHK_NOTIFY_EVENT_BASE + i as u32) {
+            n.set_event(name, checkbox_checked(h));
+        }
+    }
+}
+
 unsafe fn collect_all(state: &mut DlgState) {
     collect_general(state);
     collect_typefix(state);
+    collect_notify(state);
 }
 
 // ─── 저장 시도 ───────────────────────────────────────────────────────────────
@@ -1426,6 +1637,12 @@ unsafe fn handle_hscroll(hwnd_dlg: HWND, hwnd_ctrl: HWND) {
         return;
     }
 
+    // 알림 탭 슬라이더
+    if ctrl_id == ID_TRK_NOTIFY_DURATION {
+        update_value_label(hwnd_dlg, ID_LBL_NOTIFY_DURATION, trackbar_get_pos(hwnd_ctrl));
+        return;
+    }
+
     // 일반 탭 슬라이더
     if ctrl_id == ID_TRK_CHORD_MS {
         let pos = trackbar_get_pos(hwnd_ctrl);
@@ -1494,39 +1711,46 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
         }
 
         // ── 억제 단어 탭 버튼 ────────────────────────────────────────────────
-        ID_BL_BTN_DELETE => {
+        // 목록 순번이 아니라 화면에 보인 항목 자체를 파일을 다시 읽어 찾아 작용한다
+        // (CLI·데몬이 그사이 파일을 바꿨을 수 있음). 없으면 새로고침 + 안내.
+        ID_BL_BTN_DELETE | ID_BL_BTN_DEACTIVATE | ID_BL_BTN_CONFIRM => {
             let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.blacklist.remove(sel);
-                    let _ = state.blacklist.save_to_default_path();
+            let Some(lb) = find_child_by_id(pg, ID_BL_LIST) else { return };
+            let Some(sel) = listbox_get_sel(lb) else { return };
+            let Some(shown) = state.blacklist.entries.get(sel).cloned() else { return };
+            let mut fresh = Blacklist::load_from_default_path();
+            let found = fresh.entries.iter().position(|e| {
+                e.ascii == shown.ascii
+                    && e.direction == shown.direction
+                    && e.korean_layout == shown.korean_layout
+                    && e.english_layout == shown.english_layout
+            });
+            match found {
+                None => {
+                    state.blacklist = fresh;
                     refresh_blacklist_page(pg, &state.blacklist);
+                    tsf_msgbox(hwnd, "그사이 목록이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로고침했습니다.", MB_OK | MB_ICONWARNING);
                 }
-            }
-        }
-        ID_BL_BTN_DEACTIVATE => {
-            let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    // 현재 상태에 따라 토글: 활성→비활성, 비활성→재활성
-                    let is_active = state.blacklist.entries.get(sel)
-                        .map_or(false, |e| e.status.is_active());
-                    if is_active {
-                        state.blacklist.deactivate(sel);
-                    } else {
-                        state.blacklist.reactivate_as_confirmed(sel);
+                Some(i) => {
+                    match ctrl_id {
+                        ID_BL_BTN_DELETE => fresh.remove(i),
+                        ID_BL_BTN_CONFIRM => fresh.promote_to_confirmed(i),
+                        _ => {
+                            // 활성→비활성, 비활성→재활성
+                            if fresh.entries[i].status.is_active() {
+                                fresh.deactivate(i);
+                            } else {
+                                fresh.reactivate_as_confirmed(i);
+                            }
+                        }
                     }
-                    let _ = state.blacklist.save_to_default_path();
-                    refresh_blacklist_page(pg, &state.blacklist);
-                }
-            }
-        }
-        ID_BL_BTN_CONFIRM => {
-            let pg = state.hwnd_page_blacklist;
-            if let Some(lb) = find_child_by_id(pg, ID_BL_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.blacklist.promote_to_confirmed(sel);
-                    let _ = state.blacklist.save_to_default_path();
+                    match fresh.save_to_default_path() {
+                        Ok(()) => state.blacklist = fresh,
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, Blacklist::default_path());
+                            state.blacklist = Blacklist::load_from_default_path();
+                        }
+                    }
                     refresh_blacklist_page(pg, &state.blacklist);
                 }
             }
@@ -1542,54 +1766,84 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
                 let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
                     .map(|h| edit_get_text(h))
                     .filter(|s| !s.is_empty());
-                if state.userdict.add(&word, note) {
-                    let _ = state.userdict.save_to_default_path();
-                    refresh_userdict_page(pg, &state.userdict);
-                    // 입력 필드 초기화
-                    if let Some(h) = find_child_by_id(pg, ID_UD_EDT_WORD) {
-                        let _ = SetWindowTextW(h, w!(""));
-                    }
-                    if let Some(h) = find_child_by_id(pg, ID_UD_EDT_NOTE) {
-                        let _ = SetWindowTextW(h, w!(""));
-                    }
-                } else {
-                    let msg_w   = to_wide_nul("추가 실패: 이미 존재하거나 영문이 아닌 단어입니다.");
-                    let title_w = to_wide_nul("UNIM 설정");
-                    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
-                        MB_OK | MB_ICONWARNING);
-                }
-            }
-        }
-        ID_UD_BTN_UPDATE => {
-            let pg = state.hwnd_page_userdict;
-            if let Some(lb) = find_child_by_id(pg, ID_UD_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    let word = find_child_by_id(pg, ID_UD_EDT_WORD)
-                        .map(|h| edit_get_text(h))
-                        .unwrap_or_default();
-                    if !word.is_empty() {
-                        let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
-                            .map(|h| edit_get_text(h))
-                            .filter(|s| !s.is_empty());
-                        if state.userdict.update_at(sel, &word, note) {
-                            let _ = state.userdict.save_to_default_path();
-                            refresh_userdict_page(pg, &state.userdict);
-                        } else {
-                            let msg_w   = to_wide_nul("수정 실패: 중복이거나 영문이 아닌 단어입니다.");
-                            let title_w = to_wide_nul("UNIM 설정");
-                            MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
-                                MB_OK | MB_ICONWARNING);
+                let mut fresh = UserDictionary::load_from_default_path();
+                if fresh.add(&word, note) {
+                    match fresh.save_to_default_path() {
+                        Ok(()) => {
+                            state.userdict = fresh;
+                            // 입력 필드 초기화
+                            if let Some(h) = find_child_by_id(pg, ID_UD_EDT_WORD) {
+                                let _ = SetWindowTextW(h, w!(""));
+                            }
+                            if let Some(h) = find_child_by_id(pg, ID_UD_EDT_NOTE) {
+                                let _ = SetWindowTextW(h, w!(""));
+                            }
+                        }
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, UserDictionary::default_path());
+                            state.userdict = UserDictionary::load_from_default_path();
                         }
                     }
+                    refresh_userdict_page(pg, &state.userdict);
+                } else if fresh.is_unreadable() {
+                    report_list_save_err(
+                        hwnd,
+                        &unim::atomic_io::unreadable_error(
+                            &UserDictionary::default_path().unwrap_or_default(),
+                        ),
+                        UserDictionary::default_path(),
+                    );
+                } else {
+                    tsf_msgbox(hwnd, "추가 실패: 이미 존재하거나 영문이 아닌 단어입니다.", MB_OK | MB_ICONWARNING);
                 }
             }
         }
-        ID_UD_BTN_DELETE => {
+        ID_UD_BTN_UPDATE | ID_UD_BTN_DELETE => {
             let pg = state.hwnd_page_userdict;
-            if let Some(lb) = find_child_by_id(pg, ID_UD_LIST) {
-                if let Some(sel) = listbox_get_sel(lb) {
-                    state.userdict.remove_at(sel);
-                    let _ = state.userdict.save_to_default_path();
+            let Some(lb) = find_child_by_id(pg, ID_UD_LIST) else { return };
+            let Some(sel) = listbox_get_sel(lb) else { return };
+            let Some(shown) = state.userdict.reverse_words.get(sel).cloned() else { return };
+            let is_update = ctrl_id == ID_UD_BTN_UPDATE;
+            let (word, note) = if is_update {
+                let word = find_child_by_id(pg, ID_UD_EDT_WORD)
+                    .map(|h| edit_get_text(h))
+                    .unwrap_or_default();
+                if word.is_empty() {
+                    return;
+                }
+                let note = find_child_by_id(pg, ID_UD_EDT_NOTE)
+                    .map(|h| edit_get_text(h))
+                    .filter(|s| !s.is_empty());
+                (word, note)
+            } else {
+                (String::new(), None)
+            };
+            let mut fresh = UserDictionary::load_from_default_path();
+            let found = fresh.reverse_words.iter().position(|e| {
+                e.word == shown.word && e.note == shown.note && e.added_at == shown.added_at
+            });
+            match found {
+                None => {
+                    state.userdict = fresh;
+                    refresh_userdict_page(pg, &state.userdict);
+                    tsf_msgbox(hwnd, "그사이 사전이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로고침했습니다.", MB_OK | MB_ICONWARNING);
+                }
+                Some(i) => {
+                    if is_update {
+                        if !fresh.update_at(i, &word, note) {
+                            tsf_msgbox(hwnd, "수정 실패: 중복이거나 영문이 아닌 단어입니다.", MB_OK | MB_ICONWARNING);
+                            return;
+                        }
+                    } else {
+                        fresh.remove_at(i);
+                    }
+                    match fresh.save_to_default_path() {
+                        Ok(()) => state.userdict = fresh,
+                        Err(e) => {
+                            report_list_save_err(hwnd, &e, UserDictionary::default_path());
+                            state.userdict = UserDictionary::load_from_default_path();
+                        }
+                    }
                     refresh_userdict_page(pg, &state.userdict);
                 }
             }
@@ -1666,6 +1920,27 @@ unsafe extern "system" fn settings_wnd_proc(
     }
 }
 
+/// 다이얼로그 좌표(cx, cy)를 해당 모니터의 작업 영역(작업 표시줄 제외) 안으로 clamp 한다.
+/// DPI awareness 를 별도로 설정하지 않으므로 DLG_W/DLG_H 는 항상 논리 픽셀 기준이며,
+/// 부모 중앙 배치만으로는 작업 표시줄이나 화면 경계를 벗어날 수 있어 캡션·버튼이
+/// 가려지는 것을 막기 위해 호출한다.
+unsafe fn clamp_to_work_area(hwnd_dlg: HWND, cx: i32, cy: i32) -> (i32, i32) {
+    let hmon = MonitorFromWindow(hwnd_dlg, MONITOR_DEFAULTTONEAREST);
+    let mut mi = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if GetMonitorInfoW(hmon, &mut mi).as_bool() {
+        let work = mi.rcWork;
+        let max_x = (work.right - DLG_W).max(work.left);
+        let max_y = (work.bottom - DLG_H).max(work.top);
+        let cx = cx.clamp(work.left, max_x);
+        let cy = cy.clamp(work.top, max_y);
+        return (cx, cy);
+    }
+    (cx, cy)
+}
+
 // ─── 공개 진입점 ─────────────────────────────────────────────────────────────
 
 /// 설정 다이얼로그를 모달로 표시한다.
@@ -1676,6 +1951,21 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
         let config = Config::load_from_default_path();
         let blacklist = Blacklist::load_from_default_path();
         let userdict = UserDictionary::load_from_default_path();
+        // 깨진 단어 파일이면 열 때 한 번 알린다(저장은 코어가 막는다).
+        if userdict.is_unreadable() {
+            report_list_save_err(
+                hwnd_parent,
+                &unim::atomic_io::unreadable_error(&UserDictionary::default_path().unwrap_or_default()),
+                UserDictionary::default_path(),
+            );
+        }
+        if blacklist.is_unreadable() {
+            report_list_save_err(
+                hwnd_parent,
+                &unim::atomic_io::unreadable_error(&Blacklist::default_path().unwrap_or_default()),
+                Blacklist::default_path(),
+            );
+        }
         let atf_baseline_enabled = config.engine.auto_typefix.enabled;
         let atf_baseline_forward = config.engine.auto_typefix.forward;
         let atf_baseline_reverse = config.engine.auto_typefix.reverse;
@@ -1688,6 +1978,7 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             hwnd_page_typefix: HWND::default(),
             hwnd_page_blacklist: HWND::default(),
             hwnd_page_userdict: HWND::default(),
+            hwnd_page_notify: HWND::default(),
             cur_tab: TAB_GENERAL,
             rule_set_entries: Vec::new(),
             chord_slider_y: 0,
@@ -1730,6 +2021,7 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             if GetWindowRect(hwnd_parent, &mut pr).is_ok() {
                 let cx = (pr.left + pr.right) / 2 - DLG_W / 2;
                 let cy = (pr.top + pr.bottom) / 2 - DLG_H / 2;
+                let (cx, cy) = clamp_to_work_area(hwnd_dlg, cx, cy);
                 let _ = SetWindowPos(hwnd_dlg, None, cx, cy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
         }

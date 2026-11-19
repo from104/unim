@@ -29,14 +29,14 @@ msgstr "Suppressed word removed."
 msgid "억제 단어를 모두 삭제했습니다."
 msgstr "All suppressed words removed."
 
-msgid "사용자 사전에 추가했습니다."
-msgstr "Added to the user dictionary."
+msgid "자동 교정 사전에 추가했습니다."
+msgstr "Added to the auto-correction dictionary."
 
 msgid "이미 등록된 단어입니다."
 msgstr "Already registered."
 
-msgid "사용자 사전에서 삭제했습니다."
-msgstr "Removed from the user dictionary."
+msgid "자동 교정 사전에서 삭제했습니다."
+msgstr "Removed from the auto-correction dictionary."
 
 msgid "기본값 복원을 되돌렸습니다."
 msgstr "Default restore undone."
@@ -148,8 +148,8 @@ msgstr "Typo Correction"
 msgid "억제 단어"
 msgstr "Suppressed Words"
 
-msgid "사용자 사전"
-msgstr "User Dictionary"
+msgid "자동 교정 사전"
+msgstr "Auto-correction Dictionary"
 
 msgid "입력기"
 msgstr "Input Method"
@@ -177,6 +177,12 @@ msgstr "Korean Commit Unit"
 
 msgid "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위). 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에서는 안전을 위해 항상 음절 단위로 동작합니다."
 msgstr "Choose whether to commit Korean composition per syllable or gather it per word. Smart selects automatically per app (MS Word and similar use word units). In terminals (ghostty, GNOME Terminal, etc.), XIM, and ibus-compatible paths, it always commits per syllable for safety."
+
+msgid "한자 출력 형식"
+msgstr "Hanja Output Format"
+
+msgid "漢字 · 한자(漢字) · 漢字(한자) — 한자 팝업에서 확정할 때 넣는 형식"
+msgstr "漢字 · 한자(漢字) · 漢字(한자) — text inserted when you confirm a hanja candidate"
 
 msgid "단어 모드 앱"
 msgstr "Word-mode Apps"
@@ -241,8 +247,8 @@ msgstr "e.g. Korean, RightAlt"
 msgid "한자 변환 키"
 msgstr "Hanja Conversion Key"
 
-msgid "한글을 한자로 변환할 때 사용할 키입니다."
-msgstr "The key used to convert Hangul to Hanja."
+msgid "조합 중이면 어절/음절 한자 변환, 한글 단어를 선택한 뒤 누르면 그 단어 변환, 그 외에는 이모지 팝업을 여는 키입니다."
+msgstr "The key that converts the word/syllable being typed, converts a selected Hangul word, and otherwise opens the emoji popup."
 
 msgid "예: Hanja, F9"
 msgstr "e.g. Hanja, F9"
@@ -289,8 +295,8 @@ msgstr "'One-handed': Sebeolsik Sun-arae layout + non-modifier toggle key + moac
 msgid "한/영 전환 소리 알림"
 msgstr "Korean/English Switch Sound"
 
-msgid "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다."
-msgstr "Announces the current mode with a short beep when switching Korean/English (Korean = high tone, English = low tone). Lets you confirm the mode without looking at the screen."
+msgid "한/영을 전환할 때 짧은 비프음(한글=높은 음 2번, 영문=낮은 음 1번)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다."
+msgstr "Announces the current mode with a short beep when switching Korean/English (Korean = two high beeps, English = one low beep). Lets you confirm the mode without looking at the screen."
 
 msgid "조합키 자동반복 억제"
 msgstr "Suppress Composition-key Auto-repeat"
@@ -427,11 +433,11 @@ msgstr "Learns when you undo a correction to avoid re-correcting it."
 msgid "되돌리기 감지"
 msgstr "Rollback detection"
 
-msgid "사용자 사전 사용"
-msgstr "Use User Dictionary"
+msgid "자동 교정 사전 사용"
+msgstr "Use Auto-correction Dictionary"
 
-msgid "사용자 사전에 등록한 단어를 교정에 반영합니다."
-msgstr "Applies words registered in the user dictionary to correction."
+msgid "자동 교정 사전에 등록한 단어를 교정에 반영합니다."
+msgstr "Applies words registered in the auto-correction dictionary to correction."
 
 msgid "기본값으로 복원"
 msgstr "Restore Defaults"
@@ -628,8 +634,8 @@ msgstr "Reverse correction (Korean->English)"
 msgid "오교정이 생기면"
 msgstr "If a mis-correction happens"
 
-msgid "• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '사용자 사전'에 등록할 수 있습니다."
-msgstr "• Delete the typo with Backspace and retype it: that word is learned and suppressed from correction.\n• In the 'Suppressed Words' tab you can confirm or remove suppressed words, with undo support.\n• Words to keep as English during reverse correction can be registered in the 'User Dictionary'."
+msgid "• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '자동 교정 사전'에 등록할 수 있습니다."
+msgstr "• Delete the typo with Backspace and retype it: that word is learned and suppressed from correction.\n• In the 'Suppressed Words' tab you can confirm or remove suppressed words, with undo support.\n• Words to keep as English during reverse correction can be registered in the 'Auto-correction Dictionary'."
 
 msgid "업데이트를 마쳤습니다"
 msgstr "Update complete"
@@ -640,8 +646,8 @@ msgstr "Setup complete"
 msgid "이제 UNIM 을 사용할 준비가 되었습니다. 주요 기능을 요약합니다:"
 msgstr "UNIM is ready to use. Here's a quick summary of what it offers:"
 
-msgid "• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 사용자 사전\n• 변경 즉시 저장되는 설정 GUI"
-msgstr "• Easy Korean/English switching with the toggle key\n• Auto typo correction recovers switch mistakes\n• Many layouts (Sebeolsik, Moachigi) and accessibility presets\n• Hanja conversion and a user dictionary\n• A settings GUI that saves changes instantly"
+msgid "• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 한자 사용자 사전\n• 변경 즉시 저장되는 설정 GUI"
+msgstr "• Easy Korean/English switching with the toggle key\n• Auto typo correction recovers switch mistakes\n• Many layouts (Sebeolsik, Moachigi) and accessibility presets\n• Hanja conversion and a Hanja user dictionary\n• A settings GUI that saves changes instantly"
 
 msgid "설정 열기"
 msgstr "Open Settings"
@@ -800,3 +806,257 @@ msgstr "Another input method framework detected"
 
 msgid "ibus 또는 fcitx 가 현재 실행 중입니다. 재로그인하면 UNIM 이 기본 입력기가 되며, 대개 자동으로 정리됩니다. 재로그인 후에도 한/영 전환이 되지 않으면 두 프레임워크 중 하나만 남기고 다시 재로그인하세요."
 msgstr "ibus or fcitx is currently running. Logging back in will make UNIM the default input method, and this usually clears up on its own. If Korean/English switching still doesn't work after logging back in, keep only one of the frameworks and log back in again."
+
+# 상황 알림(토스트) — NOTIFY_SPEC §5.
+msgid "자동"
+msgstr "Auto"
+
+msgid "한국어"
+msgstr "Korean"
+
+msgid "영어"
+msgstr "English"
+
+msgid "자동 (우하단)"
+msgstr "Auto (bottom right)"
+
+msgid "우상단"
+msgstr "Top right"
+
+msgid "우하단"
+msgstr "Bottom right"
+
+msgid "좌상단"
+msgstr "Top left"
+
+msgid "좌하단"
+msgstr "Bottom left"
+
+msgid "알림"
+msgstr "Notifications"
+
+msgid "상황 알림"
+msgstr "Situation Notifications"
+
+msgid "자동 교정 발동·비밀번호 칸 진입 같은 입력기 상황을 짧은 알림으로 알립니다. 포커스를 가져가지 않고 자동으로 사라집니다."
+msgstr "Briefly reports input-method situations such as auto-fix firing or entering a password field. It never takes focus and disappears automatically."
+
+msgid "상황 알림 사용"
+msgstr "Enable situation notifications"
+
+msgid "끄면 아래 이벤트가 모두 알림을 내지 않습니다."
+msgstr "When off, none of the events below produce a notification."
+
+msgid "알림 표시 시간 (ms)"
+msgstr "Notification duration (ms)"
+
+msgid "알림이 화면에 머무는 시간입니다. GNOME 알림 배너에는 적용되지 않습니다(GNOME 은 셸 고정 시간)."
+msgstr "How long a notification stays on screen. Not applied to GNOME notification banners (GNOME uses a fixed shell duration)."
+
+msgid "알림 표시 시간"
+msgstr "Notification duration"
+
+msgid "알림 언어"
+msgstr "Notification language"
+
+msgid "자동은 로케일 환경변수(LC_ALL > LC_MESSAGES > LANG)로 판정합니다. 세션 환경에 따라 비어 있을 수 있어 직접 선택을 권장합니다."
+msgstr "Auto uses the locale variables (LC_ALL > LC_MESSAGES > LANG). They may be empty depending on the session, so choosing a language explicitly is recommended."
+
+msgid "알림 표시 위치 (Windows 전용)"
+msgstr "Notification position (Windows only)"
+
+msgid "알림을 띄울 화면 모서리입니다. Linux 에서는 알림 서버가 위치를 정합니다."
+msgstr "Screen corner for the notification. On Linux the notification server decides the position."
+
+msgid "알림 표시 위치"
+msgstr "Notification position"
+
+msgid "교정 전후 텍스트 표시"
+msgstr "Show text before/after correction"
+
+msgid "기본은 꺼짐(가림)입니다. 켜면 비밀번호 칸을 감지하지 못하는 환경(XIM 등)에서 입력 일부가 알림 화면·알림 서버·잠금 화면에 보일 수 있습니다."
+msgstr "Off (masked) by default. When on, in environments that cannot detect password fields (XIM, etc.) part of what you type may appear on the notification, in the notification server and on the lock screen."
+
+msgid "알림 이벤트"
+msgstr "Notification Events"
+
+msgid "자동 교정됨"
+msgstr "Auto-fixed"
+
+msgid "영→한 / 한→영 자동 교정이 발동했을 때 알립니다."
+msgstr "Notifies when EN→KO / KO→EN auto-fix fired."
+
+msgid "자동 교정 건너뜀"
+msgstr "Auto-fix skipped"
+
+msgid "교정 억제 단어라서 교정하지 않았을 때 알립니다."
+msgstr "Notifies when a correction was skipped because the word is on the suppression list."
+
+msgid "임시 제외 학습"
+msgstr "Temporary exclusion learned"
+
+msgid "되돌린 교정을 학습해 단어를 임시 제외했을 때 알립니다."
+msgstr "Notifies when an undone correction was learned and the word was temporarily excluded."
+
+msgid "비밀번호 칸 진입"
+msgstr "Entered password field"
+
+msgid "같은 칸에서는 한 번만 알리고 10분이 지나면 다시 알립니다."
+msgstr "Announced once per field, and again after 10 minutes."
+
+msgid "비밀번호 칸 벗어남"
+msgstr "Left password field"
+
+msgid "비밀번호 칸에서 나왔을 때 알립니다."
+msgstr "Notifies when you leave a password field."
+
+msgid "한/영 전환 막힘"
+msgstr "Language toggle blocked"
+
+msgid "비밀번호 칸이라 한/영 전환이 거부됐을 때 알립니다."
+msgstr "Notifies when the Korean/English toggle was refused in a password field."
+
+msgid "한/영 모드 변경"
+msgstr "Korean/English mode changed"
+
+msgid "한글/영문 모드가 바뀔 때 알립니다(소리 알림과는 별개)."
+msgstr "Notifies when the Korean/English mode changes (separate from the sound alert)."
+
+msgid "자동 교정 켜짐/꺼짐"
+msgstr "Auto-fix turned on/off"
+
+msgid "토글 단축키로 자동 교정을 켜거나 껐을 때 알립니다."
+msgstr "Notifies when auto-fix is switched on or off with the toggle hotkey."
+
+msgid "기능 결과 (GNOME 확장)"
+msgstr "Feature results (GNOME extension)"
+
+msgid "TypeFIX 수동 변환·사전 등록 결과를 알립니다(GNOME 확장 알림)."
+msgstr "Notifies the result of manual TypeFIX conversion and dictionary registration (GNOME extension notifications)."
+
+# ── 한자 사용자 사전 (WP4) ──
+msgid "한자 사용자 사전"
+msgstr "Hanja User Dictionary"
+
+msgid "한자 사용자 사전에 추가했습니다."
+msgstr "Added to the Hanja user dictionary."
+
+msgid "고친 내용을 저장했습니다."
+msgstr "Changes saved."
+
+msgid "한자 사용자 사전에서 삭제했습니다."
+msgstr "Removed from the Hanja user dictionary."
+
+msgid "그 사이 항목이 바뀌어 작업하지 않았습니다. 목록을 새로 읽었습니다."
+msgstr "The entry changed in the meantime, so nothing was done. The list has been reloaded."
+
+msgid "읽을 수 없던 파일을 보관하고 새 사전으로 시작했습니다."
+msgstr "The unreadable file was set aside and a new dictionary was started."
+
+msgid "글자별 뜻 자동"
+msgstr "per-character meaning, automatic"
+
+msgid "한글을 입력하세요."
+msgstr "Enter the Hangul."
+
+msgid "뜻에는 줄바꿈·탭 같은 제어 문자를 쓸 수 없습니다."
+msgstr "The meaning cannot contain control characters such as line breaks or tabs."
+
+msgid "이미 같은 한글·한자 쌍이 등록되어 있습니다."
+msgstr "This Hangul/Hanja pair is already registered."
+
+msgid "항목을 찾을 수 없습니다."
+msgstr "Entry not found."
+
+msgid "한자 사용자 사전 파일을 읽을 수 없습니다"
+msgstr "The Hanja user dictionary file cannot be read"
+
+msgid "파일을 건드리지 않았습니다. 이 앱에서는 추가·수정·삭제가 막혀 있습니다."
+msgstr "The file was left untouched. Adding, editing and deleting are blocked here."
+
+msgid "한글 {}번째 글자 ‘{}’ 는 완성된 한글 글자가 아닙니다. (자모·공백·숫자·영문 불가)"
+msgstr "Hangul character {} ‘{}’ is not a complete Hangul syllable. (No jamo, spaces, digits or Latin letters.)"
+
+msgid "한글이 너무 깁니다 ({}글자). {}글자까지 가능합니다."
+msgstr "The Hangul is too long ({} characters). Up to {} characters are allowed."
+
+msgid "한글 {}글자, 한자 {}글자 — 글자 수가 같아야 합니다."
+msgstr "{} Hangul characters, {} Hanja characters — the counts must match."
+
+msgid "한자를 {}글자 더 입력하세요."
+msgstr "Enter {} more Hanja character(s)."
+
+msgid "한자 {}번째 글자 ‘{}’ 는 한자가 아닙니다."
+msgstr "Hanja character {} ‘{}’ is not a Hanja."
+
+msgid "뜻이 너무 깁니다 ({}자). {}자까지 가능합니다."
+msgstr "The meaning is too long ({} characters). Up to {} characters are allowed."
+
+msgid "{}개 항목"
+msgstr "{} entries"
+
+msgid "{} → {}    {}"
+msgstr "{} → {}    {}"
+
+msgid "⚠ {} → {}    ({})"
+msgstr "⚠ {} → {}    ({})"
+
+msgid "이 파일은 더 새 버전(version {})의 형식입니다. 읽기 전용으로만 다룹니다.\n{}"
+msgstr "This file uses a newer format (version {}). It is treated as read-only.\n{}"
+
+msgid "내가 등록한 한자를 한자 변환 후보 맨 앞에 올립니다. 변경 즉시 적용됩니다."
+msgstr "Hanja you register here are placed first among the Hanja conversion candidates. Changes apply immediately."
+
+msgid "보관하고 새로 시작"
+msgstr "Set aside and start fresh"
+
+msgid "읽을 수 없는 파일을 보관하고 새로 시작"
+msgstr "Set aside the unreadable file and start fresh"
+
+msgid "한자 항목 수정"
+msgstr "Edit Hanja Entry"
+
+msgid "한자 항목 추가"
+msgstr "Add Hanja Entry"
+
+msgid "한글(읽기)"
+msgstr "Hangul (reading)"
+
+msgid "예: 서기현"
+msgstr "e.g. 서기현"
+
+msgid "한자"
+msgstr "Hanja"
+
+msgid "한글을 쓰고 한자키로 한 글자씩 바꿔 넣으세요 (예: 서 → 徐)"
+msgstr "Type the Hangul, then use the Hanja key to replace one character at a time (e.g. 서 → 徐)"
+
+msgid "뜻 (선택)"
+msgstr "Meaning (optional)"
+
+msgid "비우면 글자별 뜻이 자동으로 붙습니다."
+msgstr "If left empty, per-character meanings are added automatically."
+
+msgid "뜻(선택)"
+msgstr "Meaning (optional)"
+
+msgid "뜻"
+msgstr "Meaning"
+
+msgid "새로 입력"
+msgstr "New Entry"
+
+msgid "고친 내용 저장"
+msgstr "Save Changes"
+
+msgid "그 사이 목록이 바뀌어 그 항목을 찾지 못했습니다. 목록을 새로 읽었습니다."
+msgstr "The list changed in the meantime and that entry is gone. The list was reloaded."
+
+msgid "읽을 수 없던 파일을 보관하고 새로 시작했습니다."
+msgstr "Set the unreadable file aside and started fresh."
+
+msgid "단어 파일을 읽을 수 없어(깨졌거나 더 새 버전) 단어가 사라지지 않도록 저장을 막았습니다. 파일은 그대로입니다.\n{}"
+msgstr "The word file is unreadable (corrupt or a newer version). Saving is blocked so no words are lost; the file is untouched.\n{}"
+
+msgid "단어 파일을 읽을 수 없습니다"
+msgstr "The word file is unreadable"

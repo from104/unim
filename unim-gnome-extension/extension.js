@@ -16,14 +16,17 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import { VirtualKeyboard } from './vkbd.js';
 import { UnimIndicator } from './indicator.js';
 import { UnimDbusIME } from './dbus_ime.js';
+import { SURROUNDING_WORD_REPLACE_KEY } from './capabilities.js';
 import { PopupView, unpackPopupRender } from './popup_view.js';
 import { UnimInputMethod } from './unim_input_method.js';
 import { KeyHandler } from './key_handler.js';
+import { NotifyBridge, NOTIFY_BRIDGE_NAME, notifyAllowed } from './notify_bridge.js';
 import { PreeditOverlay } from './preedit_overlay.js';
 // 한자/특수문자/이모지 popup 은 unim-popup-service (GTK4) 가 전담.
-// GNOME extension 은 popup show signal 시 emoji ZWSP preedit 만 관리하고
+// GNOME extension 은 popup show/hide signal 만 PopupView 에 중계하고(preedit 불변),
 // commit/cancel 결과는 daemon CommitText 시그널로 InputMethod 에 반영된다.
-import { unimLog, unimError } from './logging.js';
+import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
+import { verifyReplaceExpectation } from './surrounding_facts.js';
 
 /**
  * Wayland 컴포지터 위에서 도는지 판별한다.
@@ -60,10 +63,8 @@ export default class UnimExtension extends Extension {
         this._inputMethod = null;
         this._keyHandler = null;
         this._preeditOverlay = null;
-        // emoji popup 활성 여부 — ShowEmojiPopupV2 / HidePopup 시그널로 추적.
-        // popup 자체는 unim-popup-service 가 표시. extension 은 ZWSP preedit 으로
-        // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않도록 한다.
-        this._emojiPopupActive = false;
+        // popup 자체는 unim-popup-service 가 표시한다. 이모지 팝업용 ZWSP preedit 우회책은
+        // v3.5 에서 제거됨(GTK4 선택 삭제 원인) — _clearStaleZwspPreedit 만 방어로 남김.
 
         this._focusWindowId = 0;
 
@@ -76,7 +77,11 @@ export default class UnimExtension extends Extension {
     }
 
     enable() {
-        unimLog('EXTENSION', 'Extension 활성화 시작...');
+        // 어느 사본이 로드됐는지 남긴다 — 사용자 디렉터리의 옛 사본(make dev-extension)이
+        // 같은 UUID 의 시스템 설치본을 가리면 새 코드가 로드되지 않는데 겉으로는 구분이 안 된다
+        // (2026-10-04 실측: 0.4.1 사본이 0.4.4 설치본을 가려 수정이 반영되지 않음).
+        unimLog('EXTENSION', `Extension 활성화 시작... version=${this.metadata?.version ?? '?'} ` +
+                             `path=${this.path ?? '?'}`);
         try {
             this._settings = this.getSettings();
             this._vkbd = new VirtualKeyboard();
@@ -90,6 +95,8 @@ export default class UnimExtension extends Extension {
             // DBus 연결 (IME 모드 무관 — 인디케이터 모드 동기화 공용)
             // PR #3 부터 emoji 트리거 키바인딩은 제거됨 (engine 이 직접 키 받음).
             this._dbusIME = new UnimDbusIME();
+            // 대상③ 실측 스위치(HANJA_WORD_SPEC §6.5 (10)) — 연결·FocusIn 전에 주입해 첫 능력 선언부터 반영.
+            this._dbusIME.setSurroundingWordReplace(this._readSurroundingWordReplace());
             // 데몬 교체(`--replace`)·재시작을 확장이 스스로 따라가게 한다.
             this._dbusIME.setDaemonLifecycleCallbacks({
                 onReady: () => this._onDaemonReady(),
@@ -112,12 +119,20 @@ export default class UnimExtension extends Extension {
                 } catch (e) {
                     console.warn(`[unim] RegisterFrontend 실패: ${e.message}`);
                 }
+                // 알림 브리지 — 구독이 만들어진 뒤에만 gnome-shell-notify 를 등록한다
+                this._enableNotifyBridge();
             }
 
             // IME 활성화
             if (this._settings.get_boolean('enable-ime')) {
                 this._enableIME();
             }
+
+            // 실측 스위치 실시간 반영: 바뀌면 dbus_ime 가 현재 컨텍스트에 능력을 다시 선언한다.
+            // 시그널 ID 는 _settingsChangedIds 에 쌓여 disable() 에서 해제된다.
+            this._connectSettingChanged(SURROUNDING_WORD_REPLACE_KEY, () => {
+                this._dbusIME?.setSurroundingWordReplace(this._readSurroundingWordReplace());
+            });
 
             this._connectSettingChanged('enable-ime', () => {
                 const enabled = this._settings.get_boolean('enable-ime');
@@ -139,10 +154,16 @@ export default class UnimExtension extends Extension {
         if (this._dbusIME) {
             // 데몬에 프런트엔드 해제 (실패 무시 — disable 중이라 데몬이 없을 수 있음)
             try {
+                // 알림 브리지를 먼저 해제해야 데몬이 fdo 직접 경로로 돌아가 알림이 유실되지 않는다
+                this._dbusIME.unregisterFrontend(NOTIFY_BRIDGE_NAME);
                 this._dbusIME.unregisterFrontend('gnome-shell');
             } catch (_e) { /* no-op */ }
             this._dbusIME.destroy();
             this._dbusIME = null;
+        }
+        if (this._notifyBridge) {
+            this._notifyBridge.destroy();
+            this._notifyBridge = null;
         }
 
         // TypeFIX 단축키 해제
@@ -229,15 +250,17 @@ export default class UnimExtension extends Extension {
                     cancelHanja:         ()  => this._dbusIME.popupCancelHanja(),
                     cancelSpecial:       ()  => this._dbusIME.popupCancelSpecial(),
                 });
+                this._inputMethod.setPopupVisibleQuery(() => this._popupView?.isVisible === true);
                 unimLog('EXTENSION', 'PopupView 활성 (GNOME Wayland)');
             } else {
                 this._popupView = null;
                 unimLog('EXTENSION', 'PopupView 비활성 (X11) — popup-service GTK4 popup 이 전담');
             }
 
-            // popup-service signal → PopupView. emoji popup 의 ZWSP preedit 트릭은
-            // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않게
-            // 보장 (별도 책임). 한자/특수는 preedit 활성 상태에서 트리거되므로 IM 이 이미 engage.
+            // popup-service signal → PopupView. 이모지 팝업을 띄울 때 ZWSP preedit 을 세우던
+            // 우회책(51d083b)은 제거됐다 — GTK4 GtkTextView 는 preedit-start 때 선택 영역을
+            // 지워 한자키로 이모지가 뜬 순간 선택이 사라졌고, cursor-jump flush 가 ZWSP 를
+            // 문서에 실제로 커밋하기도 했다(POPUP_SPEC v3.5). 팝업 표시는 IM 세션 상태와 무관하다.
             this._dbusIME.setPopupCallbacks({
                 onShowHanja: (cursorRect) => {
                     if (this._popupView) this._popupView.show(cursorRect);
@@ -246,17 +269,11 @@ export default class UnimExtension extends Extension {
                     if (this._popupView) this._popupView.show(cursorRect);
                 },
                 onShowEmoji: (cursorRect) => {
-                    this._emojiPopupActive = true;
-                    if (this._inputMethod) {
-                        this._inputMethod.updatePreedit('​'); // ZWSP — invisible
-                    }
+                    // preedit 을 건드리지 않는다 — 선택 영역·문서 보존(v3.5).
                     if (this._popupView) this._popupView.show(cursorRect);
                 },
                 onHidePopup: () => {
-                    if (this._emojiPopupActive && this._inputMethod) {
-                        this._inputMethod.updatePreedit('');
-                    }
-                    this._emojiPopupActive = false;
+                    this._clearStaleZwspPreedit();
                     if (this._popupView) this._popupView.hide();
                 },
                 onPopupRender: (parameters) => {
@@ -275,7 +292,7 @@ export default class UnimExtension extends Extension {
                     // 도착 시점의 캐럿(=클릭한 자리)에 같은 글자가 한 번 더 들어간다.
                     if (text && this._inputMethod) {
                         if (this._inputMethod.shouldSuppressCommitEcho(text)) {
-                            unimLog('EXT', `CommitText 메아리 무시: '${text}'`);
+                            unimLog('EXT', `CommitText 메아리 무시: len=${Array.from(text).length}`);
                             return;
                         }
                         this._inputMethod.commitText(text);
@@ -288,9 +305,33 @@ export default class UnimExtension extends Extension {
                         this._inputMethod.updatePreedit(visible ? text : '');
                     }
                 },
+                onReplaceSurrounding: (deleteBefore, deleteAfter, commitText, expectText) => {
+                    // 대상③ 확정(HANJA_WORD_SPEC §2.4b.5) — 커서 앞 a자·뒤 b자를 지우고 확정한다.
+                    // onAutoTypeFix 와 같은 포커스 게이트: 포커스가 없으면 버린다(문서 무변경).
+                    // 실행 전에 마지막 surrounding 캐시로 `text[cursor-a .. cursor+b] == expect` 를
+                    // 대조해 맞지 않으면 드롭한다(통합 계획 §2.1 F7). 로그는 a·b·길이만(평문 금지).
+                    if (!this._inputMethod?._hasFocus) {
+                        unimLog('EXT', `ReplaceSurrounding 버림: reason=nofocus, a=${deleteBefore}, b=${deleteAfter}`);
+                        return;
+                    }
+                    const v = verifyReplaceExpectation(
+                        this._inputMethod.getSurroundingCache(), deleteBefore, deleteAfter, expectText);
+                    if (!v.ok) {
+                        unimLog('EXT', `ReplaceSurrounding 버림: reason=${v.reason}, a=${deleteBefore}, b=${deleteAfter}, expectLen=${v.expectLen}, cacheLen=${v.cacheLen}`);
+                        return;
+                    }
+                    this._inputMethod.replaceSurrounding(deleteBefore, deleteAfter, commitText);
+                },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
-                        unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                        // 평문 금지(HANJA_WORD_SPEC §2.8) — 길이만 남긴다.
+                        unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commitLen=${Array.from(commitText ?? '').length}, preeditLen=${Array.from(preeditText ?? '').length}`);
+                        // 한자 단어 교체 잔상 방지: 남은 preedit(조합 중인 음절)이 있으면
+                        // BS 를 보내기 전에 먼저 지운다 — 안 지우면 아래 backspace 로 실제
+                        // 문서 텍스트를 지우는 동안 화면엔 옛 조합 음절이 겹쳐 보인다.
+                        if (this._inputMethod._preeditText?.length) {
+                            this._inputMethod.clearPreedit();
+                        }
                         // self-feedback 차단: vkbd가 보낼 backspace가 IM filter로 재진입할 때
                         // unim 엔진을 거치지 않고 곧바로 앱에 전달되도록 사전 등록
                         this._inputMethod.expectSelfBackspaces(deleteChars);
@@ -394,21 +435,20 @@ export default class UnimExtension extends Extension {
 
         // PopupView 정리 — GNOME Wayland 환경에서 extension 이 직접 렌더한 popup.
         // popup-service 측 dismiss 는 CancelHanja/CancelSpecialChar RPC 로 별도 처리됨.
+        this._inputMethod?.setPopupVisibleQuery(null);
         if (this._popupView) {
             this._popupView.destroy();
             this._popupView = null;
         }
 
-        // ZWSP preedit 잔재 정리.
-        if (this._emojiPopupActive && this._inputMethod) {
-            this._inputMethod.updatePreedit('');
-        }
-        this._emojiPopupActive = false;
+        // 구버전이 세운 ZWSP preedit 잔재 정리(방어).
+        this._clearStaleZwspPreedit();
 
         // (DBus 연결 자체는 disable()이 정리 — IME 토글 시 유지하여 emoji 단축키 보존)
 
         // InputMethod Wrapper 정리
         if (this._inputMethod) {
+            this._inputMethod.destroyPoke();   // 빈 preedit 왕복(S0b)의 타이머·idle 소스 제거
             this._inputMethod.setActive(false);
             this._inputMethod = null;
         }
@@ -424,6 +464,10 @@ export default class UnimExtension extends Extension {
      */
     _onFocusWindowChanged() {
         const focusWindow = global.display.focus_window;
+        if (isUnimDevelop()) {
+            unimProbe('win_focus_notify',
+                `has_window=${focusWindow ? 1 : 0} im_focus=${this._inputMethod?.hasFocus() ? 1 : 0}`);
+        }
 
         // popup-service 가 자체 outside-click dismiss 처리. focus null 케이스도 popup-service
         // 가 GTK4 grab 으로 직접 캡처하므로 GNOME extension 은 별도 분기 불필요.
@@ -452,7 +496,12 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(commit);
             }
             this._dbusIME.focusIn(windowId);
+            unimProbe('win_focus_in_sent', `im_focus=${this._inputMethod?.hasFocus() ? 1 : 0}`);
             if (this._indicator) this._indicator.setInputActive(true);
+            // 창 FocusIn 은 엔진의 낡음(stale)을 세운다. mutter 가 새 필드의 set_surrounding 을 이보다
+            // 먼저 넘겼다면 그 스냅샷으로 낡음이 안 풀리므로, 같은 필드 세대의 마지막 스냅샷을 한 번
+            // 더 보낸다(포커스 없음·비밀번호 칸·그 뒤 힌트·커밋이 있었으면 안 보낸다).
+            this._inputMethod?.resendSurroundingFacts('win_focus_in');
         }
 
         this._preeditOverlay?.hide();
@@ -472,10 +521,18 @@ export default class UnimExtension extends Extension {
             this._dbusIME.popupCancelHanja();
             this._dbusIME.popupCancelSpecial();
         }
-        if (this._emojiPopupActive && this._inputMethod) {
-            this._inputMethod.updatePreedit('');
+        this._clearStaleZwspPreedit();
+    }
+
+    /**
+     * preedit 이 ZWSP(U+200B) 한 글자일 때만 지운다 — 이모지 팝업이 더는 ZWSP 를 세우지
+     * 않지만, 진짜 조합 중 preedit 을 건드리지 않도록 정확히 ZWSP 일 때만 방어적으로 정리.
+     * @private
+     */
+    _clearStaleZwspPreedit() {
+        if (this._inputMethod?._preeditText === '\u200B') {
+            this._inputMethod.clearPreedit();
         }
-        this._emojiPopupActive = false;
     }
 
     /**
@@ -498,6 +555,8 @@ export default class UnimExtension extends Extension {
         } catch (e) {
             console.warn(`[unim] 재연결 후 RegisterFrontend 실패: ${e.message}`);
         }
+        // 데몬 재시작으로 등록 목록이 비었다 — 브리지가 켜져 있으면 다시 등록한다
+        this._registerNotifyBridge();
         // IME 를 쓰고 있을 때만 포커스를 되살린다 — 꺼둔 상태에서 포커스를
         // 심으면 데몬이 쓰지도 않을 컨텍스트를 활성으로 본다.
         if (this._inputMethod) {
@@ -508,6 +567,75 @@ export default class UnimExtension extends Extension {
             }
         }
         unimLog('EXTENSION', 'unim-daemon 재연결 — 프런트엔드 등록·포커스 복원');
+    }
+
+    // ===========================================
+    // 상황 알림 (NOTIFY_SPEC §3.3 P2)
+    // ===========================================
+
+    /**
+     * 알림 브리지를 만들고 `Notify` 시그널 구독 뒤 `gnome-shell-notify` 를 등록한다.
+     * 이 셸이 MessageTray API 를 지원하지 않으면 만들지 않는다 → 등록도 없어 데몬 fdo 폴백.
+     * @private
+     */
+    _enableNotifyBridge() {
+        if (!this._dbusIME || this._notifyBridge) return;
+        if (!NotifyBridge.supported()) {
+            unimLog('EXTENSION', 'MessageTray 미지원 — 알림 브리지 없음(데몬 fdo 폴백)');
+            return;
+        }
+        this._notifyBridge = new NotifyBridge({
+            getNotifyConfig: () => this._getNotifyConfig(),
+        });
+        this._dbusIME.setOnNotify((kind, title, body, durationMs, flags) =>
+            this._notifyBridge?.onNotifySignal(kind, title, body, durationMs, flags));
+        this._registerNotifyBridge();
+    }
+
+    /**
+     * 브리지가 켜져 있으면(확장 활성 + Notify 구독 존재) `gnome-shell-notify` 를 등록한다.
+     * 멱등 — enable·데몬 재연결(_onDaemonReady)에서 호출한다.
+     * @private
+     */
+    _registerNotifyBridge() {
+        if (!this._notifyBridge || !this._dbusIME) return;
+        if (!this._dbusIME.hasNotifySubscription()) return;
+        this._dbusIME.registerFrontend(NOTIFY_BRIDGE_NAME);
+    }
+
+    /**
+     * 데몬 설정 캐시의 `engine.notify` (없으면 null).
+     * @returns {object|null}
+     * @private
+     */
+    _getNotifyConfig() {
+        const cfg = this._dbusIME ? this._dbusIME.getCachedConfig() : null;
+        return cfg && cfg.engine && cfg.engine.notify ? cfg.engine.notify : null;
+    }
+
+    /**
+     * 확장 로컬 `feature_result` 알림 (TypeFIX 수동 변환·사용자 사전 등록 결과).
+     *
+     * gschema `show-notification` **AND** 데몬 `engine.notify`(enabled·events 의 feature_result)
+     * 둘 다 켜져야 뜬다(E1). `engine.notify.show_text` 가 꺼져 있으면(기본·설정 미확인 포함)
+     * 입력 텍스트가 없는 `maskedBody` 를 쓴다 — 알림 문구에 사용자 텍스트가 새지 않게(D1).
+     *
+     * @param {string} title
+     * @param {string} textBody - 텍스트 포함 문구 (show_text=true 일 때만 쓰임)
+     * @param {string} maskedBody - 텍스트 없는 문구
+     * @private
+     */
+    _notifyFeatureResult(title, textBody, maskedBody) {
+        if (!this._settings?.get_boolean('show-notification')) return;
+        const cfg = this._getNotifyConfig();
+        if (!notifyAllowed(cfg, 'feature_result')) return;
+        const body = cfg && cfg.show_text === true ? textBody : maskedBody;
+        if (this._notifyBridge) {
+            this._notifyBridge.show(title, body);
+            unimLog('NOTIFY', '[Notify] kind=feature_result 경로=extension');
+        } else {
+            Main.notify(title, body);
+        }
     }
 
     /**
@@ -573,6 +701,22 @@ export default class UnimExtension extends Extension {
         }
 
         return defaults;
+    }
+
+    /**
+     * 대상③ 스위치(`surrounding-word-replace`, 기본 켬) 읽기. 스키마가 옛것(키 없음)이면 false —
+     * 키가 없는 스키마에서 get_boolean 은 치명 오류라 has_key 로 먼저 확인한다.
+     * @returns {boolean}
+     * @private
+     */
+    _readSurroundingWordReplace() {
+        try {
+            if (!this._settings?.settings_schema?.has_key(SURROUNDING_WORD_REPLACE_KEY)) return false;
+            return this._settings.get_boolean(SURROUNDING_WORD_REPLACE_KEY) === true;
+        } catch (e) {
+            unimError('EXTENSION', `${SURROUNDING_WORD_REPLACE_KEY} 읽기 실패, false 사용: ${e.message}`);
+            return false;
+        }
     }
 
     /**
@@ -714,7 +858,7 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacement='${replacement}'`);
+            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacementLen=${Array.from(replacement).length}`);  // 평문 금지(HANJA_WORD_SPEC §2.8)
 
             // 텍스트 치환: 정확한 위치에서 선택 텍스트 삭제 후 대체 텍스트 커밋
             if (this._inputMethod) {
@@ -722,9 +866,11 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(replacement);
             }
 
-            if (this._settings.get_boolean('show-notification')) {
-                Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(replacement));
-            }
+            this._notifyFeatureResult(
+                _('UNIM TypeFIX'),
+                _('Conversion complete: %s').format(replacement),
+                _('Conversion complete')
+            );
         } catch (e) {
             unimError('EXTENSION', `TypeFIX DBus 오류: ${e.message}`);
         } finally {
@@ -776,23 +922,18 @@ export default class UnimExtension extends Extension {
             const [word] = result.deep_unpack();
 
             if (!word) {
-                if (this._settings.get_boolean('show-notification')) {
-                    Main.notify(
-                        _('UNIM Dictionary'),
-                        _('Selection is empty, invalid, or already registered.')
-                    );
-                }
+                const msg = _('Selection is empty, invalid, or already registered.');
+                this._notifyFeatureResult(_('UNIM Dictionary'), msg, msg);
                 return;
             }
 
-            unimLog('EXTENSION', `UserDict 등록: '${word}'`);
+            unimLog('EXTENSION', `UserDict 등록: len=${Array.from(word).length}`);  // 평문 금지(HANJA_WORD_SPEC §2.8)
 
-            if (this._settings.get_boolean('show-notification')) {
-                Main.notify(
-                    _('UNIM Dictionary'),
-                    _("Registered '%s' to the reverse user dictionary.").format(word)
-                );
-            }
+            this._notifyFeatureResult(
+                _('UNIM Dictionary'),
+                _("Registered '%s' to the reverse auto-correction dictionary.").format(word),
+                _('Registered to the reverse auto-correction dictionary.')
+            );
         } catch (e) {
             unimError('EXTENSION', `UserDict DBus 오류: ${e.message}`);
         }

@@ -295,8 +295,9 @@ impl PopupState {
 
             PopupKey::Period => PopupKeyResult::Consumed,
             PopupKey::Modifier => PopupKeyResult::Consumed,
-            // CatLetter 는 이모지 전용 키 — 특수문자 모드에서는 무관, 키 소비.
-            PopupKey::CatLetter(_) => PopupKeyResult::Consumed,
+            // CatLetter 는 이모지 전용 키 — 특수문자 모드에서는 기타 키(POPUP_SPEC §4.5):
+            // 팝업 닫고 재처리. 소비하면 홈 행 글자(두벌식 ㅁㄴㅇㄹㅎㅗㅓㅏㅣ)가 사라진다.
+            PopupKey::CatLetter(_) => PopupKeyResult::NotHandled,
             PopupKey::Other | PopupKey::Backspace => PopupKeyResult::NotHandled,
         }
     }
@@ -308,6 +309,10 @@ impl PopupState {
             PopupKey::Escape => PopupKeyResult::Cancel,
 
             PopupKey::Period => {
+                // 한자 단어(2음절 이상) 팝업은 확장 없음 — 키만 소비 (v3.5 §3.7-12).
+                if self.hanja_word {
+                    return PopupKeyResult::Consumed;
+                }
                 self.toggle_hanja_expanded();
                 PopupKeyResult::Updated
             }
@@ -484,8 +489,10 @@ impl PopupState {
                     PopupKeyResult::NotHandled
                 }
             }
-            // CatLetter 는 이모지 전용 키 — 한자 모드에서는 무관, 키 소비.
-            PopupKey::CatLetter(_) => PopupKeyResult::Consumed,
+            // CatLetter 는 이모지 전용 키 — 한자 모드에서는 기타 키(POPUP_SPEC §3.4):
+            // 팝업 닫고 재처리. 소비하면 팝업을 둔 채 다음 단어를 치는 홈 행 글자
+            // (두벌식 ㅁㄴㅇㄹㅎㅗㅓㅏㅣ 등)가 사라진다(Windows 실측 2026-11-17).
+            PopupKey::CatLetter(_) => PopupKeyResult::NotHandled,
             PopupKey::Other => PopupKeyResult::NotHandled,
         }
     }

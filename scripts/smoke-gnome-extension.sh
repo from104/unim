@@ -47,7 +47,29 @@ SMOKE_CFG="$(mktemp -d -t unim-smoke-cfg-XXXXXX)"
 # 워크트리 확장을 임시 XDG_DATA_HOME 에 올린다 — 실사용 설치본을 건드리지 않고
 # 지금 소스를 검사하기 위해서다. 구성은 install-gnome-extension 과 같다.
 SMOKE_DATA="$(mktemp -d -t unim-smoke-data-XXXXXX)"
-trap 'rm -f "$LOG" "$LOG.daemon" "$INNER"; rm -rf "$SMOKE_CFG" "$SMOKE_DATA"' EXIT
+# XDG_RUNTIME_DIR 도 가른다. 데몬의 PID 파일(unim-daemon.pid)이 여기에 있어서,
+# 공유하면 스모크 데몬이 실사용 데몬을 보고 "이미 실행 중"이라며 물러난다.
+# 그러면 확장이 격리 버스에서 이름을 부를 때 D-Bus 자동 활성화가 설치본
+# `unim-daemon -n --replace` 를 띄우고, 그 --replace 가 공유 PID 파일을 읽어
+# **실사용 데몬을 SIGTERM 으로 죽인다**(2026-09-23 실측 — 화면 잠금 중 입력기가
+# 3시간 죽어 있었다). 아래 서비스 파일 가림막과 함께 이중으로 막는다.
+SMOKE_RUN="$(mktemp -d -t unim-smoke-run-XXXXXX)"
+chmod 700 "$SMOKE_RUN"
+trap 'rm -f "$LOG" "$LOG.daemon" "$INNER"; rm -rf "$SMOKE_CFG" "$SMOKE_DATA" "$SMOKE_RUN"' EXIT
+
+# 격리 버스에서 org.atit.unim.InputMethod 자동 활성화를 막는다. 세션 버스는
+# $XDG_DATA_HOME/dbus-1/services 를 시스템 경로보다 먼저 보고 먼저 찾은 것을
+# 쓰므로, 여기 둔 가림막이 /usr/share 의 `--replace` 서비스 파일을 이긴다.
+# 데몬은 INNER 가 직접 띄운다 — 활성화로 뜨는 데몬은 없어야 한다.
+mkdir -p "$SMOKE_DATA/dbus-1/services"
+cat >"$SMOKE_DATA/dbus-1/services/org.atit.unim.InputMethod.service" <<'SVC_EOF'
+[D-BUS Service]
+Name=org.atit.unim.InputMethod
+Exec=/bin/false
+SVC_EOF
+
+# 실사용 데몬이 스모크 전후로 그대로인지 확인한다(마지막에 대조).
+LIVE_DAEMON_BEFORE="$(pgrep -x unim-daemon | sort | paste -sd' ')"
 
 EXT_STAGE="$SMOKE_DATA/gnome-shell/extensions/$UUID"
 mkdir -p "$EXT_STAGE"
@@ -106,7 +128,7 @@ INNER_EOF
 chmod +x "$INNER"
 
 timeout -s TERM "$TIMEOUT" env UNIM_DEVELOP=1 LANG=C.UTF-8 \
-    XDG_CONFIG_HOME="$SMOKE_CFG" XDG_DATA_HOME="$SMOKE_DATA" \
+    XDG_CONFIG_HOME="$SMOKE_CFG" XDG_DATA_HOME="$SMOKE_DATA" XDG_RUNTIME_DIR="$SMOKE_RUN" \
     UNIM_SMOKE_UUID="$UUID" UNIM_SMOKE_WL_DISPLAY="$DISPLAY_NAME" \
     UNIM_SMOKE_DAEMON_BIN="$DAEMON_BIN" UNIM_SMOKE_DAEMON_LOG="$LOG.daemon" \
     dbus-run-session -- "$INNER" >"$LOG" 2>&1
@@ -114,6 +136,29 @@ timeout -s TERM "$TIMEOUT" env UNIM_DEVELOP=1 LANG=C.UTF-8 \
 # 셸은 제한시간에 SIGTERM 으로 끝난다(=124). 그건 정상 종료로 본다 —
 # 우리가 보는 것은 종료 코드가 아니라 활성화 로그다.
 fail=0
+
+# 스모크 데몬 정리 — 세션 버스가 닫혀도 잠깐 남는다. 격리된 PID 파일로만 찾는다
+# (pgrep 이름 매칭은 실사용 데몬까지 잡으므로 쓰지 않는다).
+SMOKE_DAEMON_PID="$(cat "$SMOKE_RUN/unim-daemon.pid" 2>/dev/null)"
+if [ -n "$SMOKE_DAEMON_PID" ] && kill -0 "$SMOKE_DAEMON_PID" 2>/dev/null; then
+    kill "$SMOKE_DAEMON_PID" 2>/dev/null
+    for _ in $(seq 1 20); do kill -0 "$SMOKE_DAEMON_PID" 2>/dev/null || break; sleep 0.1; done
+fi
+
+# 실사용 데몬 보호 확인 — 격리가 새면 가장 먼저 여기서 드러난다. 시작 전에 있던
+# 데몬이 전부 살아 있어야 한다(스모크 쪽 프로세스가 더 보이는 건 문제가 아니다).
+LIVE_DAEMON_AFTER="$(pgrep -x unim-daemon | sort | paste -sd' ')"
+live_lost=""
+for pid in $LIVE_DAEMON_BEFORE; do
+    kill -0 "$pid" 2>/dev/null || live_lost="$live_lost $pid"
+done
+if [ -n "$live_lost" ]; then
+    echo "❌ 실사용 unim-daemon 이 죽었다:$live_lost (지금: [${LIVE_DAEMON_AFTER:-없음}])"
+    echo "   스모크 격리가 샜다. 입력기가 죽었으면 로그아웃 없이 이렇게 되살린다:"
+    echo "   gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \\"
+    echo "     --method org.freedesktop.DBus.StartServiceByName org.atit.unim.InputMethod 0"
+    fail=1
+fi
 
 if grep -q 'IME 활성화 실패' "$LOG"; then
     echo "❌ IME 활성화가 예외로 끝났다:"

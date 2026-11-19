@@ -49,6 +49,14 @@
       <description>Enable real-time Korean input method (Clutter.InputMethod, Wayland only)</description>
     </key>
 
+    <!-- 대상③ 스위치 — prefs UI 에 노출하지 않는다. GUI·CLI(config.yaml) 설정 동기 대상이 아닌
+         GNOME 전용 GSettings 키 예외(unim-gnome-extension/SPEC.md §5.1). 0.4.5 부터 기본 켬(실측 완료). -->
+    <key type="b" name="surrounding-word-replace">
+      <default>true</default>
+      <summary>Enable cursor-word Hanja replacement</summary>
+      <description>HANJA_WORD_SPEC §2.4b — 커서가 걸친 단어를 한자로 확정(delete_surrounding + commit). 2026-11 실측 뒤 기본 켬. 끄면 REPLACE_SURROUNDING 능력을 선언하지 않아 커서가 걸친 단어에서 한자키는 이모지가 된다. Declares the REPLACE_SURROUNDING capability so the engine confirms Hanja for the word under the cursor via delete_surrounding + commit; turn off to fall back to the emoji popup.</description>
+    </key>
+
     <!-- ============================================ -->
     <!-- TypeFix Shortcut Settings (Main.wm.addKeybinding) -->
     <!-- ============================================ -->
@@ -67,8 +75,8 @@
 
     <key type="as" name="shortcut-register-userdict">
       <default>['&lt;Super&gt;e']</default>
-      <summary>Register Selection to Reverse User Dictionary</summary>
-      <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix user dictionary.</description>
+      <summary>Register Selection to Reverse Auto-correction Dictionary</summary>
+      <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix auto-correction dictionary.</description>
     </key>
 
     <!-- 이모지 팝업 단축키 설정은 제공하지 않는다.

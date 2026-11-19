@@ -11,14 +11,25 @@ mod candidates;
 mod chord_buffer;
 pub mod chord_compose;
 mod engine;
+mod hanja_lookup;
+mod hanja_word;
 mod popup_dispatch;
 mod press_key;
 mod surrounding;
+mod surrounding_word;
 mod types;
 
 pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
-pub use types::{AtfHotkey, AtfToggleKind, InputResult, PageDirection, PopupAction};
+pub use surrounding_word::DeferTrigger;
+pub use types::{
+    AtfHotkey, AtfToggleKind, HanjaReplacement, HanjaSource, InputResult, PageDirection,
+    PopupAction, SurroundingWordCarry, HANJA_MAX_KEY_CHARS, RECENT_SYLLABLE_CAP,
+    SURROUNDING_CAP_POINTER_HINTS, SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+    SURROUNDING_DEFER_TOTAL_MAX_MS, SURROUNDING_DEFER_WAIT_MS, SURROUNDING_HINT_FIELD_FOCUS, SURROUNDING_SETTLE_MS,
+    SURROUNDING_HINT_KEY, SURROUNDING_HINT_POINTER_PLAIN, SURROUNDING_HINT_POINTER_SELECT,
+    SURROUNDING_HINT_PRIMARY_CHANGED, SURROUNDING_HINT_POINTER_APP, SURROUNDING_HINT_PRIMARY_EMPTY, SURROUNDING_HINT_SELECTION_UNKNOWN,
+};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
@@ -43,6 +54,14 @@ mod tests_chord_compose;
 mod tests_toggle;
 #[cfg(test)]
 mod tests_atf_hotkey;
+#[cfg(test)]
+mod tests_hanja_word;
+#[cfg(test)]
+mod tests_hanja_userdict;
+#[cfg(test)]
+mod tests_surrounding_contract;
+#[cfg(test)]
+mod tests_surrounding_word;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///

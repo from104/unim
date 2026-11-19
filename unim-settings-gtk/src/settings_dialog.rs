@@ -14,7 +14,9 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    CommitUnit, Config, InputCategory, ModeSharingMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+    CommitUnit, Config, HanjaOutputFormat, InputCategory, ModeSharingMode, NotifyCorner,
+    NotifyLanguage, NOTIFY_EVENT_NAMES,
+    AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
     AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
@@ -121,6 +123,15 @@ pub fn show_settings_dialog(app: &adw::Application) {
     page_typefix.add(&reverse_group);
     window.add(&page_typefix);
 
+    // ── 알림 페이지 (NOTIFY_SPEC §5) ──────────────────────────
+    let page_notify = adw::PreferencesPage::builder()
+        .title(t!("page_notify_title"))
+        .icon_name("preferences-system-notifications-symbolic")
+        .build();
+    page_notify.add(&build_notify_group(&state));
+    page_notify.add(&build_notify_events_group(&state));
+    window.add(&page_notify);
+
     // ── Page 3: 교정 억제 단어 ────────────────────────────────
     let page_blacklist = build_blacklist_page();
     window.add(&page_blacklist);
@@ -128,6 +139,10 @@ pub fn show_settings_dialog(app: &adw::Application) {
     // ── Page 4: 사용자 사전 (역방향 whitelist) ───────────────
     let page_userdict = build_userdict_page(&window);
     window.add(&page_userdict);
+
+    // ── Page 4b: 한자 사용자 사전 (한자키 후보 앞자리) ───────
+    let page_hanja_dict = crate::hanja_dict_page::build_hanja_dict_page(&window);
+    window.add(&page_hanja_dict);
 
     // ── Page 5: GNOME Shell (GNOME 세션 전용) ────────────────
     if is_gnome_session() {
@@ -609,6 +624,43 @@ fn build_keymap_group(
         "hanja_keys",
     ));
 
+    // 한자 출력 형식 (漢字 / 한글(한자) / 한자(한글)) — 수치 아님이라 ComboRow (commit_row 선례)
+    let hanja_fmt_row = adw::ComboRow::builder()
+        .title(t!("row_hanja_output_format"))
+        .subtitle(t!("row_hanja_output_format_subtitle"))
+        .build();
+    hanja_fmt_row.set_tooltip_text(Some(t!("row_hanja_output_format_tooltip").as_ref()));
+    let hanja_fmt_list = gtk4::StringList::new(&[
+        t!("hanja_output_format_hanja").as_ref(),
+        t!("hanja_output_format_hangul_hanja").as_ref(),
+        t!("hanja_output_format_hanja_hangul").as_ref(),
+    ]);
+    hanja_fmt_row.set_model(Some(&hanja_fmt_list));
+    {
+        let s = state.borrow();
+        hanja_fmt_row.set_selected(match s.config.engine.korean.hanja_output_format {
+            HanjaOutputFormat::Hanja => 0,
+            HanjaOutputFormat::HangulHanja => 1,
+            HanjaOutputFormat::HanjaHangul => 2,
+        });
+    }
+    {
+        let state_c = state.clone();
+        hanja_fmt_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.korean.hanja_output_format = match row.selected() {
+                0 => HanjaOutputFormat::Hanja,
+                1 => HanjaOutputFormat::HangulHanja,
+                _ => HanjaOutputFormat::HanjaHangul,
+            };
+            save_and_notify(&s.config, "hanja_output_format");
+        });
+    }
+    group.add(&hanja_fmt_row);
+
     // 단축키 설정 row 는 제거됨 — 한자 키 idle 상태가 단일 진입점.
     // 이모지 팝업은 항상 활성 — 별도 토글 없음.
 
@@ -779,8 +831,8 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
 
 /// I7: 접근성 그룹 — 한/영 전환 소리 알림(비프) 토글.
 ///
-/// 시각장애 사용자가 화면 없이도 한/영 토글 후 현재 모드를 소리 높낮이(한글=높은
-/// 음, 영문=낮은 음)로 확인할 수 있게 한다. Windows TSF 전용 기능이지만 설정은
+/// 시각장애 사용자가 화면 없이도 한/영 토글 후 현재 모드를 소리 높낮이와 횟수
+/// (한글=높은 음 2번, 영문=낮은 음 1번)로 확인할 수 있게 한다. Windows TSF 전용 기능이지만 설정은
 /// 단일 config.yaml 을 공유하므로 모든 프런트엔드에서 편집 가능하게 노출한다.
 fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
@@ -832,6 +884,190 @@ fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&sw_repeat);
+
+    group
+}
+
+// ─────────────────────────────────────────────────────────────
+// 알림 페이지: 상황 알림(토스트) — NOTIFY_SPEC §5
+// ─────────────────────────────────────────────────────────────
+
+/// 알림 전역 설정 그룹 — 전역 스위치·표시 시간·언어·모서리·텍스트 표시.
+fn build_notify_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_notify"))
+        .description(t!("group_notify_desc"))
+        .build();
+
+    // 전역 스위치
+    let sw = adw::SwitchRow::builder()
+        .title(t!("row_notify_enabled"))
+        .subtitle(t!("row_notify_enabled_subtitle"))
+        .build();
+    {
+        let s = state.borrow();
+        sw.set_active(s.config.engine.notify.enabled);
+    }
+    {
+        let state_c = state.clone();
+        sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.enabled = sw.is_active();
+            save_and_notify(&s.config, "notify_enabled");
+        });
+    }
+    group.add(&sw);
+
+    // 표시 시간 (초 단위 슬라이더 — 범위 500~5000ms 가 `NOTIFY_DURATION_*` 와 같다)
+    group.add(&build_time_window_row(
+        state,
+        &t!("row_notify_duration"),
+        &t!("row_notify_duration_subtitle"),
+        &t!("row_notify_duration_tooltip"),
+        |cfg| cfg.engine.notify.duration_ms,
+        |cfg, ms| cfg.engine.notify.duration_ms = ms,
+        "notify_duration_ms",
+    ));
+
+    // 문구 언어
+    let lang_row = adw::ComboRow::builder()
+        .title(t!("row_notify_language"))
+        .subtitle(t!("row_notify_language_subtitle"))
+        .build();
+    let lang_list = gtk4::StringList::new(&[
+        t!("notify_language_auto").as_ref(),
+        t!("notify_language_ko").as_ref(),
+        t!("notify_language_en").as_ref(),
+    ]);
+    lang_row.set_model(Some(&lang_list));
+    {
+        let s = state.borrow();
+        lang_row.set_selected(match s.config.engine.notify.language {
+            NotifyLanguage::Auto => 0,
+            NotifyLanguage::Ko => 1,
+            NotifyLanguage::En => 2,
+        });
+    }
+    {
+        let state_c = state.clone();
+        lang_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.language = match row.selected() {
+                0 => NotifyLanguage::Auto,
+                1 => NotifyLanguage::Ko,
+                _ => NotifyLanguage::En,
+            };
+            save_and_notify(&s.config, "notify_language");
+        });
+    }
+    group.add(&lang_row);
+
+    // 표시 모서리 (Windows 전용)
+    let corner_row = adw::ComboRow::builder()
+        .title(t!("row_notify_corner"))
+        .subtitle(t!("row_notify_corner_subtitle"))
+        .build();
+    let corner_list = gtk4::StringList::new(&[
+        t!("notify_corner_auto").as_ref(),
+        t!("notify_corner_top_right").as_ref(),
+        t!("notify_corner_bottom_right").as_ref(),
+        t!("notify_corner_top_left").as_ref(),
+        t!("notify_corner_bottom_left").as_ref(),
+    ]);
+    corner_row.set_model(Some(&corner_list));
+    {
+        let s = state.borrow();
+        corner_row.set_selected(match s.config.engine.notify.corner {
+            NotifyCorner::Auto => 0,
+            NotifyCorner::TopRight => 1,
+            NotifyCorner::BottomRight => 2,
+            NotifyCorner::TopLeft => 3,
+            NotifyCorner::BottomLeft => 4,
+        });
+    }
+    {
+        let state_c = state.clone();
+        corner_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.corner = match row.selected() {
+                0 => NotifyCorner::Auto,
+                1 => NotifyCorner::TopRight,
+                2 => NotifyCorner::BottomRight,
+                3 => NotifyCorner::TopLeft,
+                _ => NotifyCorner::BottomLeft,
+            };
+            save_and_notify(&s.config, "notify_corner");
+        });
+    }
+    group.add(&corner_row);
+
+    // 교정 전후 텍스트 표시 — 민감정보 경고를 subtitle 에 붙인다(D1).
+    let sw_text = adw::SwitchRow::builder()
+        .title(t!("row_notify_show_text"))
+        .subtitle(t!("row_notify_show_text_subtitle"))
+        .build();
+    sw_text.set_tooltip_text(Some(t!("row_notify_show_text_tooltip").as_ref()));
+    {
+        let s = state.borrow();
+        sw_text.set_active(s.config.engine.notify.show_text);
+    }
+    {
+        let state_c = state.clone();
+        sw_text.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.notify.show_text = sw.is_active();
+            save_and_notify(&s.config, "notify_show_text");
+        });
+    }
+    group.add(&sw_text);
+
+    group
+}
+
+/// 알림 이벤트별 스위치 그룹 — `engine.notify.events` 리스트로 직렬화된다.
+fn build_notify_events_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_notify_events"))
+        .description(t!("group_notify_events_desc"))
+        .build();
+
+    // `NOTIFY_EVENT_NAMES` 순서 그대로 (로케일 키 `notify_event_<설정명>`).
+    for name in NOTIFY_EVENT_NAMES {
+        let title_key = format!("notify_event_{name}");
+        let subtitle_key = format!("notify_event_{name}_subtitle");
+        let sw = adw::SwitchRow::builder()
+            .title(t!(&title_key).to_string())
+            .subtitle(t!(&subtitle_key).to_string())
+            .build();
+        {
+            let s = state.borrow();
+            sw.set_active(s.config.engine.notify.event_enabled(name));
+        }
+        {
+            let state_c = state.clone();
+            sw.connect_active_notify(move |sw| {
+                let mut s = state_c.borrow_mut();
+                if s.updating {
+                    return;
+                }
+                s.config.engine.notify.set_event(name, sw.is_active());
+                save_and_notify(&s.config, "notify_events");
+            });
+        }
+        group.add(&sw);
+    }
 
     group
 }
@@ -1564,24 +1800,32 @@ fn refill_blacklist_groups(refs: &Rc<BlacklistPageRefs>) {
     refs.inactive_rows.borrow_mut().clear();
 
     let bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        let refs_c = refs.clone();
+        let row = atf_unreadable_row(Blacklist::default_path(), move || {
+            refill_blacklist_groups(&refs_c)
+        });
+        refs.tentative_group.add(&row);
+        refs.tentative_rows.borrow_mut().push(row.upcast());
+    }
 
     let (mut t_count, mut c_count, mut i_count) = (0usize, 0usize, 0usize);
-    for (idx, entry) in bl.entries.iter().enumerate() {
+    for entry in bl.entries.iter() {
         match entry.status {
             EntryStatus::Tentative => {
-                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Tentative);
+                let row = build_blacklist_row(entry, refs, BlacklistRowKind::Tentative);
                 refs.tentative_group.add(&row);
                 refs.tentative_rows.borrow_mut().push(row.upcast());
                 t_count += 1;
             }
             EntryStatus::Confirmed => {
-                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Confirmed);
+                let row = build_blacklist_row(entry, refs, BlacklistRowKind::Confirmed);
                 refs.confirmed_group.add(&row);
                 refs.confirmed_rows.borrow_mut().push(row.upcast());
                 c_count += 1;
             }
             EntryStatus::Inactive => {
-                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Inactive);
+                let row = build_blacklist_row(entry, refs, BlacklistRowKind::Inactive);
                 refs.inactive_group.add(&row);
                 refs.inactive_rows.borrow_mut().push(row.upcast());
                 i_count += 1;
@@ -1633,7 +1877,6 @@ enum BlacklistRowKind {
 
 fn build_blacklist_row(
     entry: &unim::typefix_blacklist::BlacklistEntry,
-    idx: usize,
     refs: &Rc<BlacklistPageRefs>,
     kind: BlacklistRowKind,
 ) -> adw::ActionRow {
@@ -1672,21 +1915,21 @@ fn build_blacklist_row(
             row.add_suffix(&make_action_button(
                 "emblem-ok-symbolic",
                 &t!("blacklist_btn_confirm"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.promote_to_confirmed(i),
             ));
             row.add_suffix(&make_action_button(
                 "window-close-symbolic",
                 &t!("blacklist_btn_disable"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.deactivate(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
                 &t!("blacklist_btn_delete"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.remove(i),
             ));
@@ -1695,14 +1938,14 @@ fn build_blacklist_row(
             row.add_suffix(&make_action_button(
                 "window-close-symbolic",
                 &t!("blacklist_btn_disable"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.deactivate(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
                 &t!("blacklist_btn_delete"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.remove(i),
             ));
@@ -1711,14 +1954,14 @@ fn build_blacklist_row(
             row.add_suffix(&make_action_button(
                 "emblem-ok-symbolic",
                 &t!("blacklist_btn_reactivate"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.reactivate_as_confirmed(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
                 &t!("blacklist_btn_delete"),
-                idx,
+                entry,
                 refs,
                 |bl, i| bl.remove(i),
             ));
@@ -1730,11 +1973,13 @@ fn build_blacklist_row(
 
 /// 버튼 하나를 만들어 `action`을 실행하고 페이지를 rebuild한다.
 ///
-/// action은 `(&mut Blacklist, idx)`를 받아 상태 변경. 실행 후 파일 저장 + UI 새로고침.
+/// 클릭 시 파일을 다시 읽어 **행에 보인 항목 자체**(ascii·방향·자판 조합)를 찾아 작용한다.
+/// 목록 순번은 쓰지 않는다 — CLI·데몬이 그사이 파일을 바꿔도 엉뚱한 항목이 바뀌지 않는다.
+/// 항목이 이미 없으면 새로고침하고 안내만 한다.
 fn make_action_button<F>(
     icon_name: &str,
     tooltip: &str,
-    idx: usize,
+    entry: &unim::typefix_blacklist::BlacklistEntry,
     refs: &Rc<BlacklistPageRefs>,
     action: F,
 ) -> gtk4::Button
@@ -1749,8 +1994,19 @@ where
         .build();
 
     let refs_c = refs.clone();
+    let entry = entry.clone();
     btn.connect_clicked(move |_| {
         let mut bl = Blacklist::load_from_default_path();
+        let Some(idx) = bl.entries.iter().position(|e| {
+            e.ascii == entry.ascii
+                && e.direction == entry.direction
+                && e.korean_layout == entry.korean_layout
+                && e.english_layout == entry.english_layout
+        }) else {
+            show_toast(&t!("atf_dict_entry_gone"));
+            refill_blacklist_groups(&refs_c);
+            return;
+        };
         action(&mut bl, idx);
         match bl.save_to_default_path() {
             Ok(_) => {
@@ -1759,11 +2015,55 @@ where
             }
             Err(e) => {
                 unim_log!("INDICATOR", "[Settings] blacklist 저장 실패: {}", e);
-                show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
+                toast_save_failed(&e, Blacklist::default_path());
+                refill_blacklist_groups(&refs_c);
             }
         }
     });
     btn
+}
+
+/// 읽을 수 없는 단어 파일 안내 행(경로 표시 + 보관하고 새로 시작 버튼).
+fn atf_unreadable_row(
+    path: Option<std::path::PathBuf>,
+    on_done: impl Fn() + 'static,
+) -> adw::ActionRow {
+    let p = path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let row = adw::ActionRow::builder()
+        .title(t!("atf_dict_unreadable_title"))
+        .subtitle(glib::markup_escape_text(
+            t!("atf_dict_unreadable_desc", path = p).as_ref(),
+        ))
+        .build();
+    row.add_css_class("error");
+    let btn = gtk4::Button::builder()
+        .label(t!("atf_dict_btn_quarantine"))
+        .valign(gtk4::Align::Center)
+        .css_classes(vec!["suggested-action"])
+        .build();
+    btn.connect_clicked(move |_| {
+        let Some(path) = path.as_ref() else { return };
+        match unim::atomic_io::quarantine(path) {
+            Ok(_) => show_toast(&t!("atf_dict_quarantined")),
+            Err(e) => show_toast(&t!("settings_toast_save_failed", err = e.to_string())),
+        }
+        on_done();
+    });
+    row.add_suffix(&btn);
+    row
+}
+
+/// 저장 실패 토스트. 읽을 수 없는 파일 때문이면 경로와 함께 그렇게 알린다.
+fn toast_save_failed(e: &std::io::Error, path: Option<std::path::PathBuf>) {
+    if unim::atomic_io::is_unreadable_err(e) {
+        let p = path.map(|p| p.display().to_string()).unwrap_or_default();
+        show_toast(&t!("atf_dict_unreadable_toast", path = p));
+    } else {
+        show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1861,7 +2161,14 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
     refs.rows.borrow_mut().clear();
 
     let ud = UserDictionary::load_from_default_path();
-    if ud.is_empty() {
+    if ud.is_unreadable() {
+        let refs_c = refs.clone();
+        let row = atf_unreadable_row(UserDictionary::default_path(), move || {
+            refill_userdict_group(&refs_c)
+        });
+        refs.group.add(&row);
+        refs.rows.borrow_mut().push(row.upcast());
+    } else if ud.is_empty() {
         let row = adw::ActionRow::builder()
             .title(t!("userdict_empty"))
             .subtitle(t!("userdict_empty_subtitle"))
@@ -1870,7 +2177,7 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
         refs.group.add(&row);
         refs.rows.borrow_mut().push(row.upcast());
     } else {
-        for (idx, entry) in ud.reverse_words.iter().enumerate() {
+        for entry in ud.reverse_words.iter() {
             let subtitle = entry.note.clone().unwrap_or_default();
             let row = adw::ActionRow::builder()
                 .title(&entry.word)
@@ -1886,8 +2193,9 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
                 .build();
             {
                 let refs_c = refs.clone();
+                let shown = entry.clone();
                 edit_btn.connect_clicked(move |_| {
-                    show_userdict_edit_dialog(&refs_c, Some(idx));
+                    show_userdict_edit_dialog(&refs_c, Some(shown.clone()));
                 });
             }
             row.add_suffix(&edit_btn);
@@ -1901,18 +2209,25 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
                 .build();
             {
                 let refs_c = refs.clone();
+                let shown = entry.clone();
                 del_btn.connect_clicked(move |_| {
+                    // 순번이 아니라 행에 보인 항목 자체를 다시 찾아 지운다(CLI 가 그사이 바꿨을 수 있음).
                     let mut ud = UserDictionary::load_from_default_path();
-                    if ud.remove_at(idx) {
-                        match ud.save_to_default_path() {
-                            Ok(_) => {
-                                show_toast(&t!("settings_toast_deleted"));
-                                refill_userdict_group(&refs_c);
-                            }
-                            Err(e) => {
-                                unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
-                                show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
-                            }
+                    let Some(idx) = find_userdict_entry(&ud, &shown) else {
+                        show_toast(&t!("atf_dict_entry_gone"));
+                        refill_userdict_group(&refs_c);
+                        return;
+                    };
+                    ud.remove_at(idx);
+                    match ud.save_to_default_path() {
+                        Ok(_) => {
+                            show_toast(&t!("settings_toast_deleted"));
+                            refill_userdict_group(&refs_c);
+                        }
+                        Err(e) => {
+                            unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
+                            toast_save_failed(&e, UserDictionary::default_path());
+                            refill_userdict_group(&refs_c);
                         }
                     }
                 });
@@ -1930,9 +2245,20 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
     ));
 }
 
-/// 추가/편집 다이얼로그. `edit_idx=None`이면 신규 추가.
-fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize>) {
-    let is_edit = edit_idx.is_some();
+/// 행에 보인 항목(단어·메모·등록 시각 전부 일치)의 현재 파일 속 위치.
+fn find_userdict_entry(ud: &UserDictionary, shown: &unim::typefix_userdict::ReverseWord) -> Option<usize> {
+    ud.reverse_words.iter().position(|e| {
+        e.word == shown.word && e.note == shown.note && e.added_at == shown.added_at
+    })
+}
+
+/// 추가/편집 다이얼로그. `edit_entry=None`이면 신규 추가. 편집은 행에 보인 항목을 기억했다가
+/// 저장 시 파일을 다시 읽어 그 항목을 찾아 갱신한다(순번 사용 안 함).
+fn show_userdict_edit_dialog(
+    refs: &Rc<UserDictPageRefs>,
+    edit_entry: Option<unim::typefix_userdict::ReverseWord>,
+) {
+    let is_edit = edit_entry.is_some();
     let dialog = adw::Window::builder()
         .transient_for(&refs.window)
         .modal(true)
@@ -1967,13 +2293,10 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
         .build();
 
     // 기존 엔트리 로드
-    if let Some(idx) = edit_idx {
-        let ud = UserDictionary::load_from_default_path();
-        if let Some(e) = ud.reverse_words.get(idx) {
-            word_row.set_text(&e.word);
-            if let Some(n) = &e.note {
-                note_row.set_text(n);
-            }
+    if let Some(e) = &edit_entry {
+        word_row.set_text(&e.word);
+        if let Some(n) = &e.note {
+            note_row.set_text(n);
         }
     }
 
@@ -2018,8 +2341,16 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
             };
 
             let mut ud = UserDictionary::load_from_default_path();
-            let ok = match edit_idx {
-                Some(idx) => ud.update_at(idx, &word, note),
+            let ok = match &edit_entry {
+                Some(shown) => match find_userdict_entry(&ud, shown) {
+                    Some(idx) => ud.update_at(idx, &word, note),
+                    None => {
+                        show_toast(&t!("atf_dict_entry_gone"));
+                        refill_userdict_group(&refs_c);
+                        dialog_c.close();
+                        return;
+                    }
+                },
                 None => ud.add(&word, note),
             };
 
@@ -2040,7 +2371,7 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
                 }
                 Err(e) => {
                     unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
-                    show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
+                    toast_save_failed(&e, UserDictionary::default_path());
                 }
             }
         });

@@ -7,19 +7,49 @@
 //! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
 //! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
+use crate::context_registry::{self, ContextKind, ContextRegistry};
 use crate::interfaces::InputMode;
+use crate::notify_task::NotifyOut;
 use unim::config::{Config, InputCategory, KoreanConfig};
 use unim::input_engine::{AtfToggleKind, InputEngine, PopupAction};
 use unim::unim_log;
 
 // PopupAction은 unim::input_engine에서 정의됨 (re-export)
+
+/// `SelectHanja` 의 워커 내부 결과 — 확정 채널을 구분한다(HANJA_WORD_SPEC §4.1).
+///
+/// DBus 반환 시그니처(`(u)->s`)는 불변이며, 어느 경우든 서식 적용 문자열을 돌려준다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectHanjaOutcome {
+    /// 한자 모드 아님 / 범위 밖 인덱스.
+    None,
+    /// 일반 커밋(`CommitText`) — 단음절·단어 모드·선택 영역 대상.
+    Commit(String),
+    /// 교체(`AutoTypefixApply`) — 대상①(확정 접두 > 0). `delete_chars` 만큼 앞을 지우고
+    /// `text` 를 커밋한다.
+    Replace { delete_chars: u32, text: String },
+    /// 커서 주변 교체(`ReplaceSurroundingText`) — 대상③(§4.1b). 커서 기준 앞 a자·뒤 b자를
+    /// 지우고 `commit_text` 를 커밋한다. 프런트는 `expect_text` 와 문서를 대조한다.
+    ReplaceSurrounding(ReplaceSurrounding),
+}
+
+/// `ReplaceSurroundingText` 시그널 페이로드 — 대상③ 확정(HANJA_WORD_SPEC §4.6).
+///
+/// 단위는 유니코드 코드포인트(문자). `expect_text` 는 지울 한글 원문(항상 비어 있지 않음).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplaceSurrounding {
+    pub delete_before: u32,
+    pub delete_after: u32,
+    pub commit_text: String,
+    pub expect_text: String,
+}
 
 /// 엔진에 보내는 요청
 #[derive(Debug)]
@@ -38,8 +68,12 @@ pub enum EngineRequest {
         window_id: String,
         response: oneshot::Sender<()>,
     },
-    /// 컨텍스트 파괴
-    DestroyContext { id: u32 },
+    /// 컨텍스트 파괴 — 응답: 팝업(한자·특수문자·이모지)이 열려 있었으면 true
+    /// (호출부가 `HidePopup` 을 낸다. 앱이 팝업을 연 채 죽으면 팝업 창이 화면에 남지 않게)
+    DestroyContext {
+        id: u32,
+        response: oneshot::Sender<bool>,
+    },
     /// 포커스 인 (모드 조회용)
     FocusIn {
         context_id: u32,
@@ -58,16 +92,17 @@ pub enum EngineRequest {
     },
     /// 전역 모드 설정 (모든 컨텍스트에 적용)
     SetGlobalMode { is_korean: bool },
-    /// 한자 후보 조회
+    /// 한자 후보 조회 — 응답 `(후보, closed_popup)`. `closed_popup` 은 이 호출로 열려 있던
+    /// 한자 팝업이 닫혔음(대상③ 후보 소진, I4) — 서비스가 `HidePopup` 을 발행한다.
     GetHanjaCandidates {
         context_id: u32,
-        response: oneshot::Sender<HanjaCandidateResponse>,
+        response: oneshot::Sender<(HanjaCandidateResponse, bool)>,
     },
     /// 한자 선택
     SelectHanja {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<Option<String>>,
+        response: oneshot::Sender<SelectHanjaOutcome>,
     },
     /// 한자 모드 취소 (남은 preedit을 반환)
     CancelHanja {
@@ -113,14 +148,49 @@ pub enum EngineRequest {
         width: i32,
         height: i32,
     },
-    /// 입력 필드 목적 설정 (비밀번호/PIN 등)
+    /// 입력 필드 목적 설정 (비밀번호/PIN 등) — 응답 없음(IBus 호환 경로 등).
     SetContentType { context_id: u32, purpose: u32 },
+    /// 입력 필드 목적 설정 + 응답: 비밀번호/PIN 진입으로 열린 팝업을 재커밋 없이
+    /// 닫았으면 true — `set_content_type` 이 받아 `HidePopup` 을 발행한다
+    /// (HANJA_WORD_SPEC §2.8, 워커에는 시그널 발행 수단이 없다).
+    SetContentTypeWithReply {
+        context_id: u32,
+        purpose: u32,
+        response: oneshot::Sender<bool>,
+    },
+    /// 클라이언트 능력 선언(`SetClientCapabilities`) — 응답 없음. 비트는
+    /// `unim::input_engine::SURROUNDING_CAP_*`. 엔진 재생성을 건너 유지된다(carry).
+    SetClientCapabilities { context_id: u32, caps: u32 },
+    /// 컨텍스트의 프런트 종류 이름(`GNOME`·`GTK3`…) — 응답 없음. `REPLACE_VERIFY` 로그 전용
+    /// 관측 정보라 `CreateContext` 직후 한 번만 보낸다(IBus 호환 컨텍스트는 보내지 않아 `unknown`).
+    NoteFrontend { context_id: u32, name: String },
+    /// 프런트가 엔진 밖에서 관측한 사건(`SurroundingHint`) — 응답 없음.
+    SurroundingHint {
+        context_id: u32,
+        kind: u32,
+        keyval: u32,
+        state: u32,
+    },
     /// Surrounding text 설정
     SetSurroundingText {
         context_id: u32,
         text: String,
         cursor_pos: u32,
         anchor_pos: u32,
+    },
+    /// 판정 보류 중(`DeferOutcome`)인 컨텍스트의 Surrounding text 설정 — 반영 직후 보류한 한자키를
+    /// 다시 판정하고 결과를 돌려준다(R9). 서비스는 보류가 있다고 아는 컨텍스트에서만 쓴다.
+    SetSurroundingTextDeferred {
+        context_id: u32,
+        text: String,
+        cursor_pos: u32,
+        anchor_pos: u32,
+        response: oneshot::Sender<DeferOutcome>,
+    },
+    /// 판정 보류 기한 도달(서비스 타이머 → 워커) — 보류가 아직 있고 기한이 됐으면 다시 판정한다(R9).
+    DeferDue {
+        context_id: u32,
+        response: oneshot::Sender<DeferOutcome>,
     },
     /// 글로벌 TypeFix 변환 요청 (마지막 포커스된 컨텍스트 대상)
     GlobalTypeFix {
@@ -203,6 +273,8 @@ pub enum EngineRequest {
     /// 응답: 정리된 context_id (popup 활성 context 가 없으면 None).
     CancelEmojiPopup {
         context_id: u32,
+        /// 이모지를 문서에 커밋했는가 — true 면 워커가 대상③ 신선도를 낡음으로 표시한다.
+        committed: bool,
         response: oneshot::Sender<Option<u32>>,
     },
 
@@ -250,6 +322,24 @@ pub type EmojiShowPayloadTuple = (
     String,
 );
 
+/// 한자키 판정 보류(R7~R10)의 재판정 결과 — 워커 → 서비스.
+#[derive(Debug)]
+pub enum DeferOutcome {
+    /// 보류가 없다(키·포커스·Reset 으로 취소됐거나 이미 판정됨).
+    Idle,
+    /// 계속 대기한다. `deadline_ms` 는 워커 단조 ms(`engine_worker::mono_ms`)이며 서비스는 그 시각에 다시 깨운다.
+    Wait { deadline_ms: u64 },
+    /// 판정이 끝났다 — `ProcessKey` 응답이 싣는 것과 같은 팝업 페이로드(한자 또는 이모지 폴백).
+    Resolved(Box<DeferredPopup>),
+}
+
+/// 판정 보류 재판정이 끝났을 때 발행할 팝업 페이로드.
+#[derive(Debug)]
+pub struct DeferredPopup {
+    pub popup_action: Option<PopupAction>,
+    pub render_state: Option<PopupRenderPayload>,
+}
+
 /// 엔진 응답
 #[derive(Debug)]
 pub struct EngineResponse {
@@ -290,6 +380,12 @@ pub struct EngineResponse {
     /// 소유하고 토글을 실측한 `engine_worker` 가 직렬화해 실어 보낸다(stale 위험 0).
     /// `atf_toggled` 가 Some 일 때만 Some.
     pub atf_config_json: Option<String>,
+    /// 대상③ 확정(`HanjaSource::SurroundingWord`) — 서비스가 `ReplaceSurroundingText` 를
+    /// 자기 InputContext path 로, HidePopup 뒤에 발행한다(`AutoTypefixApply` 와 같은 위치).
+    pub replace_surrounding: Option<ReplaceSurrounding>,
+    /// 한자키 판정 보류(R7·R8, push 전용) — 키는 소비·팝업 없음으로 응답하고, 서비스가 이 기한(워커
+    /// 단조 ms)에 타이머를 걸어 `DeferDue` 를 보낸다. `None` 이면 보류 없음.
+    pub deferred_hanja: Option<u64>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -322,8 +418,136 @@ pub struct InputMethodService {
     /// 일치시켜, 단축키 캡처 주체(GNOME extension)와 입력 주체(GTK4_IM)가 분리된
     /// 환경에서도 emoji가 사용자 앱에 정확히 들어가게 한다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
-    /// 현재 등록된 프런트엔드 이름 집합 (ephemeral; 데몬 재시작 시 초기화)
-    active_frontends: Arc<RwLock<HashSet<String>>>,
+    /// 현재 등록된 프런트엔드 맵: 이름 → 등록자(호출자 unique name) 집합
+    /// (ephemeral; 데몬 재시작 시 초기화). 등록자를 기록해 두어야 확장이 해제 없이 죽어도
+    /// `NameOwnerChanged` 로 정리할 수 있다(NOTIFY_SPEC §3.2 E2).
+    active_frontends: Arc<RwLock<FrontendMap>>,
+    /// 컨텍스트 소유자(생성 호출자 unique name) → 컨텍스트 매핑. 연결이 `Destroy` 없이 죽으면
+    /// `NameOwnerChanged` 로 회수한다(`context_registry` 모듈). IBus 호환 레이어와 공유한다.
+    contexts: ContextRegistry,
+    /// 알림 채널 송신 측 (`TriggerAction("notify_test")` 용). `with_notify` 로 주입.
+    notify_tx: Option<mpsc::Sender<NotifyOut>>,
+}
+
+/// 프런트엔드 이름 → 등록자(호출자 unique name) 집합.
+///
+/// 불변식: 등록자 집합이 빈 이름은 맵에 남지 않는다(아래 헬퍼가 유지).
+pub(crate) type FrontendMap = HashMap<String, HashSet<String>>;
+
+/// 등록을 기록한다. 반환값: **이름 집합이 바뀌었으면**(새 이름) true — 같은 이름에 등록자만
+/// 늘어난 경우·같은 호출자 재등록은 false(멱등, `ActiveFrontendsChanged` 미발산).
+pub(crate) fn register_frontend_inner(map: &mut FrontendMap, name: &str, sender: &str) -> bool {
+    let is_new_name = !map.contains_key(name);
+    map.entry(name.to_string())
+        .or_default()
+        .insert(sender.to_string());
+    is_new_name
+}
+
+/// **호출자 자신의** 등록만 지운다(타인 등록 해제 불가). 반환값: 이름이 목록에서 빠졌으면 true.
+pub(crate) fn unregister_frontend_inner(map: &mut FrontendMap, name: &str, sender: &str) -> bool {
+    let Some(owners) = map.get_mut(name) else {
+        return false;
+    };
+    owners.remove(sender);
+    if owners.is_empty() {
+        map.remove(name);
+        true
+    } else {
+        false
+    }
+}
+
+/// 연결이 끊긴 등록자(`owner`)를 **모든 이름**에서 제거한다. 반환값: 이름 집합이 바뀌었으면 true.
+pub(crate) fn drop_owner(map: &mut FrontendMap, owner: &str) -> bool {
+    let before = map.len();
+    map.retain(|_, owners| {
+        owners.remove(owner);
+        !owners.is_empty()
+    });
+    map.len() != before
+}
+
+/// 정렬된 이름 목록 (`GetActiveFrontends`·`ActiveFrontendsChanged` 페이로드).
+pub(crate) fn frontend_names(map: &FrontendMap) -> Vec<String> {
+    let mut v: Vec<String> = map.keys().cloned().collect();
+    v.sort();
+    v
+}
+
+/// `NameOwnerChanged` 가 "unique name 연결 종료" 인가 — `name` 이 `:` 접두이고 `new_owner` 가 비었다.
+pub(crate) fn is_connection_closed(name: &str, new_owner: Option<&str>) -> bool {
+    name.starts_with(':') && new_owner.unwrap_or("").is_empty()
+}
+
+/// 프런트엔드 등록자 감시: `NameOwnerChanged` 로 연결이 끊긴 등록자를 모든 이름에서 지운다.
+///
+/// 확장이 `UnregisterFrontend` 없이 죽어도(셸 재시작 등) `gnome-shell-notify` 가 남아 fdo
+/// 폴백이 막히는 일이 없게 한다(NOTIFY_SPEC §3.2). 이름 집합이 바뀌면 `ActiveFrontendsChanged` 를
+/// 발행한다. 한계: 셸은 살아 있고 확장만 고장 난 경우는 정리되지 않는다(문서화된 한계).
+fn spawn_frontend_watcher(
+    connection: Connection,
+    frontends: Arc<RwLock<FrontendMap>>,
+    contexts: ContextRegistry,
+    engine_tx: mpsc::Sender<EngineRequest>,
+    last_active: Arc<std::sync::Mutex<Option<String>>>,
+) {
+    use futures_util::StreamExt;
+
+    tokio::spawn(async move {
+        let proxy = match zbus::fdo::DBusProxy::new(&connection).await {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!("DBUS", "[DBus] 프런트엔드 감시 시작 실패(DBusProxy): {}", e);
+                return;
+            }
+        };
+        let mut stream = match proxy.receive_name_owner_changed().await {
+            Ok(s) => s,
+            Err(e) => {
+                unim_log!("DBUS", "[DBus] 프런트엔드 감시 시작 실패(NameOwnerChanged 구독): {}", e);
+                return;
+            }
+        };
+        while let Some(sig) = stream.next().await {
+            let Ok(args) = sig.args() else { continue };
+            let new_owner = args.new_owner().as_ref().map(|o| o.as_str());
+            if !is_connection_closed(args.name().as_str(), new_owner) {
+                continue;
+            }
+            let gone = args.name().to_string();
+            // 이 연결이 만든 입력 컨텍스트 회수 — 프런트엔드 등록과 무관하게 항상 수행한다.
+            context_registry::reclaim_owner(
+                &connection,
+                &engine_tx,
+                &contexts,
+                Some(&last_active),
+                &gone,
+            )
+            .await;
+            let names = {
+                let mut map = frontends.write().await;
+                if !drop_owner(&mut map, &gone) {
+                    continue;
+                }
+                frontend_names(&map)
+            };
+            unim_log!(
+                "DBUS",
+                "[DBus] 프런트엔드 등록자 {} 연결 종료 — 정리 후 활성 목록={:?}",
+                gone,
+                names
+            );
+            match SignalContext::new(&connection, crate::INPUT_METHOD_PATH) {
+                Ok(ctx) => {
+                    if let Err(e) = InputMethodService::active_frontends_changed(&ctx, names).await {
+                        unim_log!("DBUS", "[DBus] ActiveFrontendsChanged 발행 실패: {}", e);
+                    }
+                }
+                Err(e) => unim_log!("DBUS", "[DBus] SignalContext 생성 실패: {}", e),
+            }
+        }
+    });
 }
 
 impl InputMethodService {
@@ -345,8 +569,37 @@ impl InputMethodService {
             connection,
             last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
             last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
-            active_frontends: Arc::new(RwLock::new(HashSet::new())),
+            active_frontends: Arc::new(RwLock::new(FrontendMap::new())),
+            contexts: ContextRegistry::new(),
+            notify_tx: None,
         }
+    }
+
+    /// 알림 채널을 연결하고 백그라운드 태스크 2개를 띄운다 (데몬 기동 시 한 번).
+    ///
+    /// - 알림 전담 태스크: `Notify` 시그널·fdo 호출·`replaces_id`·백오프 소유(NOTIFY_SPEC §3.2)
+    /// - 등록자 감시: `NameOwnerChanged` 로 죽은 프런트엔드 등록 정리
+    ///
+    /// tokio 런타임 안에서 호출해야 한다. `notify_tx` 는 엔진 워커와 같은 채널의 송신 측이다.
+    pub fn with_notify(
+        mut self,
+        notify_tx: mpsc::Sender<NotifyOut>,
+        notify_rx: mpsc::Receiver<NotifyOut>,
+    ) -> Self {
+        crate::notify_task::spawn_notify_task(
+            self.connection.clone(),
+            Arc::clone(&self.active_frontends),
+            notify_rx,
+        );
+        spawn_frontend_watcher(
+            self.connection.clone(),
+            Arc::clone(&self.active_frontends),
+            self.contexts.clone(),
+            self.engine_tx.clone(),
+            Arc::clone(&self.last_active_input_context_path),
+        );
+        self.notify_tx = Some(notify_tx);
+        self
     }
 
     /// 전역 cursor_rect 캐시 핸들 (InputContextHandler에 공유 주입)
@@ -369,6 +622,11 @@ impl InputMethodService {
         Arc::clone(&self.global_mode)
     }
 
+    /// 컨텍스트 소유자 레지스트리 핸들 (IBus 호환 레이어와 공유)
+    pub fn context_registry(&self) -> ContextRegistry {
+        self.contexts.clone()
+    }
+
     /// 엔진 채널 복제
     pub fn engine_channel(&self) -> mpsc::Sender<EngineRequest> {
         self.engine_tx.clone()
@@ -382,6 +640,7 @@ impl InputMethodService {
         &self,
         client_name: &str,
         window_id: &str,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
     ) -> zbus::fdo::Result<String> {
         let id = self.context_counter.fetch_add(1, Ordering::SeqCst) + 1;
         let path = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, id);
@@ -408,15 +667,24 @@ impl InputMethodService {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
+        // 교체 검증 로그용 프런트 이름(관측 전용, 응답 없음).
+        self.engine_tx
+            .send(EngineRequest::NoteFrontend {
+                context_id: id,
+                name: detect_frontend_type(client_name).to_string(),
+            })
+            .await
+            .ok();
+
         // InputContext 핸들러를 DBus에 등록
         let handler = InputContextHandler::new(
             id,
             client_name.to_string(),
-            path.clone(),
             self.engine_tx.clone(),
             self.connection.clone(),
             Arc::clone(&self.last_cursor_rect),
             Arc::clone(&self.last_active_input_context_path),
+            self.contexts.clone(),
         );
         let obj_path = zbus::zvariant::ObjectPath::try_from(path.as_str())
             .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
@@ -427,6 +695,18 @@ impl InputMethodService {
             .map_err(|e| {
                 zbus::fdo::Error::Failed(format!("Failed to register InputContext: {}", e))
             })?;
+
+        // 호출자 연결이 Destroy 없이 죽어도 회수되도록 소유자를 기록한다(p2p 는 sender 없음 → 제외).
+        context_registry::track_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            Some(&self.last_active_input_context_path),
+            hdr.sender().map(|s| s.as_str()),
+            ContextKind::Unim,
+            id,
+        )
+        .await;
 
         unim_log!(
             "DBUS",
@@ -481,22 +761,21 @@ impl InputMethodService {
     }
 
     /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op, signal 미발산)
+    ///
+    /// 호출자(unique name)를 등록자로 기록한다 — 연결이 끊기면 `NameOwnerChanged` 로 정리된다.
     async fn register_frontend(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         name: String,
     ) -> zbus::fdo::Result<()> {
+        let sender = hdr.sender().map(|s| s.to_string()).unwrap_or_default();
         let inserted = {
-            let mut set = self.active_frontends.write().await;
-            set.insert(name.clone())
+            let mut map = self.active_frontends.write().await;
+            register_frontend_inner(&mut map, &name, &sender)
         };
         if inserted {
-            let names = {
-                let set = self.active_frontends.read().await;
-                let mut v: Vec<String> = set.iter().cloned().collect();
-                v.sort();
-                v
-            };
+            let names = frontend_names(&*self.active_frontends.read().await);
             unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 등록됨, 활성 목록={:?}", name, names);
             Self::active_frontends_changed(&signal_ctx, names).await?;
         } else {
@@ -506,36 +785,32 @@ impl InputMethodService {
     }
 
     /// 프런트엔드 등록 해제 (없으면 no-op, signal 미발산)
+    ///
+    /// **호출자 자신의** 등록만 지운다. 다른 등록자가 남으면 이름은 목록에 유지된다.
     async fn unregister_frontend(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         name: String,
     ) -> zbus::fdo::Result<()> {
+        let sender = hdr.sender().map(|s| s.to_string()).unwrap_or_default();
         let removed = {
-            let mut set = self.active_frontends.write().await;
-            set.remove(&name)
+            let mut map = self.active_frontends.write().await;
+            unregister_frontend_inner(&mut map, &name, &sender)
         };
         if removed {
-            let names = {
-                let set = self.active_frontends.read().await;
-                let mut v: Vec<String> = set.iter().cloned().collect();
-                v.sort();
-                v
-            };
+            let names = frontend_names(&*self.active_frontends.read().await);
             unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 해제됨, 활성 목록={:?}", name, names);
             Self::active_frontends_changed(&signal_ctx, names).await?;
         } else {
-            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 미등록 (no-op)", name);
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 이름 유지 또는 미등록 (no-op)", name);
         }
         Ok(())
     }
 
     /// 현재 등록된 프런트엔드 목록 조회 (정렬된 Vec<String>)
     async fn get_active_frontends(&self) -> Vec<String> {
-        let set = self.active_frontends.read().await;
-        let mut v: Vec<String> = set.iter().cloned().collect();
-        v.sort();
-        v
+        frontend_names(&*self.active_frontends.read().await)
     }
 
     /// 활성 프런트엔드 목록 변경 시그널
@@ -543,6 +818,20 @@ impl InputMethodService {
     async fn active_frontends_changed(
         signal_ctx: &SignalContext<'_>,
         names: Vec<String>,
+    ) -> zbus::Result<()>;
+
+    /// 상황 알림 표시 요청 (NOTIFY_SPEC §3.2, SPEC §5.2).
+    ///
+    /// 실제 발행은 알림 전담 태스크(`notify_task`)가 `gnome-shell-notify` 등록자가 있을 때만
+    /// 한다. 여기 선언은 인트로스펙션용이다. `title`/`body` 는 로그에 남기지 않는다.
+    #[zbus(signal)]
+    async fn notify(
+        signal_ctx: &SignalContext<'_>,
+        kind: &str,
+        title: &str,
+        body: &str,
+        duration_ms: u32,
+        flags: u32,
     ) -> zbus::Result<()>;
 
     /// 전역 모드 변경 시그널
@@ -589,10 +878,10 @@ impl InputMethodService {
         if let Some((offset_from_cursor, delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement='{}'",
+                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement={}자",
                 offset_from_cursor,
                 delete_chars,
-                replacement
+                replacement.chars().count()
             );
             Ok((offset_from_cursor, delete_chars, replacement))
         } else {
@@ -618,8 +907,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] AddReverseUserDictWord: word='{}', ok={}",
-            word,
+            "[DBus] AddReverseUserDictWord: word={}자, ok={}",
+            word.chars().count(),
             ok
         );
         Ok(ok)
@@ -640,8 +929,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] RemoveReverseUserDictWord: word='{}', ok={}",
-            word,
+            "[DBus] RemoveReverseUserDictWord: word={}자, ok={}",
+            word.chars().count(),
             ok
         );
         Ok(ok)
@@ -696,8 +985,8 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
         unim_log!(
             "DBUS",
-            "[DBus] RegisterUserDictFromSelection: word='{}'",
-            word
+            "[DBus] RegisterUserDictFromSelection: word={}자",
+            word.chars().count()
         );
         Ok(word)
     }
@@ -788,6 +1077,13 @@ impl InputMethodService {
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "toggle_announce_beep" => config.engine.toggle_announce_beep.to_string(),
             "ignore_key_repeat" => config.engine.ignore_key_repeat.to_string(),
+            // 상황 알림(토스트) 6키 — NOTIFY_SPEC §5.
+            "notify_enabled" => config.engine.notify.enabled.to_string(),
+            "notify_duration_ms" => config.engine.notify.duration_ms.to_string(),
+            "notify_language" => config.engine.notify.language.as_str().to_string(),
+            "notify_show_text" => config.engine.notify.show_text.to_string(),
+            "notify_corner" => config.engine.notify.corner.as_str().to_string(),
+            "notify_events" => config.engine.notify.events.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
             // 모아치기 설정 (supports_moachigi 자판 전용)
             "korean_bidirectional_combine" => match config.engine.korean.bidirectional_combine {
@@ -1089,6 +1385,49 @@ impl InputMethodService {
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
+                "notify_enabled" => {
+                    config.engine.notify.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "notify_duration_ms" => {
+                    let v: u32 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.notify.duration_ms = v;
+                    config.engine.notify.clamp_ranges();
+                }
+                "notify_language" => {
+                    config.engine.notify.language = unim::config::NotifyLanguage::parse(value)
+                        .ok_or_else(|| {
+                            zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid notify_language: {} (auto|ko|en)",
+                                value
+                            ))
+                        })?;
+                }
+                "notify_show_text" => {
+                    config.engine.notify.show_text = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "notify_corner" => {
+                    config.engine.notify.corner = unim::config::NotifyCorner::parse(value)
+                        .ok_or_else(|| {
+                            zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid notify_corner: {}",
+                                value
+                            ))
+                        })?;
+                }
+                // 이벤트 목록: 빈 값이 유효하다(모두 끔). 미지 원소는 게이트가 무시하므로 저장한다.
+                "notify_events" => {
+                    config.engine.notify.events = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =
                         serde_json::from_str(value).map_err(|e| {
@@ -1195,6 +1534,7 @@ impl InputMethodService {
 
         // 2. 범위 방어
         new_config.engine.auto_typefix.clamp_ranges();
+        new_config.engine.notify.clamp_ranges();
 
         // 2.5. 키 목록 진단 — 설정앱(GTK 레거시·Slint 공통)의 실제 쓰기 경로는 legacy
         // SetConfig 가 아니라 이 메서드다. 전 항목 무효인 필수 키 목록은 SetConfig 와
@@ -1335,7 +1675,7 @@ impl InputMethodService {
                 } else {
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
+                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
                         target_path_str,
                         target_cat_id,
                         items.len(),
@@ -1345,8 +1685,25 @@ impl InputMethodService {
                         y,
                         w,
                         h,
-                        home_row
+                        home_row.chars().count()
                     );
+                }
+            }
+            "notify_test" => {
+                // 알림 검증용(L2·L3): 게이트(중복 억제·events)는 거치지 않고 enabled 만 본다.
+                let cfg = self.config.read().await.engine.notify.clone();
+                if !cfg.enabled {
+                    unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test — notify.enabled=false 라 무시");
+                } else if let Some(tx) = &self.notify_tx {
+                    let lang = unim::notify::Lang::resolve(
+                        cfg.language,
+                        crate::notify_task::detect_auto_lang(),
+                    );
+                    if tx.try_send(NotifyOut::test(&cfg, lang)).is_err() {
+                        unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test 채널 가득 참 — 폐기");
+                    }
+                } else {
+                    unim_log!("DBUS", "[DBus] TriggerAction(global): notify_test — 알림 채널 미연결");
                 }
             }
             other => {
@@ -1566,6 +1923,7 @@ impl InputMethodService {
         let (cleanup_tx, cleanup_rx) = oneshot::channel();
         let cleanup_send = self.engine_tx.send(EngineRequest::CancelEmojiPopup {
             context_id: caller_id,
+            committed: true,
             response: cleanup_tx,
         }).await;
         if cleanup_send.is_ok() {
@@ -1653,11 +2011,71 @@ impl InputMethodService {
 
         unim_log!(
             "DBUS",
-            "[DBus] CommitEmoji(global): emoji='{}', path={}",
-            emoji,
+            "[DBus] CommitEmoji(global): emoji={}자, path={}",
+            emoji.chars().count(),
             target_path_str
         );
         Ok(())
+    }
+}
+
+/// 판정 보류(R7~R10) 타이머와 InputContext 메서드 디스패치의 **팝업 시그널 발행 순서**를 묶는 장치.
+///
+/// 문제: 기한 재판정(`arm_defer` 태스크)은 디스패치 밖에서 `DeferDue → 워커 응답 → ShowXxx 발행` 을
+/// 한다. 워커가 한자 모드를 연 뒤 시그널을 내기 전에 Esc `ProcessKeyEvent` 가 워커에서 먼저 팝업을
+/// 닫고 디스패치가 `HidePopup` 을 먼저 내면, 닫힌 엔진 위에 팝업 창만 남는다.
+///
+/// 해법: 컨텍스트별 async 잠금 하나로 "워커 요청~시그널 발행" 구간을 직렬화한다. 타이머는 매 시도를
+/// 잠금 안에서 하고(대기 중에는 풀어 둔다), 팝업을 닫거나 여는 메서드는 보류 타이머가 살아 있을 때만
+/// 같은 잠금을 잡는다. `armed` 는 타이머를 만드는 쪽(`ProcessKeyEvent`)이 같은 직렬 디스패치 안에서만
+/// 올리므로, `armed == 0` 인 컨텍스트에는 경쟁 상대 자체가 없다 — 핫패스(GTK/Qt S 컨텍스트,
+/// 보류 없는 push)는 원자 읽기 한 번만 더 든다.
+///
+/// 잠금 대신 엔진 팝업 세대값으로 발행 직전 유효성만 확인하는 방식은 "확인 ~ 발행" 사이에 Esc 의
+/// `HidePopup` 이 끼어들 수 있어(검사-후-실행) 그 자체로는 순서를 보장하지 못한다.
+struct DeferGate {
+    /// 살아 있는 보류 타이머 태스크 수 — 0 이 아니면 `SetSurroundingText` 를 응답을 받는 변형으로
+    /// 보내 재판정하고, 발행 순서 잠금도 잡는다.
+    armed: std::sync::atomic::AtomicU32,
+    order: tokio::sync::Mutex<()>,
+}
+
+impl DeferGate {
+    fn new() -> Self {
+        Self {
+            armed: std::sync::atomic::AtomicU32::new(0),
+            order: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// 보류 타이머가 하나라도 살아 있는가.
+    fn is_armed(&self) -> bool {
+        self.armed.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
+    /// 타이머 태스크 하나를 등록한다(`ProcessKeyEvent` 디스패치 안에서만 호출).
+    fn arm(&self) {
+        self.armed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 타이머 태스크 하나가 끝났다.
+    fn disarm(&self) {
+        self.armed.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 팝업을 열거나 닫는 메서드용 — 타이머가 없으면 잠금 없이 즉시 `None`, 있으면 발행 순서 잠금.
+    /// 반환 가드를 시그널 발행이 끝날 때까지 쥐고 있어야 한다.
+    async fn ordered(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        if self.is_armed() {
+            Some(self.order.lock().await)
+        } else {
+            None
+        }
+    }
+
+    /// 타이머 쪽 — 무조건 잠금(재판정 한 번의 요청~발행 구간).
+    async fn exclusive(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.order.lock().await
     }
 }
 
@@ -1674,7 +2092,10 @@ pub struct InputContextHandler {
     /// DBus 연결 (시그널 발송용)
     connection: Connection,
     /// 캐싱된 커서 위치 (x, y, width, height) — 본 컨텍스트 전용
-    cursor_rect: std::sync::Mutex<(i32, i32, i32, i32)>,
+    cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
+    /// 판정 보류(R7~R10) 타이머 태스크 수 — 0 이 아니면 `SetSurroundingText` 를 응답을 받는 변형으로
+    /// 보내 재판정한다(그 밖의 컨텍스트는 종전대로 응답 없이 보낸다). 태스크가 끝날 때 줄인다.
+    defer: Arc<DeferGate>,
     /// 본 컨텍스트의 DBus 객체 path (예: `/org/atit/unim/InputContext_15`).
     /// `focus_in`/`destroy` 시 글로벌 `last_active_input_context_path` 캐시를
     /// 갱신/무효화할 때 사용한다.
@@ -1687,6 +2108,8 @@ pub struct InputContextHandler {
     /// `focus_in` 시 frontend가 GNOME(extension 자체 컨텍스트)이 아니면 본 path를 저장.
     /// `destroy` 시 본 path가 캐시 값과 같으면 None으로 비워준다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+    /// 컨텍스트 소유자 레지스트리 (`InputMethodService` 와 동일 핸들). `destroy` 가 제거한다.
+    contexts: ContextRegistry,
 }
 
 /// `SetConfig` 로 들어온 키 목록 중 엔진이 버릴 표기를 데몬 로그에 남긴다.
@@ -1776,21 +2199,23 @@ impl InputContextHandler {
     pub fn new(
         id: u32,
         client_name: String,
-        path: String,
         engine_tx: mpsc::Sender<EngineRequest>,
         connection: Connection,
         last_cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
         last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+        contexts: ContextRegistry,
     ) -> Self {
         Self {
             id,
             client_name,
             engine_tx,
             connection,
-            cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
-            path,
+            cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
+            defer: Arc::new(DeferGate::new()),
+            path: ContextKind::Unim.object_path(id),
             last_cursor_rect,
             last_active_input_context_path,
+            contexts,
         }
     }
 
@@ -1863,6 +2288,437 @@ impl InputContextHandler {
         }
     }
 
+    /// `AutoTypefixApply` 와 `HidePopup` 시그널을 popup-owner path 로 redirect 발행.
+    ///
+    /// 한자 단어 교체(대상① 확정 접두 > 0)의 마우스 확정 경로 — `redirect_commit_and_hide`
+    /// 와 같은 path 선택 규칙으로, `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")`
+    /// 를 보내 프런트가 앞의 확정 접두를 지우고 한자를 커밋하게 한다(HANJA_WORD_SPEC §4.1).
+    /// preedit_text 가 "" 라 조합 음절도 함께 비워진다.
+    async fn redirect_replace_and_hide(&self, delete_chars: u32, text: &str) {
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.path.clone());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_replace_and_hide: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return;
+            }
+        };
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "AutoTypefixApply",
+                &(delete_chars, text.to_string(), String::new()),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_and_hide AutoTypefixApply 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_and_hide HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+    }
+
+    /// `ReplaceSurroundingText` 와 `HidePopup` 시그널을 popup-owner path 로 redirect 발행.
+    ///
+    /// 대상③(커서 주변 단어)의 마우스 확정 경로 — `redirect_replace_and_hide` 와 같은 path
+    /// 선택 규칙이되 시그널이 `ReplaceSurroundingText(a, b, text, expect)` 다. 프런트가
+    /// 문서를 `expect` 와 대조한 뒤 교체하므로 순서는 교체 → 팝업 닫기(HANJA_WORD_SPEC §4.6).
+    async fn redirect_replace_surrounding_and_hide(&self, rs: &ReplaceSurrounding) {
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.path.clone());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_replace_surrounding_and_hide: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return;
+            }
+        };
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "ReplaceSurroundingText",
+                &(
+                    rs.delete_before,
+                    rs.delete_after,
+                    rs.commit_text.as_str(),
+                    rs.expect_text.as_str(),
+                ),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_surrounding_and_hide ReplaceSurroundingText 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_replace_surrounding_and_hide HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+    }
+
+    /// 팝업 시그널 발행 — `ProcessKey` 응답과 판정 보류(R9) 재판정 결과가 함께 쓴다.
+    ///
+    /// `popup_action` 을 알맞은 시그널로, 이어서 `render_state` 를 `PopupRender` 로 내보낸다.
+    /// 팝업 위치는 **발행 시점**의 `cursor_rect` 를 읽는다(보류 중 커서가 움직였을 수 있다).
+    async fn emit_popup_response(
+        signal_ctx: &SignalContext<'_>,
+        cursor_rect: &std::sync::Mutex<(i32, i32, i32, i32)>,
+        popup_action: &Option<PopupAction>,
+        render_state: &Option<PopupRenderPayload>,
+    ) {
+        // Push 방식: 인디케이터가 팝업 표시
+        if let Some(popup) = popup_action {
+            match popup {
+                PopupAction::ShowHanja {
+                    target,
+                    candidates,
+                    top_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    Self::show_hanja_popup(
+                        signal_ctx,
+                        target,
+                        candidates.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowHanjaPopup 시그널 발행: target={}자, count={}, top_row={}자",
+                        target.chars().count(),
+                        candidates.len(),
+                        top_row.chars().count()
+                    );
+                }
+                PopupAction::ShowSpecial {
+                    target,
+                    characters,
+                    top_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    Self::show_special_popup(
+                        signal_ctx,
+                        target,
+                        characters.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowSpecialPopup 시그널 발행: target={}자, count={}",
+                        target.chars().count(),
+                        characters.len()
+                    );
+                }
+                PopupAction::ShowEmoji {
+                    target_cat_id,
+                    items,
+                    top_row,
+                    recent,
+                    categories,
+                    home_row,
+                } => {
+                    let (x, y, w, h) = *cursor_rect.lock().unwrap();
+                    // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
+                    Self::show_emoji_popup_v2(
+                        signal_ctx,
+                        target_cat_id,
+                        items.clone(),
+                        top_row,
+                        recent.clone(),
+                        categories.clone(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        home_row,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
+                        target_cat_id,
+                        items.len(),
+                        recent.len(),
+                        categories.len(),
+                        x,
+                        y,
+                        w,
+                        h,
+                        home_row.chars().count()
+                    );
+                }
+                PopupAction::HidePopup => {
+                    Self::hide_popup(signal_ctx).await.ok();
+                    unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
+                }
+                PopupAction::PopupNavigate {
+                    page,
+                    total_pages,
+                    selected,
+                    rows,
+                    cols,
+                    sel_row,
+                    sel_col,
+                } => {
+                    Self::popup_navigate(
+                        signal_ctx,
+                        *page as i32,
+                        *total_pages as i32,
+                        *selected as i32,
+                        *rows as i32,
+                        *cols as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PopupNavigate: page={}/{}, selected={}, rows={}, cols={}, sel=({},{})",
+                        page,
+                        total_pages,
+                        selected,
+                        rows,
+                        cols,
+                        sel_row,
+                        sel_col
+                    );
+                }
+                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
+                    Self::hanja_bookmark_changed(signal_ctx, *index as u32, *bookmarked)
+                        .await
+                        .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
+                        index,
+                        bookmarked
+                    );
+                }
+                PopupAction::HanjaCandidatesReordered {
+                    target,
+                    candidates,
+                    bookmarks,
+                    new_cursor,
+                    page,
+                    sel_row,
+                    sel_col,
+                    bookmarked,
+                    was_bookmarked,
+                } => {
+                    // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
+                    let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
+                    let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
+                    Self::hanja_candidates_reordered(
+                        signal_ctx,
+                        target,
+                        hanjas,
+                        meanings,
+                        bookmarks.clone(),
+                        *new_cursor as u32,
+                        *page as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                        *bookmarked,
+                        *was_bookmarked,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaCandidatesReordered: target={}자, count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
+                        target.chars().count(),
+                        candidates.len(),
+                        new_cursor,
+                        page,
+                        sel_row,
+                        sel_col,
+                        bookmarked,
+                        was_bookmarked
+                    );
+                }
+                PopupAction::PageJump { page_index } => {
+                    // 마우스 ◀/▶ 등 외부 RPC 응답 — process_key 경로에서는 발생 안 함이지만
+                    // 안전하게 PopupNavigate 시그널로 변환. (현 진입점은 popup_change_page RPC.)
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PageJump: page_index={} (process_key 경로 — no-op)",
+                        page_index
+                    );
+                }
+            }
+        }
+
+        // PopupRender 시그널 발행 (Phase B 통합 SoT — frontend 가 이걸로 헤더·푸터·셀·탭
+        // 전부 즉시 렌더). popup 활성 시에만 산출.
+        if let Some(rs) = render_state {
+            Self::emit_popup_render(signal_ctx, rs).await;
+        }
+    }
+
+    /// 한자키 판정 보류(R7·R8)의 타이머를 건다 — `deadline_ms` 는 워커 단조 ms.
+    ///
+    /// 기한에 `DeferDue` 를 워커에 보낸다(`ChordIdleFlush` 와 같은 방식). 워커가 "계속 대기"(보고로
+    /// 기한이 늦춰짐)라 답하면 새 기한까지 다시 잔다. 보류가 사라졌으면(키·포커스·Reset·파괴로 취소, 또는
+    /// F2 가 이미 판정) 조용히 끝난다. 판정이 끝났으면 기존 팝업 발행 경로로 시그널을 낸다.
+    ///
+    /// 타이머를 택한 근거: 워커는 `blocking_recv` 루프라 자체 타이머가 없고, `replace_verify.sweep` 식
+    /// 청산은 "다음 요청이 올 때"만 돌아 키를 누르지 않고 기다리는 이 상황에서는 기한을 몇 초씩 놓친다.
+    /// 타이머는 ms 정확하고 상태(컨텍스트별 보류)는 워커 한 곳에만 남는다.
+    fn arm_defer(&self, deadline_ms: u64) {
+        self.defer.arm();
+        let engine_tx = self.engine_tx.clone();
+        let connection = self.connection.clone();
+        let path = self.path.clone();
+        let cursor_rect = Arc::clone(&self.cursor_rect);
+        let gate = Arc::clone(&self.defer);
+        let context_id = self.id;
+        tokio::spawn(async move {
+            let mut deadline = deadline_ms;
+            loop {
+                let now = crate::engine_worker::mono_ms();
+                if deadline > now {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(deadline - now)).await;
+                }
+                // 재판정 한 번(요청~시그널 발행)을 발행 순서 잠금 안에서 한다 — `DeferGate` 주석 참조.
+                let order = gate.exclusive().await;
+                let (tx, rx) = oneshot::channel();
+                if engine_tx
+                    .send(EngineRequest::DeferDue {
+                        context_id,
+                        response: tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                let outcome = rx.await;
+                match outcome {
+                    Ok(DeferOutcome::Wait { deadline_ms }) => {
+                        drop(order);
+                        deadline = deadline_ms;
+                    }
+                    Ok(DeferOutcome::Resolved(popup)) => {
+                        if let Ok(ctx) = zbus::SignalContext::new(&connection, path.as_str()) {
+                            Self::emit_deferred_popup(
+                                &ctx,
+                                &cursor_rect,
+                                &popup.popup_action,
+                                &popup.render_state,
+                                context_id,
+                                "deadline",
+                            )
+                            .await;
+                        }
+                        drop(order);
+                        break;
+                    }
+                    Ok(DeferOutcome::Idle) | Err(_) => break,
+                }
+            }
+            gate.disarm();
+        });
+    }
+
+    /// 판정 보류의 재판정 결과를 내보낸다 — 기존 팝업 발행 경로(`emit_popup_response`)를 그대로 쓴다.
+    async fn emit_deferred_popup(
+        signal_ctx: &SignalContext<'_>,
+        cursor_rect: &std::sync::Mutex<(i32, i32, i32, i32)>,
+        popup_action: &Option<PopupAction>,
+        render_state: &Option<PopupRenderPayload>,
+        context_id: u32,
+        trigger: &str,
+    ) {
+        unim_log!(
+            "DBUS",
+            "[DBus] 한자키 판정 보류 재판정({}): context_id={}, popup={}",
+            trigger,
+            context_id,
+            match popup_action {
+                Some(PopupAction::ShowHanja { .. }) => "hanja",
+                Some(PopupAction::ShowEmoji { .. }) => "emoji",
+                Some(_) => "other",
+                None => "none",
+            }
+        );
+        Self::emit_popup_response(signal_ctx, cursor_rect, popup_action, render_state).await;
+    }
+
     /// PopupRender 시그널 발행 헬퍼 — engine view_model 페이로드를 unpack 하여 emit.
     /// frontend (GNOME / gui-gtk) 가 본 시그널로 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더.
     async fn emit_popup_render(signal_ctx: &SignalContext<'_>, rs: &PopupRenderPayload) {
@@ -1894,9 +2750,9 @@ impl InputContextHandler {
         .ok();
         unim_log!(
             "DBUS",
-            "[DBus] PopupRender: kind={}, target='{}', cells={}, page={}/{}",
+            "[DBus] PopupRender: kind={}, target={}자, cells={}, page={}/{}",
             rs.kind,
-            rs.target,
+            rs.target.chars().count(),
             rs.cells.len(),
             rs.current_page + 1,
             rs.total_pages
@@ -1907,8 +2763,15 @@ impl InputContextHandler {
 // zbus `#[interface]` 매크로가 자동 생성하는 trampoline 메서드는 시그널 컨텍스트 등을
 // 위해 인자가 7개를 초과하기 쉽다. 매크로 외부에서 조정 불가하므로 impl 블록 전체에
 // `too_many_arguments` 를 silence (실제 사용자 facing API 는 DBus 시그니처로 제한됨).
+//
+// [직렬 디스패치] zbus_macros 4.4.0 iface.rs:377 은 `spawn` 속성을 반전해 읽는다
+// (`!spawn.unwrap_or(false)`). 즉 `spawn = true` 일 때 메서드별 태스크 생성이 꺼진다.
+// 같은 연결에서 SetSurroundingText(응답 없이 보냄) → GetHanjaCandidates/ProcessKeyEvent 가
+// 도착한 순서대로 엔진 채널에 들어가게 하려는 것이다(태스크가 갈라지면 순서가 뒤집혀
+// 낡은 선택으로 한자 변환이 일어난다). zbus 5 로 올리면 `spawn = false` 로 바꿀 것 —
+// 테스트(unim-dbus/tests/surrounding_order.rs)가 spawn_tasks_for_methods()==false 를 단언한다.
 #[allow(clippy::too_many_arguments)]
-#[interface(name = "org.atit.unim.InputContext")]
+#[interface(name = "org.atit.unim.InputContext", spawn = true)]
 impl InputContextHandler {
     /// 키 이벤트 처리
     /// 반환값: (consumed, preedit, commit)
@@ -1919,6 +2782,8 @@ impl InputContextHandler {
         keycode: u32,
         state: u32,
     ) -> zbus::fdo::Result<(bool, String, String)> {
+        // 보류 타이머가 살아 있으면 기한 재판정의 팝업 발행과 순서를 맞춘다(`DeferGate`). 없으면 무비용.
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -1951,219 +2816,49 @@ impl InputContextHandler {
                 .ok();
         }
 
-        // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
-        if let Some(popup) = &response.popup_action {
-            match popup {
-                PopupAction::ShowHanja {
-                    target,
-                    candidates,
-                    top_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    Self::show_hanja_popup(
-                        &signal_ctx,
-                        target,
-                        candidates.clone(),
-                        top_row,
-                        x,
-                        y,
-                        w,
-                        h,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowHanjaPopup 시그널 발행: target='{}', count={}, top_row='{}'",
-                        target,
-                        candidates.len(),
-                        top_row
-                    );
-                }
-                PopupAction::ShowSpecial {
-                    target,
-                    characters,
-                    top_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    Self::show_special_popup(
-                        &signal_ctx,
-                        target,
-                        characters.clone(),
-                        top_row,
-                        x,
-                        y,
-                        w,
-                        h,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowSpecialPopup 시그널 발행: target='{}', count={}",
-                        target,
-                        characters.len()
-                    );
-                }
-                PopupAction::ShowEmoji {
-                    target_cat_id,
-                    items,
-                    top_row,
-                    recent,
-                    categories,
-                    home_row,
-                } => {
-                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
-                    Self::show_emoji_popup_v2(
-                        &signal_ctx,
-                        target_cat_id,
-                        items.clone(),
-                        top_row,
-                        recent.clone(),
-                        categories.clone(),
-                        x,
-                        y,
-                        w,
-                        h,
-                        home_row,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
-                        target_cat_id,
-                        items.len(),
-                        recent.len(),
-                        categories.len(),
-                        x,
-                        y,
-                        w,
-                        h,
-                        home_row
-                    );
-                }
-                PopupAction::HidePopup => {
-                    Self::hide_popup(&signal_ctx).await.ok();
-                    unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
-                }
-                PopupAction::PopupNavigate {
-                    page,
-                    total_pages,
-                    selected,
-                    rows,
-                    cols,
-                    sel_row,
-                    sel_col,
-                } => {
-                    Self::popup_navigate(
-                        &signal_ctx,
-                        *page as i32,
-                        *total_pages as i32,
-                        *selected as i32,
-                        *rows as i32,
-                        *cols as i32,
-                        *sel_row as i32,
-                        *sel_col as i32,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] PopupNavigate: page={}/{}, selected={}, rows={}, cols={}, sel=({},{})",
-                        page,
-                        total_pages,
-                        selected,
-                        rows,
-                        cols,
-                        sel_row,
-                        sel_col
-                    );
-                }
-                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
-                    Self::hanja_bookmark_changed(&signal_ctx, *index as u32, *bookmarked)
-                        .await
-                        .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
-                        index,
-                        bookmarked
-                    );
-                }
-                PopupAction::HanjaCandidatesReordered {
-                    target,
-                    candidates,
-                    bookmarks,
-                    new_cursor,
-                    page,
-                    sel_row,
-                    sel_col,
-                    bookmarked,
-                    was_bookmarked,
-                } => {
-                    // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
-                    let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
-                    let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
-                    Self::hanja_candidates_reordered(
-                        &signal_ctx,
-                        target,
-                        hanjas,
-                        meanings,
-                        bookmarks.clone(),
-                        *new_cursor as u32,
-                        *page as i32,
-                        *sel_row as i32,
-                        *sel_col as i32,
-                        *bookmarked,
-                        *was_bookmarked,
-                    )
-                    .await
-                    .ok();
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] HanjaCandidatesReordered: target='{}', count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
-                        target,
-                        candidates.len(),
-                        new_cursor,
-                        page,
-                        sel_row,
-                        sel_col,
-                        bookmarked,
-                        was_bookmarked
-                    );
-                }
-                PopupAction::PageJump { page_index } => {
-                    // 마우스 ◀/▶ 등 외부 RPC 응답 — process_key 경로에서는 발생 안 함이지만
-                    // 안전하게 PopupNavigate 시그널로 변환. (현 진입점은 popup_change_page RPC.)
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] PageJump: page_index={} (process_key 경로 — no-op)",
-                        page_index
-                    );
-                }
-            }
-        }
-
-        // PopupRender 시그널 발행 (Phase B 통합 SoT — frontend 가 이걸로 헤더·푸터·셀·탭
-        // 전부 즉시 렌더). popup 활성 시에만 산출.
-        if let Some(rs) = &response.render_state {
-            Self::emit_popup_render(&signal_ctx, rs).await;
-        }
+        // 팝업 시그널 자동 발행 + PopupRender (Phase B 통합 SoT). 판정 보류의 재판정 결과도 같은 경로를 쓴다.
+        Self::emit_popup_response(
+            &signal_ctx,
+            &self.cursor_rect,
+            &response.popup_action,
+            &response.render_state,
+        )
+        .await;
 
         // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
         if let Some((delete_chars, commit_text, preedit_text)) = &response.auto_typefix {
+            // 한자 단어 교체도 이 채널을 탄다 — 입력 평문 대신 글자 수만 남긴다(§2.8).
             unim_log!(
                 "DBUS",
-                "[DBus] AutoTypeFix 시그널: delete={}, commit='{}', preedit='{}'",
+                "[DBus] AutoTypeFix 시그널: delete={}, commit={}자, preedit={}자",
                 delete_chars,
-                commit_text,
-                preedit_text
+                commit_text.chars().count(),
+                preedit_text.chars().count()
             );
             Self::auto_typefix_apply(&signal_ctx, *delete_chars, commit_text, preedit_text)
                 .await
                 .ok();
+        }
+
+        // 대상③ 키보드 확정: 자기 InputContext path 로 ReplaceSurroundingText 발행
+        // (HidePopup 뒤 — AutoTypefixApply 와 같은 위치). 평문 대신 수치만 남긴다(§2.8).
+        if let Some(rs) = &response.replace_surrounding {
+            unim_log!(
+                "DBUS",
+                "[DBus] ReplaceSurroundingText 시그널: a={}, b={}, commit={}자",
+                rs.delete_before,
+                rs.delete_after,
+                rs.commit_text.chars().count()
+            );
+            Self::replace_surrounding_text(
+                &signal_ctx,
+                rs.delete_before,
+                rs.delete_after,
+                &rs.commit_text,
+                &rs.expect_text,
+            )
+            .await
+            .ok();
         }
 
         // AutoTypeFix 토글 단축키: engine_worker 가 config 를 반전·persist 한 뒤 새 값을
@@ -2238,10 +2933,10 @@ impl InputContextHandler {
                     if let Some(commit_text) = commit_opt {
                         unim_log!(
                             "DBUS",
-                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text={}자",
                             context_id,
                             epoch,
-                            commit_text
+                            commit_text.chars().count()
                         );
                         InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
                     }
@@ -2249,10 +2944,10 @@ impl InputContextHandler {
                     let cursor_pos = preedit.chars().count() as u32;
                     unim_log!(
                         "DBUS",
-                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit='{}', visible={}",
+                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit={}자, visible={}",
                         context_id,
                         epoch,
-                        preedit,
+                        preedit.chars().count(),
                         visible
                     );
                     InputContextHandler::update_preedit_text(&ctx, &preedit, cursor_pos, visible)
@@ -2262,13 +2957,25 @@ impl InputContextHandler {
             });
         }
 
+        // 한자키 판정 보류(R7·R8): 이미 소비·팝업 없음으로 답했다. 기한에 재판정하는 타이머를 건다
+        // (F2 가 먼저 오면 `set_surrounding_text` 가 재판정한다).
+        if let Some(deadline_ms) = response.deferred_hanja {
+            unim_log!(
+                "DBUS",
+                "[DBus] 한자키 판정 보류: context_id={}, wait_ms={}",
+                self.id,
+                deadline_ms.saturating_sub(crate::engine_worker::mono_ms())
+            );
+            self.arm_defer(deadline_ms);
+        }
+
         unim_log!(
             "DBUS",
-            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'",
+            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit={}자, commit={}자",
             keyval,
             response.consumed,
-            preedit,
-            commit
+            preedit.chars().count(),
+            commit.chars().count()
         );
 
         Ok((response.consumed, preedit, commit))
@@ -2336,6 +3043,7 @@ impl InputContextHandler {
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<String> {
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -2357,9 +3065,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] FocusOut: context_id={}, commit='{}'",
+            "[DBus] FocusOut: context_id={}, commit={}자",
             self.id,
-            commit
+            commit.chars().count()
         );
         Ok(commit)
     }
@@ -2369,6 +3077,7 @@ impl InputContextHandler {
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<()> {
+        let _order = self.defer.ordered().await;
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -2393,40 +3102,27 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] Reset: context_id={}, commit='{}'",
+            "[DBus] Reset: context_id={}, commit={}자",
             self.id,
-            commit
+            commit.chars().count()
         );
         Ok(())
     }
 
     /// 컨텍스트 파괴
+    ///
+    /// 연결 종료 회수(`context_registry::reclaim_owner`)와 같은 공통 경로를 탄다 — 엔진 통지,
+    /// last_active 캐시 무효화, object_server 에서 핸들러 제거(라우팅 테이블·시그널 구독 누적 방지).
     async fn destroy(&self) -> zbus::fdo::Result<()> {
-        // last_active 캐시가 본 컨텍스트를 가리키고 있다면 비워준다 — stale path
-        // 으로 글로벌 CommitEmoji/TriggerAction이 죽은 path에 시그널을 보내는 것 방지.
-        {
-            let mut last = self.last_active_input_context_path.lock().unwrap();
-            if last.as_deref() == Some(self.path.as_str()) {
-                *last = None;
-            }
-        }
-
-        self.engine_tx
-            .send(EngineRequest::DestroyContext { id: self.id })
-            .await
-            .ok();
-
-        // object_server에서 이 핸들러 자신도 제거 — Destroy 호출 후에도 핸들러가
-        // 남아있으면 zbus 내부 라우팅 테이블·시그널 구독 상태가 context_id마다 누적돼
-        // 장시간 실행 시 RSS가 꾸준히 증가한다. 경로는 create_input_context와 동일 포맷.
-        let path_str = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, self.id);
-        if let Ok(path) = zbus::zvariant::ObjectPath::try_from(path_str.as_str()) {
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<InputContextHandler, _>(path)
-                .await;
-        }
+        context_registry::destroy_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            Some(&self.last_active_input_context_path),
+            ContextKind::Unim,
+            self.id,
+        )
+        .await;
 
         unim_log!("DBUS", "[DBus] Context 파괴: id={}", self.id);
         Ok(())
@@ -2647,7 +3343,7 @@ impl InputContextHandler {
                 .ok();
                 unim_log!(
                     "DBUS",
-                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
+                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home={}자",
                     target_cat_id,
                     items.len(),
                     recent.len(),
@@ -2656,7 +3352,7 @@ impl InputContextHandler {
                     y,
                     w,
                     h,
-                    home_row
+                    home_row.chars().count()
                 );
             }
             // 향후 확장 지점 (예: "hanja_popup", "special_popup")
@@ -2704,30 +3400,83 @@ impl InputContextHandler {
     }
 
     /// 입력 필드 목적 설정 (비밀번호/PIN 필드 감지용)
-    async fn set_content_type(&self, purpose: u32) -> zbus::fdo::Result<()> {
-        self.engine_tx
-            .send(EngineRequest::SetContentType {
+    ///
+    /// 비밀번호/PIN 진입으로 엔진이 열린 팝업을 닫았으면(응답 true) `HidePopup` 만 발행한다
+    /// — 재커밋 없음(비번 필드에 원문 재삽입 금지, HANJA_WORD_SPEC §2.8). 이것이 없으면
+    /// 후보 창이 비번 필드 위에 다음 팝업 RPC 때까지 남는다. 프런트 호출 시그니처는 불변.
+    async fn set_content_type(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        purpose: u32,
+    ) -> zbus::fdo::Result<()> {
+        let _order = self.defer.ordered().await;
+        let (response_tx, response_rx) = oneshot::channel();
+        let sent = self
+            .engine_tx
+            .send(EngineRequest::SetContentTypeWithReply {
                 context_id: self.id,
                 purpose,
+                response: response_tx,
             })
             .await
-            .ok();
+            .is_ok();
+        let popup_closed = sent && response_rx.await.unwrap_or(false);
+        if popup_closed {
+            // 팝업을 닫은 엔진은 이 컨텍스트 소유이므로 전역 last_active 가 아닌 자기 path 에
+            // HidePopup 만 발행(Reset 선례) — CommitText 없음.
+            Self::hide_popup(&signal_ctx).await.ok();
+        }
         unim_log!(
             "DBUS",
-            "[DBus] SetContentType: context_id={}, purpose={}",
+            "[DBus] SetContentType: context_id={}, purpose={}, popup_closed={}",
             self.id,
-            purpose
+            purpose,
+            popup_closed
         );
         Ok(())
     }
 
     /// Surrounding text 설정 (커서 주변 텍스트 전달)
+    ///
+    /// 한자키 판정 보류(R7~R9)가 걸린 컨텍스트면 응답을 받는 변형으로 보내 반영 직후 재판정하고,
+    /// 판정이 끝났으면 이 컨텍스트 path 로 팝업 시그널을 낸다. 그 밖에는 종전처럼 응답 없이 보낸다.
     async fn set_surrounding_text(
         &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
         text: &str,
         cursor_pos: u32,
         anchor_pos: u32,
     ) -> zbus::fdo::Result<()> {
+        if self.defer.is_armed() {
+            // 보고로 열린 팝업의 발행도 타이머·Esc 와 순서를 맞춘다(`DeferGate`).
+            let _order = self.defer.exclusive().await;
+            let (tx, rx) = oneshot::channel();
+            let sent = self
+                .engine_tx
+                .send(EngineRequest::SetSurroundingTextDeferred {
+                    context_id: self.id,
+                    text: text.to_string(),
+                    cursor_pos,
+                    anchor_pos,
+                    response: tx,
+                })
+                .await
+                .is_ok();
+            if sent {
+                if let Ok(DeferOutcome::Resolved(popup)) = rx.await {
+                    Self::emit_deferred_popup(
+                        &signal_ctx,
+                        &self.cursor_rect,
+                        &popup.popup_action,
+                        &popup.render_state,
+                        self.id,
+                        "report",
+                    )
+                    .await;
+                }
+            }
+            return Ok(());
+        }
         self.engine_tx
             .send(EngineRequest::SetSurroundingText {
                 context_id: self.id,
@@ -2737,14 +3486,37 @@ impl InputContextHandler {
             })
             .await
             .ok();
-        unim_log!(
-            "DBUS",
-            "[DBus] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}",
-            self.id,
-            cursor_pos,
-            anchor_pos,
-            text.len()
-        );
+        // 로그는 엔진 워커가 처리 시점에 남긴다(DBus 계층에서는 엔진 반영 순서를 알 수 없다).
+        Ok(())
+    }
+
+    /// 클라이언트 능력 선언 — 응답 없이 보낸다(InputContext 는 직렬 처리). 비트는
+    /// `0x1 REPLACE_SURROUNDING`·`0x2 SELECTION_RELIABLE`·`0x4 POINTER_HINTS`.
+    /// 보내지 않으면 0(종전 동작). 프런트는 FocusIn 직후마다 보낸다(멱등).
+    async fn set_client_capabilities(&self, caps: u32) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SetClientCapabilities {
+                context_id: self.id,
+                caps,
+            })
+            .await
+            .ok();
+        Ok(())
+    }
+
+    /// 프런트가 엔진 밖에서 관측한 사건 보고 — 응답 없이 보낸다.
+    /// `kind`: 1 KEY·2 POINTER_PLAIN·3 POINTER_SELECT·4 PRIMARY_CHANGED·5 SELECTION_UNKNOWN·6 FIELD_FOCUS·7 PRIMARY_EMPTY·8 POINTER_APP.
+    /// `kind != 1` 이면 keyval·state 는 0. 알 수 없는 kind 는 엔진이 무시하고 로그를 남긴다.
+    async fn surrounding_hint(&self, kind: u32, keyval: u32, state: u32) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SurroundingHint {
+                context_id: self.id,
+                kind,
+                keyval,
+                state,
+            })
+            .await
+            .ok();
         Ok(())
     }
 
@@ -2773,9 +3545,9 @@ impl InputContextHandler {
         if let Some((delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] SmartBackspace: delete={}, replacement='{}'",
+                "[DBus] SmartBackspace: delete={}, replacement={}자",
                 delete_chars,
-                replacement
+                replacement.chars().count()
             );
             // 기존 글자 삭제
             Self::delete_surrounding_text(&signal_ctx, -(delete_chars as i32), delete_chars)
@@ -2807,6 +3579,19 @@ impl InputContextHandler {
         delete_chars: u32,
         commit_text: &str,
         preedit_text: &str,
+    ) -> zbus::Result<()>;
+
+    /// 커서 주변 교체 시그널 (엔진 → 프론트엔드) — 대상③ 한자 확정(HANJA_WORD_SPEC §4.6).
+    /// 커서 기준 앞 `delete_before`자·뒤 `delete_after`자(유니코드 코드포인트)를 지우고
+    /// `commit_text` 를 커밋한다. GTK·Qt 프런트는 문서를 다시 조회해 해당 구간이
+    /// `expect_text` 와 완전 일치할 때만 실행한다.
+    #[zbus(signal)]
+    async fn replace_surrounding_text(
+        signal_ctx: &SignalContext<'_>,
+        delete_before: u32,
+        delete_after: u32,
+        commit_text: &str,
+        expect_text: &str,
     ) -> zbus::Result<()>;
 
     // =========================================
@@ -2841,16 +3626,16 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let response = response_rx
+        let (response, closed_popup) = response_rx
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
         unim_log!(
             "DBUS",
-            "[DBus] GetHanjaCandidates: target='{}', count={}, top_row='{}'",
-            response.target,
+            "[DBus] GetHanjaCandidates: target={}자, count={}, top_row={}자",
+            response.target.chars().count(),
             response.candidates.len(),
-            response.top_row
+            response.top_row.chars().count()
         );
 
         // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
@@ -2878,6 +3663,13 @@ impl InputContextHandler {
             );
         }
 
+        // 대상③ 후보 소진(I4): 열려 있던 팝업이 이 호출로 닫혔다 — 이어지는 ProcessKey 폴백이
+        // 이모지 팝업을 열 수 있도록 자기 path 에 HidePopup 을 낸다(재커밋 없음).
+        if closed_popup {
+            Self::hide_popup(&signal_ctx).await.ok();
+            unim_log!("DBUS", "[DBus] GetHanjaCandidates: 팝업 닫힘 → HidePopup");
+        }
+
         Ok((response.target, response.candidates))
     }
 
@@ -2899,21 +3691,43 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let hanja = response_rx
+        let outcome = response_rx
             .await
-            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
-            .unwrap_or_default();
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        // CommitText / HidePopup 을 popup-owner path 로 redirect 발행 — GNOME extension 자체
-        // context 에서 RPC 가 들어와도 commit 은 GTK4_IM 등 실제 입력 대상 path 로 보낸다.
-        // last_active path 가 없으면 self.path 로 fallback (기존 동일 path 동작 보존).
-        self.redirect_commit_and_hide(&hanja).await;
+        // CommitText(또는 AutoTypefixApply) / HidePopup 을 popup-owner path 로 redirect 발행 —
+        // GNOME extension 자체 context 에서 RPC 가 들어와도 commit 은 GTK4_IM 등 실제 입력
+        // 대상 path 로 보낸다. last_active path 가 없으면 self.path 로 fallback.
+        let (hanja, delete_chars) = match outcome {
+            SelectHanjaOutcome::Commit(text) => {
+                self.redirect_commit_and_hide(&text).await;
+                (text, 0)
+            }
+            // 대상①(확정 접두 > 0): 접두 삭제 + 커밋을 교체 채널로 (§4.1).
+            SelectHanjaOutcome::Replace { delete_chars, text } => {
+                self.redirect_replace_and_hide(delete_chars, &text).await;
+                (text, delete_chars)
+            }
+            // 대상③(커서 주변 단어): 앞 a자·뒤 b자 교체를 expect 대조 시그널로 (§4.6).
+            SelectHanjaOutcome::ReplaceSurrounding(rs) => {
+                self.redirect_replace_surrounding_and_hide(&rs).await;
+                let n = rs.delete_before;
+                (rs.commit_text, n)
+            }
+            // 한자 모드 아님 / 범위 밖 — 종전처럼 빈 문자열로 CommitText 생략·HidePopup 만.
+            SelectHanjaOutcome::None => {
+                self.redirect_commit_and_hide("").await;
+                (String::new(), 0)
+            }
+        };
 
+        // 선택 텍스트 평문은 남기지 않는다(비번 조각 보호, §2.8) — 글자 수만.
         unim_log!(
             "DBUS",
-            "[DBus] SelectHanja: index={}, result='{}'",
+            "[DBus] SelectHanja: index={}, result={}자, delete={}",
             index,
-            hanja
+            hanja.chars().count(),
+            delete_chars
         );
 
         Ok(hanja)
@@ -3161,10 +3975,9 @@ impl InputContextHandler {
         let commit_text = if let Ok(Some(preedit)) = response_rx.await {
             // CommitText 를 popup-owner path 로 redirect (select_hanja 와 동일 사유).
             // HidePopup 도 함께 발행 — popup 외부 마우스 클릭 cancel 후 GTK4_IM 모듈이
-            // popup 을 닫게 한다.
-            if !preedit.is_empty() {
-                self.redirect_commit_and_hide(&preedit).await;
-            }
+            // popup 을 닫게 한다. 한자 모드였으면 빈 문자열(대상② — 선택 영역은 앱에
+            // 그대로 있다)이어도 HidePopup 은 발행한다(빈 텍스트면 CommitText 생략).
+            self.redirect_commit_and_hide(&preedit).await;
             preedit
         } else {
             String::new()
@@ -3172,9 +3985,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] CancelHanja: context_id={}, commit='{}'",
+            "[DBus] CancelHanja: context_id={}, commit={}자",
             self.id,
-            commit_text
+            commit_text.chars().count()
         );
         Ok(commit_text)
     }
@@ -3205,10 +4018,10 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] GetSpecialCharCandidates: target='{}', count={}, top_row='{}'",
-            response.target,
+            "[DBus] GetSpecialCharCandidates: target={}자, count={}, top_row={}자",
+            response.target.chars().count(),
             response.characters.len(),
-            response.top_row
+            response.top_row.chars().count()
         );
 
         // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
@@ -3267,9 +4080,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] SelectSpecialChar: index={}, result='{}'",
+            "[DBus] SelectSpecialChar: index={}, result={}자",
             index,
-            ch
+            ch.chars().count()
         );
 
         Ok(ch)
@@ -3301,9 +4114,9 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] CancelSpecialChar: context_id={}, commit='{}'",
+            "[DBus] CancelSpecialChar: context_id={}, commit={}자",
             self.id,
-            commit_text
+            commit_text.chars().count()
         );
         Ok(commit_text)
     }
@@ -3327,6 +4140,7 @@ impl InputContextHandler {
         let (cleanup_tx, cleanup_rx) = oneshot::channel();
         if self.engine_tx.send(EngineRequest::CancelEmojiPopup {
             context_id: self.id,
+            committed: !emoji.is_empty(),
             response: cleanup_tx,
         }).await.is_ok() {
             match cleanup_rx.await {
@@ -3348,9 +4162,9 @@ impl InputContextHandler {
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(
             "DBUS",
-            "[DBus] CommitEmoji: context_id={}, emoji='{}', HidePopup 시그널 발행 OK",
+            "[DBus] CommitEmoji: context_id={}, emoji={}자, HidePopup 시그널 발행 OK",
             self.id,
-            emoji
+            emoji.chars().count()
         );
         Ok(())
     }
@@ -3358,89 +4172,187 @@ impl InputContextHandler {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // active_frontends 단위 테스트 (daemon 없이 순수 메모리 상태 검증)
+//
+// zbus 메서드는 `#[zbus(header)]` 인자 때문에 직접 부르기 어렵다 — 등록·해제·정리 로직을
+// `(name, sender)` 순수 헬퍼로 분리해 두었으므로 헬퍼를 직접 호출한다.
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use super::{
+        drop_owner, frontend_names, is_connection_closed, register_frontend_inner,
+        unregister_frontend_inner, FrontendMap,
+    };
 
-    /// 헬퍼: 테스트용 active_frontends Arc 생성
-    fn make_set() -> Arc<RwLock<HashSet<String>>> {
-        Arc::new(RwLock::new(HashSet::new()))
+    const SHELL: &str = ":1.42";
+    const OTHER: &str = ":1.77";
+
+    /// 멱등성: 같은 호출자가 같은 이름을 두 번 등록해도 이름 1개, 두 번째는 변화 없음
+    #[test]
+    fn test_register_frontend_idempotent() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "gnome-shell", SHELL), "첫 등록은 true");
+        assert!(!register_frontend_inner(&mut m, "gnome-shell", SHELL), "재등록은 false (no-op)");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m["gnome-shell"].len(), 1);
     }
 
-    /// 멱등성: 동일 이름을 두 번 insert해도 set 크기 1
-    #[tokio::test]
-    async fn test_register_frontend_idempotent() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            let first = s.insert("gnome-shell".to_string());
-            let second = s.insert("gnome-shell".to_string());
-            assert!(first, "첫 등록은 true");
-            assert!(!second, "재등록은 false (no-op)");
-            assert_eq!(s.len(), 1);
-        }
+    /// 같은 이름에 다른 등록자가 추가돼도 이름 집합은 불변(signal 불필요)
+    #[test]
+    fn test_register_second_owner_keeps_name_set() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "gnome-shell-notify", SHELL));
+        assert!(!register_frontend_inner(&mut m, "gnome-shell-notify", OTHER));
+        assert_eq!(m["gnome-shell-notify"].len(), 2);
     }
 
     /// 등록 후 조회: 정렬된 Vec 반환
-    #[tokio::test]
-    async fn test_get_active_frontends_sorted() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            s.insert("unim-xim".to_string());
-            s.insert("gnome-shell".to_string());
-            s.insert("unim-wayland".to_string());
-        }
-        let names = {
-            let s = set.read().await;
-            let mut v: Vec<String> = s.iter().cloned().collect();
-            v.sort();
-            v
-        };
-        assert_eq!(names, vec!["gnome-shell", "unim-wayland", "unim-xim"]);
+    #[test]
+    fn test_get_active_frontends_sorted() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "unim-xim", OTHER);
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        register_frontend_inner(&mut m, "unim-wayland", OTHER);
+        assert_eq!(frontend_names(&m), vec!["gnome-shell", "unim-wayland", "unim-xim"]);
     }
 
-    /// unregister: 제거 후 set 비어 있음, 없는 이름 제거는 false
-    #[tokio::test]
-    async fn test_unregister_frontend_idempotent() {
-        let set = make_set();
-        {
-            let mut s = set.write().await;
-            s.insert("gnome-shell".to_string());
-        }
-        let removed = {
-            let mut s = set.write().await;
-            s.remove("gnome-shell")
-        };
-        assert!(removed, "존재하는 이름 제거 true");
-        let removed_again = {
-            let mut s = set.write().await;
-            s.remove("gnome-shell")
-        };
-        assert!(!removed_again, "이미 없는 이름 제거 false (no-op)");
-        let s = set.read().await;
-        assert!(s.is_empty());
+    /// unregister: 제거 후 비어 있음, 없는 이름 제거는 false
+    #[test]
+    fn test_unregister_frontend_idempotent() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        assert!(unregister_frontend_inner(&mut m, "gnome-shell", SHELL), "존재하는 이름 제거 true");
+        assert!(
+            !unregister_frontend_inner(&mut m, "gnome-shell", SHELL),
+            "이미 없는 이름 제거 false (no-op)"
+        );
+        assert!(m.is_empty());
     }
 
-    /// signal 발산 조건: insert 결과 true일 때만 signal emit 필요
-    #[tokio::test]
-    async fn test_signal_emit_condition() {
-        let set = make_set();
-        let inserted = {
-            let mut s = set.write().await;
-            s.insert("unim-gui-gtk".to_string())
-        };
-        // 변경 있을 때만 signal 발산 (inserted == true)
-        assert!(inserted, "signal emit 해야 함");
+    /// 타인 등록 해제 불가: 호출자가 등록하지 않은 이름은 지워지지 않는다
+    #[test]
+    fn test_unregister_cannot_remove_others_registration() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        assert!(!unregister_frontend_inner(&mut m, "gnome-shell-notify", OTHER));
+        assert!(m.contains_key("gnome-shell-notify"));
+        assert!(m["gnome-shell-notify"].contains(SHELL));
+    }
 
-        let inserted_dup = {
-            let mut s = set.write().await;
-            s.insert("unim-gui-gtk".to_string())
+    /// 다른 등록자가 남으면 이름은 유지, 마지막 등록자가 빠지면 이름이 사라진다
+    #[test]
+    fn test_unregister_keeps_name_while_other_owner_remains() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "n", SHELL);
+        register_frontend_inner(&mut m, "n", OTHER);
+        assert!(!unregister_frontend_inner(&mut m, "n", SHELL), "이름 유지 → false");
+        assert!(m.contains_key("n"));
+        assert!(unregister_frontend_inner(&mut m, "n", OTHER), "마지막 등록자 → 이름 제거");
+        assert!(m.is_empty());
+    }
+
+    /// 등록자 소멸 시 이름 제거(해제 없이 죽은 확장) — 모든 이름에서 지운다
+    #[test]
+    fn test_drop_owner_removes_names_of_dead_owner() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        register_frontend_inner(&mut m, "unim-popup-service", OTHER);
+        assert!(drop_owner(&mut m, SHELL), "이름 집합이 바뀜 → signal 필요");
+        assert_eq!(frontend_names(&m), vec!["unim-popup-service"]);
+    }
+
+    /// 다른 등록자가 남으면 이름 유지(집합 불변 → signal 불필요)
+    #[test]
+    fn test_drop_owner_keeps_name_when_other_owner_remains() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell-notify", SHELL);
+        register_frontend_inner(&mut m, "gnome-shell-notify", OTHER);
+        assert!(!drop_owner(&mut m, SHELL));
+        assert!(m["gnome-shell-notify"].contains(OTHER));
+        assert!(!m["gnome-shell-notify"].contains(SHELL));
+    }
+
+    /// 등록 이력 없는 호출자가 사라져도 아무 일 없음
+    #[test]
+    fn test_drop_unknown_owner_is_noop() {
+        let mut m = FrontendMap::new();
+        register_frontend_inner(&mut m, "gnome-shell", SHELL);
+        assert!(!drop_owner(&mut m, ":1.999"));
+        assert_eq!(m.len(), 1);
+    }
+
+    /// signal 발산 조건: 새 이름일 때만 true
+    #[test]
+    fn test_signal_emit_condition() {
+        let mut m = FrontendMap::new();
+        assert!(register_frontend_inner(&mut m, "unim-gui-gtk", OTHER), "signal emit 해야 함");
+        assert!(!register_frontend_inner(&mut m, "unim-gui-gtk", OTHER), "signal emit 불필요");
+    }
+
+    /// NameOwnerChanged 판정: unique name 이고 new_owner 가 비었을 때만 연결 종료
+    #[test]
+    fn test_is_connection_closed() {
+        assert!(is_connection_closed(":1.42", None));
+        assert!(is_connection_closed(":1.42", Some("")));
+        // well-known 이름 소유자 변경은 등록자 정리 대상이 아니다
+        assert!(!is_connection_closed("org.atit.unim.InputMethod", None));
+        // unique name 에 새 소유자가 있으면(발생하지 않지만) 연결 종료가 아님
+        assert!(!is_connection_closed(":1.42", Some(":1.43")));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeferGate 단위 테스트 — 기한 재판정의 팝업 발행과 Esc 의 HidePopup 발행 순서
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod defer_gate_tests {
+    use super::DeferGate;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// 타이머가 "워커가 팝업을 연 뒤 ~ ShowXxx 발행 전" 구간에 있을 때 Esc 가 도착한 상황을 재현한다.
+    /// 잠금이 없으면 Esc 의 Hide 가 먼저 나가 화면에 팝업만 남는다 — 있으면 Show → Hide 로 닫힌다.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn esc_hide_never_precedes_deadline_show() {
+        let gate = Arc::new(DeferGate::new());
+        let log: Arc<Mutex<Vec<&'static str>>> = Arc::default();
+        gate.arm();
+
+        let timer = {
+            let (gate, log) = (Arc::clone(&gate), Arc::clone(&log));
+            tokio::spawn(async move {
+                let _order = gate.exclusive().await;
+                log.lock().unwrap().push("worker_opened");
+                // 워커 응답이 오고 시그널을 내기까지의 틈 — 여기서 Esc 가 들어온다.
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                log.lock().unwrap().push("show");
+            })
         };
-        // 중복 등록 — signal 발산 불필요
-        assert!(!inserted_dup, "signal emit 불필요");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let esc = {
+            let (gate, log) = (Arc::clone(&gate), Arc::clone(&log));
+            tokio::spawn(async move {
+                let _order = gate.ordered().await;
+                log.lock().unwrap().push("esc_hide");
+            })
+        };
+        timer.await.unwrap();
+        esc.await.unwrap();
+        assert_eq!(*log.lock().unwrap(), vec!["worker_opened", "show", "esc_hide"]);
+    }
+
+    /// 타이머가 없는 컨텍스트(S 컨텍스트·보류 없는 push)는 잠금을 잡지 않는다 — 핫패스 지연 0.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unarmed_context_never_takes_the_lock() {
+        let gate = DeferGate::new();
+        let _held = gate.exclusive().await; // 누군가 잠금을 쥐고 있어도
+        let got = tokio::time::timeout(Duration::from_millis(200), gate.ordered())
+            .await
+            .expect("armed==0 이면 대기 없이 반환");
+        assert!(got.is_none());
+        gate.arm();
+        assert!(gate.is_armed());
+        gate.disarm();
+        assert!(!gate.is_armed());
     }
 }

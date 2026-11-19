@@ -101,7 +101,7 @@ Wayland 키 이벤트 → vfunc_filter_key_event → KeyHandler → DBus Process
 | `cargo test --workspace` | Rust 유닛 테스트 (전체) |
 | `make dev-gtk4` | GTK4 모듈 빌드 + 배포 |
 | `make dev-daemon` | 데몬 빌드 + 배포 |
-| `make dev-extension` | GNOME Extension 배포 (~/.local/share/) |
+| `make dev-extension` | GNOME Extension 배포 (~/.local/share/) — 같은 UUID 의 시스템 설치본을 **가린다**, 개발 후 사본 삭제 |
 
 ## 품질 규칙 (Zero Tolerance)
 
@@ -142,6 +142,8 @@ Wayland 키 이벤트 → vfunc_filter_key_event → KeyHandler → DBus Process
 - [unim-dbus/src/ibus_compat/ibus_context.rs](../../../unim-dbus/src/ibus_compat/ibus_context.rs) `IBusInputContextHandler::destroy`
 
 핸들러가 남으면 zbus 내부 라우팅 테이블이 세션 수명 동안 계속 커진다.
+
+**주의 — zbus 4.4 `spawn` 반전, InputContext 는 직렬**: zbus_macros 4.4.0 의 `#[interface(spawn = …)]` 는 방향이 거꾸로라 `spawn = true` 가 메서드별 태스크를 **끈다**(5.x 는 정상). `org.atit.unim.InputContext` 는 `SetSurroundingText`→`GetHanjaCandidates` 도착 순서 보장을 위해 `spawn = true`(직렬)이며 zbus 5 로 올릴 때 `spawn = false` 로 바꿔야 한다 — `unim-dbus/SPEC.md` §4.4, 시험 `unim-dbus/tests/surrounding_order.rs`.
 
 ### 진단 명령 (의심 시)
 

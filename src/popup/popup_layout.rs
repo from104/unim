@@ -48,8 +48,10 @@ impl PopupState {
     }
 
     /// 한자 팝업 확장 모드 토글 (current_page/선택 초기화).
+    ///
+    /// 한자 단어(2음절 이상) 팝업은 1×9 목록 고정이라 no-op (POPUP_SPEC v3.5 §3.7-12).
     pub fn toggle_hanja_expanded(&mut self) {
-        if self.kind != PopupKind::Hanja {
+        if self.kind != PopupKind::Hanja || self.hanja_word {
             return;
         }
         self.hanja_expanded = !self.hanja_expanded;
@@ -68,6 +70,11 @@ impl PopupState {
         self.sel_row = 0;
         self.sel_col = 0;
         self.update_page_layout();
+    }
+
+    /// 한자 단어(2음절 이상) 팝업 여부 — 9×9 확장·⊞ 없음.
+    pub fn is_hanja_word(&self) -> bool {
+        self.hanja_word
     }
 
     /// 한자 팝업 확장 모드 여부.

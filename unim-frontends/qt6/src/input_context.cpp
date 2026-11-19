@@ -6,6 +6,7 @@
 
 #include "input_context.hpp"
 #include "unim_dbus_client.hpp"
+#include "unim_surrounding_word_qt.hpp"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -110,19 +111,6 @@ static void unim_log_message(const char *module, const QString &message)
 #define UNIM_DEBUG(...) \
     unim_log_message("QT6_IM", QString(__VA_ARGS__))
 
-/* 민감 필드(비밀번호/PIN) 여부 — purpose 1=Password, 2=Pin(ContentPurpose). */
-static inline bool unim_is_sensitive(quint32 purpose)
-{
-    return purpose == 1 || purpose == 2;
-}
-
-/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
- * QString 을 돌려줘 호출부의 qPrintable() 임시 수명 문제를 피한다. 평상시엔 원문 그대로. */
-static inline QString unim_mask(quint32 purpose, const QString &text)
-{
-    return unim_is_sensitive(purpose) ? QStringLiteral("***") : text;
-}
-
 static void unim_check_debug_env()
 {
     if (!unim_debug_checked) {
@@ -156,7 +144,6 @@ static quint32 purposeFromHints(Qt::InputMethodHints hints)
     return purpose;
 }
 
-
 UnimInputContext::UnimInputContext()
     : QPlatformInputContext()
     , m_dbus(nullptr)
@@ -171,6 +158,9 @@ UnimInputContext::UnimInputContext()
     m_windowId = QString::asprintf("qt6-ctx-%p", static_cast<void*>(this));
     
     m_dbus = new UnimDbusClient(QStringLiteral("qt6-unim"), m_windowId);
+    m_surrounding = std::make_unique<UnimSurroundingWordQt>(
+        m_dbus, &m_contentPurpose,
+        [](const QString &msg) { UNIM_DEBUG(msg); });
 
     if (m_dbus && m_dbus->isValid()) {
         UNIM_DEBUG(QString::asprintf("UnimInputContext 생성 완료 (window_id: %s)", qPrintable(m_windowId)));
@@ -221,9 +211,11 @@ UnimInputContext::UnimInputContext()
                 m_composing = false;
             }
         });
+        // ReplaceSurroundingText 시그널 콜백 등록 (대상③, v1.6) — qt-common 으로 위임
+        m_surrounding->installReplaceSurroundingCallback();
         // CommitText 시그널 콜백 등록 (Standalone 팝업 마우스 클릭 커밋)
         m_dbus->setCommitTextCallback([this](const QString &text) {
-            UNIM_DEBUG(QString::asprintf("CommitText: '%s'", qPrintable(unim_mask(m_contentPurpose, text))));
+            UNIM_DEBUG(QString::asprintf("CommitText: %s", qPrintable(unim_mask(m_contentPurpose, text))));
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
             QInputMethodEvent ev;
@@ -338,6 +330,17 @@ void UnimInputContext::update(Qt::InputMethodQueries queries)
             }
         }
     }
+
+    if (queries & (Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition)) {
+        /* 한자 단어 대상②(선택 영역) 재질의 — HANJA_WORD_SPEC.md §2.10/§4.5.
+         * focus-in 1회 스냅샷(setFocusObject)만으로는 같은 위젯에 포커스가 유지된 채
+         * 선택이 바뀌는 경우(예: QLineEdit Tab 포커스=전체 선택 스냅샷이 이후 타이핑으로
+         * stale 화)를 못 잡는다. update() 는 커서·선택 변경 시마다 불리므로 여기서 캐시와
+         * 비교해 값이 실제로 바뀐 경우에만 DBus 로 보낸다(설정된 커스텀 hanja_keys 포함 —
+         * F9/Hangul_Hanja 하드코딩 pull 경로(아래 filterEvent 의 Key_F9 분기)에는
+         * 별도 재질의를 두지 않는다, HANJA_WORD_SPEC.md §4.5 "중복" 참고). */
+        m_surrounding->push(m_focusObject, false);
+    }
 }
 
 void UnimInputContext::invokeAction(QInputMethod::Action action, int cursorPosition)
@@ -377,6 +380,11 @@ bool UnimInputContext::filterEvent(const QEvent *event)
          key == Qt::Key_AltGr)) {
         return false;
     }
+
+    /* 키 시점 surrounding 송신(HANJA_WORD_SPEC v1.6 §2.4.6, I6) — 한자키 직전 엔진이 최신
+     * 문맥·선택을 알게 한다. Qt 모듈은 사용자 지정 hanja_keys 를 모르므로 매 키마다 보낸다.
+     * anchor 를 알 수 없는 위젯이면 SELECTION_UNKNOWN 힌트로 다음 한자키 한 번의 대상③ 을 막는다. */
+    m_surrounding->pushOnKey(m_focusObject);
 
     /* 한자 키 처리 (F9 또는 Hangul_Hanja) — Standalone: unim-gui-gtk 팝업 전담 */
     if (key == Qt::Key_F9 || key == Qt::Key_Hangul_Hanja) {
@@ -445,8 +453,12 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                qPrintable(unim_mask(m_contentPurpose, result.commit))));
 
     if (result.consumed) {
-        /* 선택 영역 삭제 처리 */
-        if (m_focusObject) {
+        /* 선택 영역 삭제 처리 — commit 도 preedit 도 없는 "빈 소비 키"(팝업 열림·내비·Esc·
+         * 한/영 전환 등)는 아무것도 넣지 않으므로 선택을 지우지 않는다(HANJA_WORD_SPEC.md
+         * §4.5). 이 조건은 삭제에만 건다 — 소비 판정에 걸면 그런 키가 return false 로
+         * 앱에 새어 팝업 후보 숫자가 입력되고 Esc 가 앱에 닿는다(2026-09 L3 실측, GTK4
+         * immodule.c 와 같은 구조). */
+        if (m_focusObject && (!result.commit.isEmpty() || !result.preedit.isEmpty())) {
             QInputMethodQueryEvent query(Qt::ImAnchorPosition | Qt::ImCursorPosition);
             QCoreApplication::sendEvent(m_focusObject, &query);
             int anchorPos = query.value(Qt::ImAnchorPosition).toInt();
@@ -539,6 +551,8 @@ void UnimInputContext::setFocusObject(QObject *object)
 
     if (m_dbus && object) {
         m_dbus->focusIn(m_windowId);
+        /* 대상③ 능력 선언(qt-common) — FocusIn 마다 보낸다(멱등). */
+        m_surrounding->declareCapabilities();
 
         /* 입력 필드 목적 감지: purposeFromHints() 참고 (ImhHiddenText 만 차단하는
          * 정책 근거를 그쪽 주석에 정리). update(Qt::ImHints) 와 판정 로직을 공유한다. */
@@ -552,17 +566,8 @@ void UnimInputContext::setFocusObject(QObject *object)
         UNIM_DEBUG(QString::asprintf("content_type 전달: hints=0x%x, purpose=%u",
                    static_cast<int>(hints), purpose));
 
-        /* Surrounding text 전달 */
-        QInputMethodQueryEvent stQuery(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
-        QCoreApplication::sendEvent(object, &stQuery);
-        QString surroundingText = stQuery.value(Qt::ImSurroundingText).toString();
-        int cursorPos = stQuery.value(Qt::ImCursorPosition).toInt();
-        int anchorPos = stQuery.value(Qt::ImAnchorPosition).toInt();
-        if (!surroundingText.isEmpty()) {
-            m_dbus->setSurroundingText(surroundingText,
-                                        static_cast<quint32>(cursorPos),
-                                        static_cast<quint32>(anchorPos));
-        }
+        /* Surrounding text 전달 (qt-common) */
+        m_surrounding->pushFocusInSnapshot(object, purpose);
     } else if (m_dbus) {
         /* 포커스 객체 소실(창 비활성화 등) — Normal 복귀.
          * 다음 포커스 필드의 purpose 는 위 분기에서 다시 명시 송신되므로, 여기서

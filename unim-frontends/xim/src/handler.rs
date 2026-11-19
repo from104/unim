@@ -114,6 +114,15 @@ pub struct UnimHandler {
     /// 주입 직전에 delete_chars 만큼 증가, handle_forward_event에서 BackSpace
     /// 감지 시 감소시키고 Ok(false)로 반환하여 클라이언트에 전달.
     self_backspace_pending: u32,
+    /// 다음 자가 주입 BackSpace 를 메인 루프 복귀 시(`process_deferred_autofix`) 넣어야 하는지.
+    ///
+    /// BS 는 **한 번에 1개씩**, 직전 BS 의 ForwardEvent 가 앱으로 되돌아간 뒤에 주입한다.
+    /// 한꺼번에 넣으면 되돌린 이벤트가 앱 큐에 겹쳐 쌓이는데, libX11 은 "IM 이 되돌린
+    /// 이벤트" 표시를 IM 단위 단일 플래그(FABRICATED — imDefLkup.c `_XimProcEvent` 가
+    /// 세우고 imDefFlt.c 필터가 한 번 통과시키며 지움)로 관리해 첫 개만 앱에 주고 나머지는
+    /// 새 키로 보고 IM 에 다시 보낸다 → 카운터가 이미 0 이라 commit 뒤에 앱에 도착해 확정
+    /// 텍스트를 지운다(2026-09 docker L3 실측: 한자 단어 교체 "대한민국" → "대한大韓").
+    self_backspace_inject_next: bool,
     /// AutoTypeFix 지연 교정 (commit_text, preedit_text)
     /// N+1번째(마지막) BS의 handle_forward_event에서 pending==0 시
     /// 진짜 user_ic.ic로 commit+preedit 실행하고 Ok(true)로 소비.
@@ -146,6 +155,29 @@ pub struct UnimHandler {
     /// `proxy.reset().await` → 데몬 → 시그널로 돌아오느라 왕복이 길어서
     /// (실측 로그에서 1초 가까이) 시한을 두면 늦은 메아리를 놓친다.
     pending_skip_commit: Option<String>,
+    /// 한자 단어 입력 — XIM 스팟 점프 Reset([Q9](a), 계획 §4 XIM 행 (b)).
+    ///
+    /// XIM 은 surrounding 개념이 없어 §2.2.3 접두 검증을 건너뛰므로, 마우스
+    /// 클릭으로 캐럿이 옮겨간 뒤 한자키를 누르면 엉뚱한 자리의 글자를
+    /// 지운다(오삭제). 앱이 캐럿 이동마다 `SetICValues` 로 스팟 위치를
+    /// 보고하는 걸 이용해, "IM 자신이 유발하지 않은 스팟 갱신" 을 사용자
+    /// 클릭으로 간주하고 idle 이면 엔진을 `Reset` 한다(리셋은 값싸지 않으므로
+    /// 판정은 보수적으로 — 오탐은 재파싱 1회 비용, 미탐은 오삭제).
+    ///
+    /// 우리가 스스로 commit/preedit_draw 를 보낸 직후에는 그로 인한 스팟
+    /// 보고가 뒤따를 것을 안다 — 그 1회는 "기대된 갱신" 으로 소비하고
+    /// Reset 을 걸지 않는다.
+    spot_update_expected: bool,
+    /// 위 판정으로 이번 idle 구간에 이미 Reset 을 보냈으면 true.
+    /// 다음 commit/preedit_draw(=새 idle 구간의 시작)에서 해제한다 —
+    /// "idle 구간당 1회" 디바운스.
+    spot_reset_sent: bool,
+    /// 직전에 관찰한 절대 스팟 좌표(화면 기준 `(x, y)`) — 판정 결과와
+    /// 무관하게 매 보고마다 갱신한다. 보조 판정 — 다음 갱신이 이 좌표보다 y 가
+    /// 다르거나 x 가 작아지면(같은 줄에서 왼쪽으로 후퇴) `expect` 여부와
+    /// 무관하게 무조건 Reset. 앱은 커밋마다 스팟을 전진 보고하므로, 후퇴는
+    /// 커밋이 유발할 수 없는 신호다.
+    last_ime_spot: Option<(i32, i32)>,
 }
 
 impl UnimHandler {
@@ -163,6 +195,10 @@ impl UnimHandler {
 
         if display.is_null() {
             return Err("XOpenDisplay failed: X11 서버에 연결할 수 없습니다".to_string());
+        }
+        // 비치명 X 에러로 서버가 죽지 않게 기본 핸들러를 기록형으로 바꾼다([`log_x_error`]).
+        unsafe {
+            x11::xlib::XSetErrorHandler(Some(log_x_error));
         }
 
         let hanja_keysyms = config
@@ -183,12 +219,24 @@ impl UnimHandler {
             last_focused_app_window: None,
             last_focused_context_path: None,
             self_backspace_pending: 0,
+            self_backspace_inject_next: false,
             deferred_autofix: None,
             autofix_context_path: None,
             replayed_key: None,
             autofix_commit_guard: false,
             pending_skip_commit: None,
+            spot_update_expected: false,
+            spot_reset_sent: false,
+            last_ime_spot: None,
         })
+    }
+
+    /// 스팟 점프 Reset 판정의 기준점 갱신 — commit/preedit_draw 로 우리가
+    /// 스스로 화면을 바꾼 직후 호출한다. 뒤따르는 스팟 보고 1회는 "기대된
+    /// 갱신" 으로 소비되고, idle 구간 디바운스도 새로 연다.
+    fn mark_spot_update_expected(&mut self) {
+        self.spot_update_expected = true;
+        self.spot_reset_sent = false;
     }
 
     /// `CommitText` 시그널이 방금 동기 반환한 커밋의 메아리인지 판정하고 소비한다.
@@ -421,6 +469,11 @@ impl UnimHandler {
             }
         }
 
+        // clear_preedit 은 handle_reset_ic(캐럿 위치에 동기 커밋 동반)·
+        // handle_unset_focus(focus-out 직전 캐럿 위치 커밋 동반) 뒤에서
+        // 불린다 — 뒤따를 스팟 보고를 "기대된 갱신" 으로 미리 표시해 둔다.
+        self.mark_spot_update_expected();
+
         Ok(())
     }
 
@@ -490,6 +543,12 @@ impl UnimHandler {
             server.conn().flush().ok();
         }
 
+        // 커밋·preedit 어느 쪽이든 화면을 바꿨으면 뒤따를 스팟 보고 1회를
+        // "기대된 갱신" 으로 미리 표시해 둔다(XIM 스팟 점프 Reset, U5 (b)).
+        if has_commit || has_preedit {
+            self.mark_spot_update_expected();
+        }
+
         Ok(())
     }
 
@@ -523,10 +582,10 @@ impl UnimHandler {
                 if let Some(_app_win) = self.last_focused_app_window {
                     unim_log!(
                         "XIM_HANDLER",
-                        "AutoTypeFix: delete={}, commit='{}', preedit='{}'",
+                        "AutoTypeFix: delete={}, commit={}자, preedit={}자",
                         delete_chars,
-                        commit_text,
-                        preedit_text
+                        commit_text.chars().count(),
+                        preedit_text.chars().count()
                     );
 
                     // 이전 AutoTypeFix가 미완료 상태면 폐기
@@ -538,6 +597,7 @@ impl UnimHandler {
                         );
                         self.deferred_autofix = None;
                         self.self_backspace_pending = 0;
+                        self.self_backspace_inject_next = false;
                         self.autofix_context_path = None;
                     }
 
@@ -548,28 +608,11 @@ impl UnimHandler {
                     // commit/preedit 분리 저장 (순방향: preedit 있음, 역방향: 없음)
                     self.deferred_autofix = Some((commit_text.clone(), preedit_text.clone()));
 
-                    // BackSpace를 XTEST 확장으로 일괄 주입 (GTK3 패턴)
-                    // XSendEvent는 send_event=True 때문에 modern app이 무시하므로
-                    // XTestFakeKeyEvent 사용 (실제 하드웨어 이벤트로 인식)
-                    unsafe {
-                        let bs_keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
-                        for _ in 0..delete_chars + 1 {
-                            x11::xtest::XTestFakeKeyEvent(
-                                self.display,
-                                bs_keycode as u32,
-                                1, // KeyPress
-                                0,
-                            );
-                            x11::xtest::XTestFakeKeyEvent(
-                                self.display,
-                                bs_keycode as u32,
-                                0, // KeyRelease
-                                0,
-                            );
-                            // per-BS flush + 10ms 간격: 앱이 각 BS를 순차 처리할 시간 확보
-                            x11::xlib::XFlush(self.display);
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                        }
+                    // 첫 BS 1개만 주입한다. 나머지는 직전 BS 의 ForwardEvent 가 앱으로
+                    // 되돌아간 뒤 메인 루프에서 하나씩(`self_backspace_inject_next` 문서).
+                    self.self_backspace_inject_next = false;
+                    if !self.inject_self_backspace() {
+                        self.abandon_autofix();
                     }
                 } else {
                     unim_log!("XIM_HANDLER", "AutoTypeFix: 활성 IC 없음, 무시");
@@ -580,7 +623,7 @@ impl UnimHandler {
                 // ResetIcReply 로 같은 글자를 제자리에 커밋했으므로, 이걸 통과시키면
                 // 캐럿이 옮겨간 자리에 한 번 더 박힌다. (pending_skip_commit 주석 참조)
                 if self.take_pending_skip_commit(&text) {
-                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: '{}'", text);
+                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: {}자", text.chars().count());
                     return Ok(());
                 }
                 // Standalone popup 마우스 클릭 시 커밋. last_focused_ic_info에 캐시된
@@ -590,23 +633,28 @@ impl UnimHandler {
                 if let Some((cw, im_id, ic_id)) = self.last_focused_ic_info {
                     let ic = InputContext::new(cw, im_id, ic_id, String::new());
                     match server.commit(&ic, &text) {
-                        Ok(()) => unim_log!(
-                            "XIM_HANDLER",
-                            "CommitText (Standalone): '{}' → server.commit OK",
-                            text
-                        ),
+                        Ok(()) => {
+                            unim_log!(
+                                "XIM_HANDLER",
+                                "CommitText (Standalone): {}자 → server.commit OK",
+                                text.chars().count()
+                            );
+                            // 팝업 마우스 클릭 확정도 캐럿을 옮긴다 — 뒤따를
+                            // 스팟 보고 1회를 기대된 갱신으로 표시(U5 (b)).
+                            self.mark_spot_update_expected();
+                        }
                         Err(e) => unim_log!(
                             "XIM_HANDLER",
-                            "CommitText (Standalone): '{}' → server.commit 실패: {:?}",
-                            text,
+                            "CommitText (Standalone): {}자 → server.commit 실패: {:?}",
+                            text.chars().count(),
                             e
                         ),
                     }
                 } else {
                     unim_log!(
                         "XIM_HANDLER",
-                        "CommitText (Standalone): '{}' → 활성 IC 없음, 무시",
-                        text
+                        "CommitText (Standalone): {}자 → 활성 IC 없음, 무시",
+                        text.chars().count()
                     );
                 }
             }
@@ -622,14 +670,69 @@ impl UnimHandler {
 
     /// AutoTypeFix 지연 교정 처리 (메인 루프에서 호출)
     ///
+    /// AutoTypeFix 자가 주입 BackSpace 1개(KeyPress+KeyRelease)를 XTest 로 넣는다.
+    /// XSendEvent 는 send_event=True 라 modern app 이 무시하므로 XTestFakeKeyEvent
+    /// (실제 하드웨어 이벤트로 인식)를 쓴다.
+    ///
+    /// 키코드는 매번 서버에서 새로 읽는다([`fresh_backspace_keycode`]). 찾지 못하면
+    /// 주입하지 않고 `false` — 키코드 0 으로 XTestFakeInput 을 보내면 BadValue 다.
+    fn inject_self_backspace(&self) -> bool {
+        unsafe {
+            let bs_keycode = fresh_backspace_keycode(self.display);
+            let cached = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
+            if cached != bs_keycode {
+                unim_log!(
+                    "XIM_HANDLER",
+                    "BackSpace 키코드 불일치: Xlib 캐시={}, 서버={}",
+                    cached,
+                    bs_keycode
+                );
+            }
+            if bs_keycode == 0 {
+                unim_log!("XIM_HANDLER", "BackSpace 키코드 없음 — 자가 주입 생략");
+                return false;
+            }
+            x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 1, 0);
+            x11::xtest::XTestFakeKeyEvent(self.display, bs_keycode as u32, 0, 0);
+            x11::xlib::XFlush(self.display);
+        }
+        true
+    }
+
+    /// 자가 주입이 불가능할 때 진행 중인 AutoTypeFix 상태를 버린다(교정 포기, 원문 유지).
+    fn abandon_autofix(&mut self) {
+        self.deferred_autofix = None;
+        self.self_backspace_pending = 0;
+        self.self_backspace_inject_next = false;
+        self.autofix_context_path = None;
+    }
+
     /// GTK3의 g_idle_add 패턴 적용:
     /// handle_forward_event에서 마지막 BackSpace의 ForwardEvent가
     /// 전송·flush된 후, 메인 루프로 돌아와서 교정 텍스트를 commit.
     /// 이렇게 해야 앱이 BS 처리 → commit 수신 순서를 보장받음.
     pub fn process_deferred_autofix<C: Connection + HasConnection>(
         &mut self,
-        _server: &mut X11rbServer<C>,
+        server: &mut X11rbServer<C>,
     ) {
+        // 직렬 주입: 직전 BS 의 ForwardEvent 를 앱으로 돌려보낸 뒤 다음 BS 를 넣는다.
+        // ForwardEvent(x11rb 연결)와 XTest 주입(Xlib 연결)은 서로 다른 X 연결이라, 왕복
+        // 1회로 앞의 SendEvent 가 X 서버에서 처리된 것을 확인한 다음 주입한다 — 그래야
+        // 앱 큐에 [되돌린 BS → 다음 원시 BS] 순서로 쌓인다.
+        if self.self_backspace_inject_next {
+            self.self_backspace_inject_next = false;
+            if self.self_backspace_pending > 0 {
+                use x11rb::protocol::xproto::ConnectionExt as _;
+                if let Ok(cookie) = server.conn().get_input_focus() {
+                    let _ = cookie.reply();
+                }
+                if !self.inject_self_backspace() {
+                    self.abandon_autofix();
+                }
+            }
+            return;
+        }
+
         // BS가 아직 남아있으면 대기
         if self.self_backspace_pending > 0 || self.deferred_autofix.is_none() {
             return;
@@ -877,6 +980,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 self.deferred_autofix.is_some()
             );
             self.self_backspace_pending = 0;
+            self.self_backspace_inject_next = false;
             self.deferred_autofix = None;
             self.autofix_context_path = None;
         }
@@ -886,8 +990,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         if !cached_preedit.is_empty() {
             unim_log!(
                 "XIM_HANDLER",
-                "focus_out: 로컬 캐시 커밋 \"{}\"",
-                cached_preedit
+                "focus_out: 로컬 캐시 커밋 {}자",
+                cached_preedit.chars().count()
             );
             server.commit(&user_ic.ic, &cached_preedit)?;
         }
@@ -996,6 +1100,59 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 width: 0,
                 height: 20,
             });
+
+            // XIM 스팟 점프 Reset ([Q9](a), 계획 §4 XIM 행 (b)) — 이번 보고로
+            // 소비(좌표를 못 얻었어도 "기대" 상태는 소비해야 다음 진짜 보고에
+            // 잘못 넘어가지 않는다).
+            let spot_was_expected = self.spot_update_expected;
+            self.spot_update_expected = false;
+
+            // idle = 로컬 preedit 없음. 조합 중에는 캐럿이 원래 자주 움직이므로
+            // 이 판정 자체를 걸지 않는다(§2.2.3 이 대신 접두 검증을 맡는 대상은
+            // 아니지만, XIM 은 대상② 미지원이라 여기서는 idle 게이트만 본다).
+            let idle = user_ic.user_data.preedit_cache.is_empty();
+            if idle {
+                // 보조 판정: 직전 IM 유발 스팟 대비 y 가 다르거나(줄 이동)
+                // x 가 작아지면(같은 줄에서 후퇴) expect 여부와 무관하게 의심.
+                // 앱은 커밋마다 스팟을 전진 보고하므로 후퇴는 커밋이 낼 수 없는
+                // 신호다 — 거리 임계 대신 이 방향성만 쓴다(폰트 폭을 IM 이
+                // 모르므로 거리로는 "같은 줄 짧은 후퇴 클릭" 을 못 잡는다).
+                let jumped = self
+                    .last_ime_spot
+                    .is_some_and(|(px, py)| cursor_y != py || cursor_x < px);
+
+                // AutoTypeFix 교체 중에는 판정하지 않는다 — 자가 주입 BackSpace 가
+                // 캐럿을 매번 후퇴시키므로 위 "후퇴" 신호가 그대로 걸려, 교체 도중
+                // Reset 이 엔진을 비우고 preedit 을 조기 커밋한다(교정이 'e대ㄴ민' 으로 깨짐).
+                let autofix_in_progress =
+                    self.self_backspace_pending > 0 || self.deferred_autofix.is_some();
+                if (!spot_was_expected || jumped) && !self.spot_reset_sent && !autofix_in_progress
+                {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "스팟 점프 Reset: expected={}, jumped={}, spot=({},{})",
+                        spot_was_expected,
+                        jumped,
+                        cursor_x,
+                        cursor_y
+                    );
+                    let _ = self.dbus_tx.blocking_send(DbusRequest::Reset {
+                        context_path: user_ic.user_data.context_path.clone(),
+                    });
+                    self.spot_reset_sent = true;
+                }
+
+                // 판정 결과와 무관하게 이번에 본 스팟을 다음 판정의 기준점으로
+                // 삼는다. 점프를 잡은 뒤(=캐럿이 사용자가 클릭한 자리로 옮겨간
+                // 뒤)에도 옛 기준점을 남겨두면 그 자리에서 커밋할 때마다
+                // "줄이 다르다" 로 보여 Reset(사전 재파싱)이 끝없이 반복된다.
+                self.last_ime_spot = Some((cursor_x, cursor_y));
+            }
+        } else {
+            // 좌표를 못 얻어 보고를 건너뛴 경우(죽은 창)에도 "기대" 상태는
+            // 소비한다 — 남겨두면 다음의 진짜 사용자 클릭 보고가 기대된 갱신으로
+            // 오인돼 미탐(=오삭제)이 된다.
+            self.spot_update_expected = false;
         }
 
         // spot_location 변경 시 preedit 윈도우 재생성
@@ -1051,8 +1208,12 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         let bs_keysym = unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
         if bs_keysym == 0xff08 && self.self_backspace_pending > 0 {
             if xev.response_type != KEY_RELEASE {
-                // KeyPress: 카운터 감소, 앱에 통과
+                // KeyPress: 카운터 감소, 앱에 통과. 남았으면 다음 BS 는 이 ForwardEvent 가
+                // 앱으로 되돌아간 뒤 메인 루프에서 주입한다(직렬 주입).
                 self.self_backspace_pending -= 1;
+                if self.self_backspace_pending > 0 {
+                    self.self_backspace_inject_next = true;
+                }
                 unim_log!(
                     "XIM_HANDLER",
                     "AutoTypeFix self-BackSpace 패스스루 (남은={})",
@@ -1078,8 +1239,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                             server.conn().flush().ok();
                             unim_log!(
                                 "XIM_HANDLER",
-                                "AutoTypeFix commit '{}' (진짜 IC)",
-                                commit_text
+                                "AutoTypeFix commit {}자 (진짜 IC)",
+                                commit_text.chars().count()
                             );
                         }
 
@@ -1093,12 +1254,16 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                             server.conn().flush().ok();
                             unim_log!(
                                 "XIM_HANDLER",
-                                "AutoTypeFix preedit '{}' (진짜 IC)",
-                                preedit_text
+                                "AutoTypeFix preedit {}자 (진짜 IC)",
+                                preedit_text.chars().count()
                             );
                         }
 
                         self.autofix_commit_guard = false;
+
+                        // 위 commit/preedit 이 유발할 스팟 보고를 "기대된 갱신"
+                        // 으로 미리 표시한다(XIM 스팟 점프 Reset, U5 (b)).
+                        self.mark_spot_update_expected();
 
                         if !has_preedit {
                             if let Some(path) = self.autofix_context_path.take() {
@@ -1177,8 +1342,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 if !candidates.is_empty() {
                     unim_log!(
                         "XIM_HANDLER",
-                        "한자 후보 있음 (Standalone) → 키 consumed: target='{}', count={}",
-                        target,
+                        "한자 후보 있음 (Standalone) → 키 consumed: target={}자, count={}",
+                        target.chars().count(),
                         candidates.len()
                     );
                     // ShowHanjaPopup 시그널은 GetHanjaCandidates RPC 응답에서 데몬이 이미 발행.
@@ -1201,8 +1366,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 if !characters.is_empty() {
                     unim_log!(
                         "XIM_HANDLER",
-                        "특수문자 후보 있음 (Standalone) → 키 consumed: target='{}'",
-                        target
+                        "특수문자 후보 있음 (Standalone) → 키 consumed: target={}자",
+                        target.chars().count()
                     );
                     // ShowSpecialPopup 시그널은 GetSpecialCharCandidates RPC 응답에서 데몬이 이미 발행.
                     return Ok(true);
@@ -1258,10 +1423,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         let preedit_text = preedit.unwrap_or_default();
 
         if !commit_text.is_empty() {
-            unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
+            unim_log!("XIM_HANDLER", "커밋: {}자", commit_text.chars().count());
         }
         if !preedit_text.is_empty() {
-            unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
+            unim_log!("XIM_HANDLER", "Preedit: {}자", preedit_text.chars().count());
         }
 
         self.commit_then_preedit(server, user_ic, &commit_text, &preedit_text)?;
@@ -1325,6 +1490,53 @@ static X_ERROR_SEEN: AtomicBool = AtomicBool::new(false);
 ///
 /// 에러를 삼키되 **삼켰다는 사실은 남긴다** — 호출자가 '진짜 에러' 와
 /// '에러 아닌 0 반환(다른 스크린)' 을 구별해야 하기 때문이다.
+/// BackSpace 키코드를 Xlib 키맵 캐시(`XKeysymToKeycode` 가 쓰는 `dpy->keysyms`)를 거치지
+/// 않고 서버에서 새로 읽는다. 이 연결은 이벤트를 읽지 않아 MappingNotify 로 캐시가
+/// 갱신되지 않는다 — 키맵이 바뀐 뒤(xdotool 의 임시 키코드 재배치 등)에는 캐시가
+/// 낡을 수 있다. 못 찾으면 0.
+unsafe fn fresh_backspace_keycode(display: *mut x11::xlib::Display) -> u8 {
+    let (mut min, mut max) = (0 as c_int, 0 as c_int);
+    x11::xlib::XDisplayKeycodes(display, &mut min, &mut max);
+    if min <= 0 || max < min {
+        return 0;
+    }
+    let mut per: c_int = 0;
+    let syms = x11::xlib::XGetKeyboardMapping(display, min as u8, max - min + 1, &mut per);
+    if syms.is_null() {
+        return 0;
+    }
+    let mut found = 0u8;
+    if per > 0 {
+        let total = ((max - min + 1) * per) as usize;
+        let table = std::slice::from_raw_parts(syms, total);
+        if let Some(i) = table.iter().position(|&s| s == 0xff08) {
+            found = (min + i as c_int / per) as u8;
+        }
+    }
+    x11::xlib::XFree(syms as *mut _);
+    found
+}
+
+/// 기본 X 에러 핸들러 — Xlib 기본값은 프로세스를 끝내므로(BadValue 하나에 XIM 서버
+/// 전체가 죽고 모든 앱의 입력이 끊긴다) 기록만 하고 계속한다. 국소 처리가 필요한 곳은
+/// 기존처럼 잠시 [`ignore_x_error`] 로 바꿨다가 이 핸들러로 되돌린다.
+unsafe extern "C" fn log_x_error(
+    _display: *mut x11::xlib::Display,
+    event: *mut x11::xlib::XErrorEvent,
+) -> c_int {
+    if let Some(e) = event.as_ref() {
+        unim_log!(
+            "XIM_HANDLER",
+            "X 에러 무시: error_code={}, request={}.{}, resource=0x{:x}",
+            e.error_code,
+            e.request_code,
+            e.minor_code,
+            e.resourceid
+        );
+    }
+    0
+}
+
 unsafe extern "C" fn ignore_x_error(
     _display: *mut x11::xlib::Display,
     _event: *mut x11::xlib::XErrorEvent,

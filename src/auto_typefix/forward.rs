@@ -7,32 +7,32 @@ use crate::typefix_blacklist::{BlacklistGate, Direction};
 
 use super::buffer::KeystrokeBuffer;
 use super::dictionary::count_korean_syllables;
-use super::{AutoTypeFixResult, DICTIONARY};
+use super::{AtfOutcome, AtfSuppressReason, AutoTypeFixResult, DICTIONARY};
 
 /// 순방향: 영어모드에서 한글 오타 감지
 ///
 /// keycode 버퍼 → 한글 조합 시뮬레이션 → 완성 음절 수가 임계값 이상이면 트리거.
 /// 초성+중성 이상이면 1음절로 카운트.
-pub fn check_forward(
+pub fn check_forward_outcome(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
     korean_layout: &str,
     english_layout: &str,
     blacklist: &dyn BlacklistGate,
-) -> Option<AutoTypeFixResult> {
+) -> AtfOutcome {
     if !config.forward || buffer.len() < 2 {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // keycode → ASCII 문자열 (지정된 영문 레이아웃 기준)
     let ascii = buffer.to_ascii_string(english_layout);
     if ascii.is_empty() {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // 학습형 억제: 해당 시퀀스가 blacklist에서 활성 상태이면 즉시 억제.
     if blacklist.is_suppressed(&ascii, Direction::Forward, korean_layout, english_layout) {
-        return None;
+        return AtfOutcome::Suppressed(AtfSuppressReason::Blacklist);
     }
 
     // 영어 사전에 있으면 진짜 영어 → 스킵 (알파벳으로만 된 경우만 체크).
@@ -40,7 +40,7 @@ pub fn check_forward(
     if config.skip_on_english_word && ascii.chars().all(|c| c.is_ascii_alphabetic()) {
         let lower = ascii.to_lowercase();
         if DICTIONARY.contains(lower.as_str()) {
-            return None;
+            return AtfOutcome::NoMatch;
         }
     }
 
@@ -51,7 +51,7 @@ pub fn check_forward(
     let syllable_count = count_korean_syllables(&converted);
 
     if syllable_count < config.kor_syllable_threshold as usize {
-        return None;
+        return AtfOutcome::NoMatch;
     }
 
     // 온전한 한글 검증: 마지막 글자를 제외한 모든 글자가 완성 음절이어야 함.
@@ -62,7 +62,7 @@ pub fn check_forward(
     if chars.len() > 1 {
         for &c in &chars[..chars.len() - 1] {
             if !('\u{AC00}'..='\u{D7A3}').contains(&c) {
-                return None;
+                return AtfOutcome::NoMatch;
             }
         }
     }
@@ -120,7 +120,7 @@ pub fn check_forward(
         (converted.clone(), Vec::new())
     };
 
-    Some(AutoTypeFixResult {
+    AtfOutcome::Fix(AutoTypeFixResult {
         delete_chars: ascii.chars().count() as u32,
         commit_text,
         corrected: converted,
@@ -133,4 +133,15 @@ pub fn check_forward(
         // 음절 모드(word_mode=false)면 false → 기존 replace_surrounding 경로 바이트 동일.
         replace_composition: buffer.word_mode,
     })
+}
+
+/// 순방향 감지의 교정 결과만 필요한 호출자용 래퍼 ([`check_forward_outcome`] 의 `Fix` 만 반환).
+pub fn check_forward(
+    buffer: &KeystrokeBuffer,
+    config: &AutoTypeFixConfig,
+    korean_layout: &str,
+    english_layout: &str,
+    blacklist: &dyn BlacklistGate,
+) -> Option<AutoTypeFixResult> {
+    check_forward_outcome(buffer, config, korean_layout, english_layout, blacklist).into_fix()
 }

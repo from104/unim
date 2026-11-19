@@ -106,6 +106,24 @@ void unim_log_field_render(const char *field, const char *committed,
                            const char *preedit, int caret,
                            const char *rendered);
 
+/**
+ * 선택 정보가 붙은 `field.render`. 키 `anchor` `sel_start` `sel_end` 가 기존 키 뒤에 더해진다.
+ * 위 `unim_log_field_render` 는 anchor=caret(선택 없음)으로 이걸 부른다.
+ * `unim_field_log_render()` 가 쓰므로 필드 엔진을 거치면 항상 이쪽이다.
+ */
+void unim_log_field_render_sel(const char *field, const char *committed,
+                               const char *preedit, int caret,
+                               const char *rendered, int anchor);
+
+/**
+ * 선택 변경 — 사건 `field.select`. 필드 엔진이 선택이 바뀔 때만 1줄 낸다.
+ * 키: field anchor caret sel_start sel_end text(선택 텍스트) exported(PRIMARY 로 내보내는가 0/1) reason.
+ * @param reason  "shift-move" | "move" | "home" | "end" | "select-all" | "word" |
+ *                "press" | "drag" | "edit" | "clear" | "surrounding" …
+ */
+void unim_log_select(const char *field, int anchor, int caret,
+                     const char *text, int exported, const char *reason);
+
 /** 포커스. @param phase "in" | "out" */
 void unim_log_focus(const char *phase, const char *field, const char *prev);
 

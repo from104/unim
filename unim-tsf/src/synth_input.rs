@@ -44,8 +44,13 @@ use std::time::Instant;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_PACKET,
+    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_DELETE, VK_PACKET,
 };
+
+/// 합성 배치가 보내는 키(BS·Delete·UNICODE=VK_PACKET)인지 — echo 식별용.
+fn is_synth_vk(vk: u16) -> bool {
+    vk == VK_BACK.0 || vk == VK_PACKET.0 || vk == VK_DELETE.0
+}
 
 /// 디버깅용 마커 (식별은 카운터로 하므로 필수 아님).
 const EXTRA_INFO_MARK: usize = 0x554E_494D; // "UNIM"
@@ -135,12 +140,60 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 /// TSF sink 발화 패턴)로 분기한다. 정식 TSF 앱(메모장/Word — OnTestKeyDown 발화 +
 /// ShiftStart 성공)은 두 조건 모두 불충족이라 이 경로를 타지 않는다(회귀 0).
 /// SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다(호출부가 보장).
+/// 실제 키처럼 처리될 키 한 번(down/up)을 보낸다 — 표식(EXTRA_INFO_MARK) 없이 스캔코드와
+/// 함께. echo 카운터 대상(VK_PACKET·BS·DELETE)이 아니므로 우리 TIP 이 보통 키로 처리한다.
+/// 앞서 보낸 배치 뒤에 입력 큐 순서대로 도착한다(재변환 선택 풀기 뒤 키 재주입).
+pub fn send_key_tap(vk: u16) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MapVirtualKeyW, KEYEVENTF_EXTENDEDKEY, MAPVK_VK_TO_VSC,
+    };
+    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+    let mk = |flags: KEYBD_EVENT_FLAGS| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    // 확장 키(방향·편집 블록·넘패드 / 등)는 확장 비트가 있어야 넘패드 키로 오인되지 않는다.
+    let ext = if matches!(vk, 0x21..=0x28 | 0x2D | 0x2E | 0x6F | 0xA3 | 0xA5) {
+        KEYEVENTF_EXTENDEDKEY
+    } else {
+        KEYBD_EVENT_FLAGS(0)
+    };
+    let inputs = [mk(ext), mk(ext | KEYEVENTF_KEYUP)];
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    crate::register::dbg_log(&format!("synth_input: key tap vk=0x{vk:02X} sent={sent}/2"));
+}
+
 pub fn send_replacement_batch(delete_chars: u32, text: &str) {
+    send_batch(0, delete_chars, text);
+}
+
+/// 한자 대상③ synth — 커서 뒤 `delete_after` 자(Delete)·앞 `delete_before` 자(BS)를 지우고
+/// `text` 를 넣는다. 한 SendInput 배치라 입력큐 FIFO 로 [Delete → BS → 삽입] 순서가 보장된다.
+/// Chrome(Blink)은 캐럿을 걸친 범위의 TSF `SetText` 에서 캐럿 뒤 부분을 반영하지 않아(실측)
+/// `composition::replace_around_cursor` 가 sink 비대칭 앱에서 이 경로로 보낸다.
+pub fn send_around_cursor_batch(delete_before: u32, delete_after: u32, text: &str) {
+    send_batch(delete_after, delete_before, text);
+}
+
+fn send_batch(delete_after: u32, delete_chars: u32, text: &str) {
     // A5: 머리 residual 기저 리셋(역방향 SynthBatch=꼬리 없음 케이스 안전). head-tail 은
     // 배치 뒤 composition.rs 가 set_head_residual 로 덮어쓴다. no-op 조기 return 보다 앞에 둔다.
     SYNTH_HEAD_RESIDUAL.store(0, Ordering::SeqCst);
     let mut inputs: Vec<INPUT> = Vec::new();
-    // (1) 삭제: BS down/up × delete_chars (입력큐 선두)
+    // (0) 커서 뒤 삭제: Delete down/up × delete_after (대상③ 전용, 그 밖에는 0)
+    for _ in 0..delete_after {
+        inputs.push(key_event(VK_DELETE.0, 0, KEYBD_EVENT_FLAGS(0)));
+        inputs.push(key_event(VK_DELETE.0, 0, KEYEVENTF_KEYUP));
+    }
+    // (1) 삭제: BS down/up × delete_chars
     for _ in 0..delete_chars {
         inputs.push(key_event(VK_BACK.0, 0, KEYBD_EVENT_FLAGS(0)));
         inputs.push(key_event(VK_BACK.0, 0, KEYEVENTF_KEYUP));
@@ -167,7 +220,8 @@ pub fn send_replacement_batch(delete_chars: u32, text: &str) {
     PENDING.store((sent as usize).div_ceil(2) as i32, Ordering::SeqCst);
     *SEND_INSTANT.lock().unwrap() = Some(Instant::now());
     crate::register::dbg_log(&format!(
-        "synth_input: batch del={} uni_units={} pending={} sent={}/{}",
+        "synth_input: batch del_after={} del={} uni_units={} pending={} sent={}/{}",
+        delete_after,
         delete_chars,
         text.encode_utf16().count(),
         (sent as usize).div_ceil(2),
@@ -311,7 +365,7 @@ pub fn observe_test_key_down(vk: u16) -> Option<bool> {
     // 단일배치: UNICODE 주입분이 VK_PACKET(0xE7) keydown 으로 sink 에 echo 되므로
     // BS·PACKET 둘 다 정상 카운트한다(PENDING = 한 배치의 합성 down 총수). PENDING>0
     // 게이트 위에서만 fetch_sub 하므로 음수로 떨어지지 않는다.
-    if vk == VK_BACK.0 || vk == VK_PACKET.0 {
+    if is_synth_vk(vk) {
         PENDING.fetch_sub(1, Ordering::SeqCst);
         LAST_WAS_SYNTH.store(true, Ordering::SeqCst);
         // 통과 → 앱이 직접 삭제 처리.
@@ -346,7 +400,7 @@ pub enum SynthKeyAction {
 /// 폐기하므로, 합성 배치가 없을 때의 사용자 실제 BS 는 Case B 를 타지 않는다.
 pub fn observe_key_down(vk: u16) -> Option<SynthKeyAction> {
     // Case A — OnTestKeyDown 페어링(재감산 금지).
-    if LAST_WAS_SYNTH.swap(false, Ordering::SeqCst) && (vk == VK_BACK.0 || vk == VK_PACKET.0) {
+    if LAST_WAS_SYNTH.swap(false, Ordering::SeqCst) && is_synth_vk(vk) {
         return Some(SynthKeyAction::PassThrough);
     }
     // Case B — OnKeyDown 단독 echo (OnTestKeyDown 미발화 앱). pending_active 게이트 위에서만
@@ -358,7 +412,7 @@ pub fn observe_key_down(vk: u16) -> Option<SynthKeyAction> {
     // 0 이라 미진입), 이들 앱에선 UNICODE head 가 keydown echo 가 없어 PENDING 이 최대 STALE_MS
     // 까지 잔존할 수 있다. BS 는 eaten=FALSE 로 앱에 그대로 전달돼 삭제 자체는 일어나며, 잔여
     // 카운터는 STALE 폴백으로 닫힌다(수용 가능 — 적대검증 #2).
-    if (vk == VK_BACK.0 || vk == VK_PACKET.0) && pending_active() {
+    if is_synth_vk(vk) && pending_active() {
         PENDING.fetch_sub(1, Ordering::SeqCst);
         return Some(SynthKeyAction::PassThrough);
     }

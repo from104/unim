@@ -365,9 +365,9 @@ async fn run_dbus_client(
                         let commit_text = proxy.focus_out().await.unwrap_or_default();
                         unim_log!(
                             "XIM_DBUS",
-                            "[XIM-DBus] FocusOut: {} (commit: '{}')",
+                            "[XIM-DBus] FocusOut: {} (commit: {}자)",
                             context_path,
-                            commit_text
+                            commit_text.chars().count()
                         );
 
                         if let Some(tx) = response {
@@ -414,8 +414,8 @@ async fn run_dbus_client(
                             Ok((target, candidates)) => {
                                 unim_log!(
                                     "XIM_DBUS",
-                                    "[XIM-DBus] 한자 후보: target='{}', count={}",
-                                    target,
+                                    "[XIM-DBus] 한자 후보: target={}자, count={}",
+                                    target.chars().count(),
                                     candidates.len()
                                 );
                                 if let Some(tx) = response {
@@ -453,9 +453,9 @@ async fn run_dbus_client(
                             Ok(commit) => {
                                 unim_log!(
                                     "XIM_DBUS",
-                                    "[XIM-DBus] 한자 선택: index={}, commit='{}'",
+                                    "[XIM-DBus] 한자 선택: index={}, commit={}자",
                                     index,
-                                    commit
+                                    commit.chars().count()
                                 );
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::HanjaSelected { commit });
@@ -487,7 +487,7 @@ async fn run_dbus_client(
                     {
                         match proxy.cancel_hanja().await {
                             Ok(text) => {
-                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소: commit='{}'", text);
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소: commit={}자", text.chars().count());
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::CommitText { text });
                                 }
@@ -520,10 +520,10 @@ async fn run_dbus_client(
                             Ok((target, characters, top_row)) => {
                                 unim_log!(
                                     "XIM_DBUS",
-                                    "[XIM-DBus] 특수문자 후보: target='{}', count={}, top_row='{}'",
-                                    target,
+                                    "[XIM-DBus] 특수문자 후보: target={}자, count={}, top_row={}자",
+                                    target.chars().count(),
                                     characters.len(),
-                                    top_row
+                                    top_row.chars().count()
                                 );
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::SpecialCharCandidates {
@@ -564,9 +564,9 @@ async fn run_dbus_client(
                             Ok(commit) => {
                                 unim_log!(
                                     "XIM_DBUS",
-                                    "[XIM-DBus] 특수문자 선택: index={}, commit='{}'",
+                                    "[XIM-DBus] 특수문자 선택: index={}, commit={}자",
                                     index,
-                                    commit
+                                    commit.chars().count()
                                 );
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::SpecialCharSelected { commit });
@@ -600,8 +600,8 @@ async fn run_dbus_client(
                             Ok(text) => {
                                 unim_log!(
                                     "XIM_DBUS",
-                                    "[XIM-DBus] 특수문자 취소: commit='{}'",
-                                    text
+                                    "[XIM-DBus] 특수문자 취소: commit={}자",
+                                    text.chars().count()
                                 );
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::CommitText { text });

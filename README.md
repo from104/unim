@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="version 0.4.4" src="https://img.shields.io/badge/version-0.4.4-informational">
+  <img alt="version 0.4.5" src="https://img.shields.io/badge/version-0.4.5-informational">
   <img alt="Rust 1.78+" src="https://img.shields.io/badge/rust-1.78%2B-orange">
   <img alt="Linux · Windows" src="https://img.shields.io/badge/platform-Linux%20(deb%2Frpm)%20%C2%B7%20Windows%20(MSI)-success">
   <a href="CONTRIBUTING.md"><img alt="contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen"></a>
@@ -32,9 +32,49 @@ Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
   layouts, and typo-correction behavior are identical on Linux and Windows.
 - **Hanja, symbols, and emoji from a single key** — one key (the Hanja key or `F9`)
   switches mode automatically and picks a candidate in as few as two extra keystrokes,
-  with no separate character-map app or search box.
+  with no separate character-map app or search box. Hanja conversion works on a whole
+  word too, not just a single syllable, and on a word you already wrote: just put the
+  cursor on it — no selection needed (in apps that report the surrounding text to the
+  input method — see the limits below).
 - Designed around minimizing keystrokes and letting the software fix mistakes
   instead of the user.
+
+### Known limitations and help wanted
+
+Converting a word **you already wrote** (cursor on it, or selected) needs the app to tell
+the input method the text around the cursor. Legacy input method protocols do not, so
+there only **the word just typed** can be converted — press the hanja key before adding a
+particle or a space. Elsewhere the key opens the emoji popup; no text is changed.
+
+| Where | Word just typed | Word at the cursor / selection |
+|---|---|---|
+| Windows TSF apps (Notepad, Word, Chrome, …) | yes | yes |
+| Windows IMM32 (legacy) apps — Qt apps (measured with Telegram) | yes | only whole space-separated chunks found in the dictionary |
+| Windows IMM32 (legacy) apps — other | yes | **no** |
+| Linux GTK/Qt input-method modules, GNOME extension | yes | yes (some per-app exceptions) |
+| Linux XIM, terminals, Chromium/Electron on X11 | yes | **no** |
+| Linux pure Wayland (KDE, Sway, …) | yes | selection depends on the app; word at the cursor **not yet** |
+
+These limits come from the protocols, not from a setting, so we need help to move past them.
+Contributions — measurements, design notes or patches — are very welcome:
+
+1. **Windows IMM32 apps other than Qt**: which apps or toolkits answer the
+   `IMR_RECONVERTSTRING` / `IMR_DOCUMENTFEED` requests, and whether answering changes
+   the app's selection. With those measurements the reconversion path can be extended
+   beyond Qt.
+2. **Windows apps not yet measured**: 32-bit apps (Hancom Office, KakaoTalk), Electron
+   apps, consoles (conhost, Windows Terminal).
+3. **XIM**: a client that implements the XIM string-conversion callback, or a way to
+   move such apps onto the GTK/Qt modules.
+4. **Chromium/Electron on X11**: Chromium's GTK input-method bridge leaves
+   `SetSurroundingText` empty — an upstream patch would unlock it.
+5. **Pure Wayland**: a way for the input method to learn about pointer or primary-selection
+   changes (e.g. data-control) so that "word at the cursor" can be enabled safely.
+6. **Firefox on GNOME**: it reports the surrounding text one step late, so the word at the
+   cursor falls back to emoji.
+
+The exact rules and evidence are in [`HANJA_WORD_SPEC.md` §2.11](docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리).
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); issues go to [GitHub Issues](https://github.com/from104/unim/issues).
 
 Full English documentation: [`help/unim-help-en.html`](help/unim-help-en.html).
 Korean documentation follows below.
@@ -82,7 +122,7 @@ UNIM은 바로 거기에서 출발했습니다. 잘못 친 것을 알아서 되�
 | **모아치기** | 여러 자모를 동시에 눌러 한 음절을 만드는 자판(안마태 등)을 지원합니다. 동시 입력 판정 시간도 조절하실 수 있습니다 |
 | **단어 단위 입력** | 조합 확정을 음절 대신 단어 단위로 합니다. 터미널처럼 위험한 곳에서는 자동으로 음절 단위로 돌아갑니다. **한글 조합에만 적용됩니다** — 영문은 조합할 것이 없어 밑줄 없이 바로 확정됩니다 |
 | **자동 반복 무시** | 키를 오래 눌러 생기는 auto-repeat을 무시합니다. 손을 빨리 떼기 어려운 분들을 위한 기능입니다 |
-| **전환 소리 알림** | 모드가 바뀔 때 짧게 울립니다(한글 880Hz·영문 440Hz). 화면을 보지 않아도 현재 모드를 아실 수 있습니다 |
+| **전환 소리 알림** | 모드가 바뀔 때 짧게 울립니다(한글 880Hz 2번·영문 440Hz 1번). 화면을 보지 않아도 현재 모드를 아실 수 있습니다 |
 | **자판** | 2벌식, 3벌식 390/391/순아래, QWERTY/Dvorak/Colemak/Workman을 지원합니다. 자판 편집기와 타자 연습 도구도 함께 드립니다(리눅스) |
 
 ## 설치
@@ -118,7 +158,7 @@ curl -fsSL .../install.sh | bash -s -- --update
 curl -fsSL .../install.sh | bash -s -- --check
 
 # 버전 고정
-UNIM_VERSION=v0.4.4 curl -fsSL .../install.sh | bash
+UNIM_VERSION=v0.4.5 curl -fsSL .../install.sh | bash
 ```
 
 `curl | bash`가 내키지 않으시면 받아서 읽어 보신 뒤 실행하셔도 됩니다.
@@ -156,7 +196,7 @@ MSI는 SHA256(`SHA256SUMS-msi`)으로 검증하며, 관리자로 승격된 프�
 & ([scriptblock]::Create((irm .../install.ps1))) -Check
 
 # 버전 고정 (해당 릴리스에 SHA256SUMS-msi가 있어야 합니다)
-$env:UNIM_VERSION='v0.4.4'; irm .../install.ps1 | iex
+$env:UNIM_VERSION='v0.4.5'; irm .../install.ps1 | iex
 ```
 
 받아서 읽어 보신 뒤 실행하시려면 이렇게 하시면 됩니다.
@@ -208,21 +248,33 @@ UNIM이 특히 공을 들인 부분이라 따로 설명드리겠습니다. 목�
 
 | 그때의 상태 | 한자키를 누르면 | 예 |
 |------|------|------|
-| 한글을 조합해 글자가 있을 때 | **한자 팝업** | `한` → 漢, 韓, 恨 … |
+| 한글을 조합해 글자가 있을 때(방금 친 한 글자 또는 단어) | **한자 팝업** | `대한민국` → 大韓民國 … |
+| 조합 중이 아니고 한글 단어를 선택했을 때(선택 변환을 지원하는 앱) | 그 단어 **한자 팝업** | `[대한민국]` → 大韓民國 … |
+| 조합 중이 아니고 선택도 없는데 커서가 한글 단어의 끝·안·앞에 있을 때 | 커서가 걸친 단어 **한자 팝업** | `대한\|민국` → 大韓民國 … |
 | 자음만 입력한 상태일 때 | **특수문자 팝업** | `ㅁ` → ＄, ％, ￦, ℃ … |
-| 아무것도 조합하고 있지 않을 때 | **이모지 팝업** | 😀 🎉 🚀 … |
+| 그 밖에 아무것도 조합하고 있지 않을 때 | **이모지 팝업** | 😀 🎉 🚀 … |
 
 모드를 따로 고르거나 다른 프로그램을 여실 필요가 없습니다.
+
+**이미 쓴 단어도 선택할 필요가 없습니다.** 커서를 단어 위에 두고 한자키를 누르시면 됩니다.
+단어의 처음이든 가운데든 끝이든 상관없습니다(입력란·문단의 맨 앞만 예외). 가장 긴 단어부터 뜨고, 한자키를 다시
+누르시면 더 짧은 단어가 차례로 뜹니다. 선택 방식은 단어마다 `Shift`+`←` 를 여러 번
+눌러야 하지만, 이 방식은 **한자키 한 번 + 숫자 한 번**입니다. 단계별 설명은
+[사용자 매뉴얼 §4.2](docs/user/user-guide/README-ko.md#42-한자-변환-hanja)에 있습니다.
+다만 **이미 쓴 단어를 바꾸는 것은 앱이 커서 주변 글자를 입력기에 알려 줄 때만 됩니다.**
+터미널, 리눅스 XIM 앱, X11에서 도는 크롬·Electron 앱, Windows의 옛 입력 방식(IMM32) 앱처럼
+알려 주지 않는 곳에서는 방금 친 단어만 바꿀 수 있습니다. 단어를 치고 조사나 공백을 붙이기 전에
+한자키를 눌러 주십시오. 자세한 범위는 [알려진 한계와 도움 요청](#알려진-한계와-도움-요청)에 있습니다.
 
 ### 한자는 두 번만 더 누르면 끝납니다
 
 한자 팝업은 한 페이지에 후보 9개를 보여 드리고, **숫자 `1`~`9`를 누르면 그 자리에서
 선택과 확정이 동시에 이뤄집니다.** 즉 글자를 친 뒤로는 **한자키 한 번 + 숫자 한 번**,
-추가 입력 두 번이면 한자가 들어갑니다.
+추가 입력 두 번이면 한자가 들어갑니다. `대한민국`처럼 여러 글자로 된 단어도 마찬가지입니다.
 
 - **즐겨찾기(`Space`)를 쓰시면 더 줄어듭니다.** ★를 단 한자는 첫 페이지 위쪽으로 올라오므로,
   자주 쓰시는 글자는 늘 `1`~`3` 근처에 놓입니다. 페이지를 넘길 일이 없어집니다
-- `.`(마침표)로 **9칸 ↔ 81칸 격자**를 오갈 수 있습니다. 후보를 한눈에 훑고 싶으실 때 쓰시면 됩니다
+- `.`(마침표)로 **9칸 ↔ 81칸 격자**를 오갈 수 있습니다(한 글자 후보에서만. 두 글자 이상 단어 후보는 9개짜리 목록으로 고정입니다). 후보를 한눈에 훑고 싶으실 때 쓰시면 됩니다
 - `←`/`→`, `PageUp`/`PageDown`으로 페이지를 넘기시며, 처음과 끝이 이어져 있어 한 방향으로만
   눌러도 전체를 도실 수 있습니다
 - 마우스도 쓰실 수 있습니다. 후보를 좌클릭하면 선택되고, ◀/▶로 페이지를 넘기며,
@@ -304,7 +356,7 @@ Tentative는 기본 **4시간** 뒤 만료되며(설정으로 1~12시간), 만�
 
 역방향 교정은 내장 영어 사전을 기준으로 판정하므로, 사전에 없거나 최소 길이보다 짧은
 단어는 그냥 지나갑니다. `git`, `ls`, `cargo`, `kubectl` 같은 명령어가 대표적입니다.
-설정 창의 「사용자 사전」 페이지에서 그런 단어를 등록하시면 역방향 판정에서 우선 매칭됩니다.
+설정 창의 「자동 교정 사전」 페이지에서 그런 단어를 등록하시면 역방향 판정에서 우선 매칭됩니다.
 저장 위치는 `~/.config/unim/typefix-userdict.yaml`입니다.
 
 **4. 판정 기준을 조이실 수 있습니다**
@@ -390,13 +442,53 @@ X11 세션을 쓰시거나 GNOME으로 우회해 주십시오.
 앱별 대응이 아직 다 들어가 있지 못합니다. 비밀번호 칸에서 교정이 발동하는 앱을 만나시면
 앱 이름과 버전을 [Issues](https://github.com/from104/unim/issues)로 알려 주시기 바랍니다.
 
+## 알려진 한계와 도움 요청
+
+**이미 쓴 단어의 한자 변환**(커서를 단어에 두거나 선택한 뒤 한자키)은 앱이 입력기에
+**커서 주변 글자와 선택**을 알려 줘야 됩니다. 옛 입력 방식은 이것을 알려 주지 않으므로,
+그런 앱에서는 **방금 친 단어**만 바꿀 수 있습니다. 안 되는 곳에서 한자키를 누르시면 이모지
+팝업이 뜨고, 글자는 지워지거나 바뀌지 않습니다.
+
+| 환경 | 방금 친 단어 | 커서가 걸친 단어·선택 |
+|---|---|---|
+| Windows TSF 앱 (메모장·Word·크롬 등) | 됨 | 됨 |
+| Windows 옛 입력 방식(IMM32) 앱 — Qt 앱 (텔레그램에서 실측) | 됨 | 띄어쓰기로 나뉜 덩어리 전체가 사전 단어일 때만 됨 |
+| Windows 옛 입력 방식(IMM32) 앱 — 그 밖 | 됨 | **안 됨** |
+| 리눅스 GTK·Qt 입력기 모듈, GNOME 확장 | 됨 | 됨 (앱별 예외가 조금 있습니다) |
+| 리눅스 XIM, 터미널, X11의 크롬·Electron | 됨 | **안 됨** |
+| 리눅스 순수 Wayland (KDE·Sway 등) | 됨 | 선택은 앱에 따라 됨, 커서가 걸친 단어는 **아직 안 됨** |
+
+앱별 세부는 [사용자 매뉴얼 §4.2 "앱별 차이"](docs/user/user-guide/README-ko.md#앱별-차이),
+이유는 [FAQ Q37](docs/user/faq/README-ko.md#q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다),
+정확한 규칙과 근거는 [`HANJA_WORD_SPEC.md` §2.11](docs/dev/specs/HANJA_WORD_SPEC.md#211-옛-입력-api-의-한계--경로별-정리)에 있습니다.
+
+**이 한계는 설정이 아니라 입력 방식(프로토콜) 쪽에서 오는 것이라, 혼자서는 넘기 어렵습니다.
+도움을 부탁드립니다.** 실측 결과 한 줄, 설계 의견, 패치 모두 반갑습니다.
+
+1. **Windows의 Qt가 아닌 IMM32 앱** — 어떤 앱·툴킷이 재변환 요청(`IMR_RECONVERTSTRING`·
+   `IMR_DOCUMENTFEED`)에 답하는지, 답하면서 앱의 선택을 바꾸는지 알려 주시면 지금은 Qt에만 켜 둔
+   재변환을 다른 앱으로 넓힐 수 있습니다.
+2. **Windows에서 아직 확인하지 못한 앱** — 32비트 앱(한컴오피스·카카오톡), Electron 앱,
+   콘솔(명령 프롬프트·Windows Terminal).
+3. **XIM** — XIM 문자열 변환 콜백을 구현한 클라이언트, 또는 그런 앱을 GTK·Qt 모듈로 옮길 방법.
+4. **X11의 크롬·Electron** — 크롬의 GTK 입력기 연결이 `SetSurroundingText` 를 비워 두고 있어,
+   업스트림 패치가 있으면 풀립니다.
+5. **순수 Wayland** — 입력기가 포인터·PRIMARY 선택 변화를 알 수단(data-control 등)이 확인되면
+   커서가 걸친 단어 방식을 안전하게 켤 수 있습니다.
+6. **GNOME의 Firefox** — 확정 직후 주변 글자를 한 박자 늦게 알려 주어, 커서가 걸친 단어가
+   이모지로 넘어갑니다.
+
+시작은 [`CONTRIBUTING.md`](CONTRIBUTING.md), 제보는 [Issues](https://github.com/from104/unim/issues)로
+부탁드립니다. 제보하실 때 앱 이름·버전과, 방금 친 단어·커서 방식·선택 방식 각각이 되었는지를 적어
+주시면 표에 바로 반영하겠습니다.
+
 ## 로드맵
 
 전체는 [ROADMAP.md](ROADMAP.md)에 있습니다. 요약하면 다음과 같습니다.
 
 **완료** — Rust 코어(2벌식·3벌식 계열), 3계층 아키텍처(Core → D-Bus → Frontend),
 전 프론트엔드(GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell), 배포 채널(deb·rpm·MSI·설치 스크립트),
-자판 프로필 v1, 자동 오타 교정 + 억제 사전.
+자판 프로필 v1, 자동 오타 교정 + 억제 사전, 한자 단어 변환 v1.
 
 **진행 중** — Windows 쪽 완성도 다듬기, 단독 Wayland 컴포지터 실측,
 Wayland surrounding-text / content-type 활용, 문서 정비.
@@ -405,7 +497,7 @@ Wayland surrounding-text / content-type 활용, 문서 정비.
 그리고 엔진 재설계 — 낱자 provenance 태깅, 문맥 의존 키 해석, 모아치기 stroke replay,
 복벌식, 옛한글.
 
-**구상 단계** — 한자 단어 단위 변환, macOS(InputMethodKit), 모바일, 음성 입력,
+**구상 단계** — macOS(InputMethodKit), 모바일, 음성 입력,
 경량 LLM 기반 단어·문장 예측, 한손 자판(천지인·나랏글).
 
 ## 문서

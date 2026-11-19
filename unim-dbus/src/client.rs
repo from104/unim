@@ -172,6 +172,14 @@ trait InputContext {
     /// Surrounding text 설정
     fn set_surrounding_text(&self, text: &str, cursor_pos: u32, anchor_pos: u32) -> Result<()>;
 
+    /// 클라이언트 능력 선언 (비트: 0x1 REPLACE_SURROUNDING · 0x2 SELECTION_RELIABLE ·
+    /// 0x4 POINTER_HINTS). 미선언은 0 — 대상③(커서 주변 단어) 꺼짐.
+    fn set_client_capabilities(&self, caps: u32) -> Result<()>;
+
+    /// 프런트가 엔진 밖에서 관측한 사건 보고 (1 KEY · 2 POINTER_PLAIN · 3 POINTER_SELECT ·
+    /// 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN). kind≠1 이면 keyval·state 는 0.
+    fn surrounding_hint(&self, kind: u32, keyval: u32, state: u32) -> Result<()>;
+
     /// Smart Backspace (자모 단위 삭제)
     /// 반환: (삭제 문자 수, 대체 텍스트)
     fn smart_backspace(&self) -> Result<(u32, String)>;
@@ -263,6 +271,18 @@ trait InputContext {
         preedit_text: String,
     ) -> Result<()>;
 
+    /// 커서 주변 교체 시그널 (엔진 → 프론트엔드) — 대상③ 한자 확정.
+    /// 커서 기준 앞 delete_before자·뒤 delete_after자(코드포인트)를 지우고 commit_text 를
+    /// 커밋한다. 프런트는 해당 구간이 expect_text 와 일치할 때만 실행한다.
+    #[zbus(signal)]
+    fn replace_surrounding_text(
+        &self,
+        delete_before: u32,
+        delete_after: u32,
+        commit_text: String,
+        expect_text: String,
+    ) -> Result<()>;
+
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     fn hide_popup(&self) -> Result<()>;
@@ -302,6 +322,25 @@ trait InputContext {
         cols: i32,
         sel_row: i32,
         sel_col: i32,
+    ) -> Result<()>;
+
+    /// 통합 view_model 시그널 (POPUP_SPEC §2.5 `PopupRender`) — 데몬이 팝업 상태가
+    /// 바뀔 때마다 발행. 인자 묶음은 서버 시그니처와 같다: `texts=(target, header,
+    /// footer, expand_text)`, `layout=(rows, cols, sel_row, sel_col, page, total_pages)`,
+    /// `flags=(show_footer, expand_visible)`.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[zbus(signal)]
+    fn popup_render(
+        &self,
+        kind: u32,
+        texts: (String, String, String, String),
+        layout: (u32, u32, u32, u32, u32, u32),
+        flags: (bool, bool),
+        cells: Vec<(String, String, u32)>,
+        col_headers: Vec<(String, bool)>,
+        row_headers: Vec<(String, bool)>,
+        tab_labels: Vec<String>,
+        active_tab_index: u32,
     ) -> Result<()>;
 }
 

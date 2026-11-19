@@ -191,7 +191,7 @@ li { margin: 0.35rem 0; }
 <body>
 <div class="wrap">
 <header class="topbar">
-  <span class="brand">UNIM 도움말 <span class="ver">v0.4.4</span></span>
+  <span class="brand">UNIM 도움말 <span class="ver">v0.4.5</span></span>
   <a class="langswitch" href="unim-help-en.html">English</a>
 </header>
 
@@ -227,6 +227,7 @@ li { margin: 0.35rem 0; }
 </li>
 <li><a href="#faq">UNIM FAQ (한국어)</a>
 <ol>
+<li><a href="#faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</a></li>
 <li><a href="#faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</a></li>
 <li><a href="#faq--q3-어떤-환경이-가장-안정적인가">Q3. 어떤 환경이 가장 안정적인가?</a></li>
 <li><a href="#faq--q4-autotypefix는-정확히-어떻게-동작">Q4. AutoTypeFix는 정확히 어떻게 동작?</a></li>
@@ -251,6 +252,11 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q29-ms-word에서-글자가-한-자씩이-아니라-단어-단위로-확정됩니다">Q29. MS Word에서 글자가 한 자씩이 아니라 단어 단위로 확정됩니다.</a></li>
 <li><a href="#faq--q30-카카오톡한컴-같은-32비트-앱-wezterm텔레그램에서도-되나요">Q30. 카카오톡·한컴 같은 32비트 앱, WezTerm·텔레그램에서도 되나요?</a></li>
 <li><a href="#faq--q31-windows판은-리눅스판과-기능이-같나요">Q31. Windows판은 리눅스판과 기능이 같나요?</a></li>
+<li><a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32. 단어가 아니라 한 글자만 바뀝니다.</a></li>
+<li><a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">Q33. 한자 를 눌렀는데 한자 대신 이모지가 뜹니다.</a></li>
+<li><a href="#faq--q35-조사가-붙은-단어는-어떻게-바꾸나요-대한민국은">Q35. 조사가 붙은 단어는 어떻게 바꾸나요? (대한민국은)</a></li>
+<li><a href="#faq--q36-원하는-길이의-단어가-첫-후보로-안-뜹니다">Q36. 원하는 길이의 단어가 첫 후보로 안 뜹니다.</a></li>
+<li><a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</a></li>
 <li><a href="#faq--더-읽을-거리">더 읽을 거리</a></li>
 </ol>
 </li>
@@ -433,7 +439,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 </blockquote>
 <blockquote>
 <p><strong>접근성 — 화면 낭독기와 전환음</strong>: Windows 에서는 한/영 전환이 <strong>화면 낭독기(NVDA·내레이터)에 통지</strong>되고, 조합 중인 글자와 후보 창도 낭독기가 읽을 수 있게 노출된다.</p>
-<p>여기에 더해 <strong>한/영 전환 소리 알림</strong>을 켤 수 있다 — 한글은 높은음, 영문은 낮은음으로 구분된다. <strong>기본값은 꺼짐</strong>이며(오탐지 방지를 위한 의도된 기본값), 설정 창(§5)의 「일반」 → 「접근성」에서 켠다. 화면을 보지 않고 입력한다면 켜 두는 쪽을 권한다.</p>
+<p>여기에 더해 <strong>한/영 전환 소리 알림</strong>을 켤 수 있다 — 한글은 높은 음 2번, 영문은 낮은 음 1번으로 구분된다. <strong>기본값은 꺼짐</strong>이며(오탐지 방지를 위한 의도된 기본값), 설정 창(§5)의 「일반」 → 「접근성」에서 켠다. 화면을 보지 않고 입력한다면 켜 두는 쪽을 권한다.</p>
 </blockquote>
 <blockquote>
 <p><strong>오른쪽 Alt로 토글</strong>: 한/영 키가 없는 키보드(영문 배열 노트북 등)에서는 <strong>오른쪽 Alt</strong> 로 한/영을 전환할 수 있다. AltGr(오른쪽 Alt를 AltGr로 쓰는 레이아웃)에는 영향이 없다. 단, 토글하는 순간 앱도 Alt 입력을 함께 받을 수 있어(예: 일부 앱의 메뉴바 포커스) 이 부작용이 싫으면 설정의 <code>toggle_keys</code> 목록에서 <code>RightAlt</code> 를 빼면 된다.</p>
@@ -447,11 +453,184 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <li><strong>한자 키</strong>(또는 F9)를 누른다.</li>
 <li>9칸 그리드 팝업이 뜬다 — <code>韓國</code>, <code>漢國</code> 등.</li>
 <li>숫자 1~9로 직접 선택, 화살표로 이동, Enter로 확정, ESC로 취소.</li>
-<li>후보가 9개 이상이면 <strong>마침표(.)</strong> 키로 9×9=81칸 확장 그리드로 토글. 화면 우상단에 ⊞/⊟ 아이콘으로 현재 모드 표시.</li>
+<li>한 글자 후보가 9개 이상이면 <strong>마침표(.)</strong> 키로 9×9=81칸 확장 그리드로 토글. 화면 우상단에 ⊞/⊟ 아이콘으로 현재 모드 표시. (두 글자 이상 단어 후보는 한 화면 9개짜리 목록으로 고정이라 <code>.</code> 이 동작하지 않는다.)</li>
 </ol>
+<p>이 흐름은 "방금 친 글자"에 쓰는 가장 기본형이다. <strong>이미 쓴 단어</strong>(커서만 두면 된다)와 <strong>선택한 범위</strong>까지 포함한 전체 사용법은 바로 아래 "한자 변환 한눈에"와 "단계별 튜토리얼"에 있다.</p>
 <blockquote>
 <p><strong>한자 키 지정</strong>: <code>hanja_keys</code> 기본값은 <code>Hanja</code>, <code>F9</code> 다. 한/영 전환키(4.1)와 마찬가지로 단일 키 이름만 받고 수정자 조합 표기는 쓸 수 없다. 잘못 적으면 CLI 와 설정 앱이 저장 시 경고를 띄우고 데몬 로그에도 파싱 실패가 기록된다.</p>
 </blockquote>
+<!-- 초안: docs/dev/specs/HANJA_WORD_SPEC.md v1.6 (2026-10-12 기현님 확정 설계) 기준. 구현·실측(§6.5) 전이므로 앱별 표는 실측 뒤 확정할 것. -->
+<h5 id="user-guide--한자-변환-한눈에">한자 변환 한눈에</h5>
+<p>한자 키(<code>한자</code> 또는 <code>F9</code>) 하나로 <strong>세 가지 상황</strong>을 모두 처리한다. 어느 쪽이 되는지는 <strong>한자 키를 누른 순간의 상태</strong>가 정한다. 따로 모드를 고를 필요가 없다.</p>
+<div class="tablewrap"><table><thead><tr><th>상황</th><th>한자 키를 누르기 전 상태</th><th>한자 키를 누르면</th><th>키 순서</th></tr></thead><tbody>
+<tr><td><strong>입력 중인 단어</strong></td><td>한글을 치는 중이다. 마지막 글자가 아직 조합 중이다</td><td>방금 친 단어의 한자 후보</td><td>글자 입력 → <code>한자</code> → 숫자</td></tr>
+<tr><td><strong>커서가 걸친 단어</strong></td><td>입력을 마쳤고 선택한 것이 없다. 커서가 한글 단어의 끝·안·앞에 있다</td><td>커서가 걸친 단어의 한자 후보</td><td>커서 놓기 → <code>한자</code> → 숫자</td></tr>
+<tr><td><strong>선택한 범위</strong></td><td>한글 단어를 선택해 두었다</td><td>선택한 단어의 한자 후보</td><td>선택 → <code>한자</code> → 숫자</td></tr>
+</tbody></table>
+</div>
+<p><strong>도식 설명</strong>: 세 상황 모두 "대한민국"이 "大韓民國"으로 바뀐다. <code>|</code> 는 커서 위치이고, <code>[ ]</code> 는 선택 범위다.</p>
+<pre><code class="language-text">상황 1  입력 중인 단어      대한민국|        → 한자 → 숫자 1 → 大韓民國|
+상황 2  커서가 걸친 단어    대한|민국        → 한자 → 숫자 1 → 大韓民國|
+상황 3  선택한 범위         [대한민국]       → 한자 → 숫자 1 → 大韓民國|
+</code></pre>
+<p>한자 키는 아래 순서로 상황을 살펴서, 먼저 맞는 것을 한다.</p>
+<ol>
+<li>글자를 조합 중이다 → <strong>입력 중인 단어</strong>. (자음 하나만 조합 중이면 특수문자 팝업이다 — <a href="#user-guide--43-특수문자-입력">4.3</a>)</li>
+<li>조합 중이 아니고, 한글 단어가 선택되어 있다 → <strong>선택한 범위</strong>.</li>
+<li>조합 중이 아니고, 선택도 없고, 커서가 한글 단어에 걸쳐 있다 → <strong>커서가 걸친 단어</strong>.</li>
+<li>위에 모두 해당하지 않는다 → <strong>이모지 팝업</strong>. (선택이 있는데 사전의 한글 단어와 맞지 않을 때도 3번으로 넘어가지 않고 곧바로 이모지다.) (<a href="#user-guide--이모지-팝업이-뜨는-경우">이모지 팝업이 뜨는 경우</a>)</li>
+</ol>
+<blockquote>
+<p><strong>키를 아끼는 방법</strong>: 이미 쓴 단어를 바꿀 때 "선택" 방식은 단어마다 <code>Shift</code>+<code>←</code> 를 여러 번 눌러야 한다. "커서가 걸친 단어" 방식은 커서만 단어 위에 두면 되므로 그만큼 키 입력이 줄어든다. 커서를 옮긴 뒤에는 단어 하나를 바꾸는 데 <code>한자</code> 한 번 + 숫자 한 번이면 된다.</p>
+</blockquote>
+<h5 id="user-guide--단계별-튜토리얼">단계별 튜토리얼</h5>
+<h6 id="user-guide--1-방금-입력한-단어-바꾸기">1. 방금 입력한 단어 바꾸기</h6>
+<p>가장 빠른 방법이다. <strong>글자를 다 친 직후, 공백이나 조사를 치기 전에</strong> 누른다.</p>
+<ol>
+<li>단어를 끝까지 친다. 예: <code>대한민국</code> — 마지막 글자 "국"이 아직 조합 중이어야 한다.</li>
+<li><code>한자</code> 를 누른다. 사전에 있는 단어면 단어 전체가 후보로 뜬다.</li>
+<li>숫자 <code>1</code>~<code>9</code> 를 누른다. 누르는 즉시 확정된다. (화살표로 옮기고 <code>Enter</code> 로 확정해도 된다.)</li>
+</ol>
+<p><strong>도식 설명</strong>: 단어를 치고 바로 한자 키와 숫자 1을 누르면 한글이 한자로 바뀐다.</p>
+<pre><code class="language-text">치기      대한민국|                  마지막 글자 "국" 은 조합 중
+한자      대한민국|   팝업: 「대한민국」 → 한자   1 大韓民國  2 …
+숫자 1    大韓民國|
+</code></pre>
+<ul>
+<li>팝업 머리글의 <code>「대한민국」</code> 이 지금 바꿀 글자다. 의도한 글자인지 먼저 눈으로 확인한다.</li>
+<li>팝업이 뜬 채로 <code>한자</code> 를 한 번 더 누르면 대상이 <strong>앞 글자부터 줄어</strong> 사전에 있는 더 짧은 단어가 된다. 예: <code>대한민국</code> → <code>민국</code> → <code>국</code>.</li>
+<li>단어를 이미 치고 공백까지 눌렀다면 이 방법은 쓸 수 없다. 다음 단계로 간다.</li>
+</ul>
+<h6 id="user-guide--2-이미-쓴-단어로-돌아가-바꾸기-단어의-처음중간끝">2. 이미 쓴 단어로 돌아가 바꾸기 (단어의 처음·중간·끝)</h6>
+<p>글자를 선택할 필요가 없다. <strong>커서를 단어에 걸쳐 두고</strong> <code>한자</code> 를 누르면 된다. 커서는 단어의 끝·가운데·처음 어디에 있어도 된다.</p>
+<ol>
+<li>마우스나 방향키로 커서를 단어 위에 놓는다. (<code>Ctrl</code>+<code>←</code>/<code>→</code> 로 단어 단위로 움직이면 키가 적게 든다.)</li>
+<li><code>한자</code> 를 누른다. 커서가 걸친 단어 가운데 <strong>가장 긴 단어</strong>가 후보로 뜬다.</li>
+<li>숫자 <code>1</code>~<code>9</code> 로 확정한다. 단어 전체가 한자로 바뀌고 커서는 바뀐 글자 뒤에 놓인다.</li>
+</ol>
+<div class="tablewrap"><table><thead><tr><th>커서 위치</th><th>문서 (<code>|</code> 가 커서)</th><th>한자 키를 누르면</th></tr></thead><tbody>
+<tr><td>단어 끝</td><td><code>만세 대한민국|</code></td><td>「대한민국」 후보</td></tr>
+<tr><td>단어 가운데</td><td><code>만세 대한|민국</code></td><td>「대한민국」 후보 (커서 앞 2글자, 뒤 2글자가 함께 바뀐다)</td></tr>
+<tr><td>단어 처음</td><td><code>만세 |대한민국</code></td><td>「대한민국」 후보</td></tr>
+</tbody></table>
+</div>
+<p><strong>도식 설명</strong>: 위 세 문서 모두 한자 키와 숫자 1을 누르면 "만세 大韓民國" 이 된다.</p>
+<pre><code class="language-text">단어 끝      만세 대한민국|   → 한자 → 숫자 1 → 만세 大韓民國|
+단어 가운데  만세 대한|민국   → 한자 → 숫자 1 → 만세 大韓民國|
+단어 처음    만세 |대한민국   → 한자 → 숫자 1 → 만세 大韓民國|
+</code></pre>
+<p>알아 둘 것:</p>
+<ul>
+<li><strong>커서 양옆이 한글이 아니면 이 방식은 쓰지 않는다.</strong> 예: <code>대한민국 |</code> (커서 앞이 공백). 이때는 이모지 팝업이 뜬다. 커서를 <code>←</code> 로 한 칸 옮겨 단어 끝에 놓고 다시 누른다.</li>
+<li><strong>입력란이나 문단의 맨 앞(첫 글자 앞)에서는 이 방식이 동작하지 않는다.</strong> 앱이 알리지 않은 선택 때문에 글자를 잃는 사고를 막는 안전 장치다. 커서를 단어 끝으로 옮기면 된다.</li>
+<li>공백, 문장부호, 숫자, 영문, 한자, 낱자모(ㄱ·ㅏ 등), 이모지, 줄바꿈에서 단어가 끊긴다. 커서 양옆으로 <strong>이어진 한글</strong>만 단어 후보를 찾는 범위가 된다.</li>
+<li>확정하면 UNIM이 커서 앞뒤의 해당 글자를 지우고 한자를 넣는다. 앱의 선택 기능은 쓰지 않는다.</li>
+</ul>
+<h6 id="user-guide--3-합성어에서-원하는-길이-고르기">3. 합성어에서 원하는 길이 고르기</h6>
+<p>사전에는 긴 단어와 그 안의 짧은 단어가 함께 들어 있다. 예를 들어 <code>국어교육</code> 은 <code>국어</code>·<code>교육</code> 으로도 쪼개진다. 첫 팝업은 <strong>가장 긴 단어</strong>부터 보여 주고, 원하는 길이가 아니면 <code>한자</code> 를 <strong>다시 눌러 다음 후보</strong>로 넘긴다.</p>
+<p><strong>순서 규칙</strong></p>
+<ol>
+<li>긴 단어가 먼저 나온다.</li>
+<li>길이가 같으면 커서 바로 앞에서 <strong>끝나는</strong> 단어 → 커서 바로 뒤에서 <strong>시작하는</strong> 단어 → 커서를 <strong>가로지르는</strong> 단어(왼쪽에서 시작하는 것 먼저) 순이다.</li>
+<li>마지막 후보에서 <code>한자</code> 를 한 번 더 누르면 한자 팝업이 닫히고 <strong>이모지 팝업</strong>이 열린다. 처음으로 돌아가지 않는다.</li>
+<li>팝업이 열려 있는 동안 후보 목록은 바뀌지 않는다.</li>
+</ol>
+<p><strong>도식 설명</strong>: 아래 표는 <code>한자</code> 를 누를 때마다 바뀌는 대상을 순서대로 적은 것이다. UNIM 기본 사전 기준이다. 사전에는 <code>어교</code>(魚膠)·<code>한민</code>(韓民) 같은 낯선 단어도 들어 있어서, 커서를 가로지르는 이런 단어가 중간에 끼어든다.</p>
+<div class="tablewrap"><table><thead><tr><th>문서 (<code>|</code> 가 커서)</th><th>한자 키를 1번, 2번, 3번… 누를 때 대상</th><th>바뀌는 글자</th></tr></thead><tbody>
+<tr><td><code>국어교육|</code></td><td>국어교육 → 교육 → 육 → (이모지)</td><td>커서 앞 4글자 → 2글자 → 1글자</td></tr>
+<tr><td><code>국어|교육</code></td><td>국어교육 → 국어 → 교육 → 어교 → 어 → 교 → (이모지)</td><td>앞뒤 4글자 → 앞 2글자 → 뒤 2글자 → 앞뒤 1글자씩 → 앞 1글자 → 뒤 1글자</td></tr>
+<tr><td><code>대한|민국</code></td><td>대한민국 → 대한 → 민국 → 한민 → 한 → 민 → (이모지)</td><td>앞뒤 4글자 → 앞 2글자 → 뒤 2글자 → 앞뒤 1글자씩 → 앞 1글자 → 뒤 1글자</td></tr>
+</tbody></table>
+</div>
+<p>예: <code>국어|교육</code> 에서 "국어"만 한자로 바꾸고 싶으면 <code>한자</code> 두 번 → 숫자 한 번이다. 팝업 머리글에 지금 대상이 <code>「국어」</code> 로 보인다.</p>
+<blockquote>
+<p><strong>입력 중인 단어의 재타는 다르게 움직인다.</strong> 글자를 치는 도중 연 팝업에서 <code>한자</code> 를 다시 누르면 위처럼 순환하지 않고 <strong>앞 글자부터 줄어든다</strong>(<code>대한민국</code> → <code>민국</code> → <code>국</code>). 커서가 걸친 단어는 위의 순환 규칙을 따른다. 선택한 범위는 선택 전체가 대상이라 다시 눌러도 같은 팝업이 그대로 있다.</p>
+</blockquote>
+<h6 id="user-guide--4-한-글자만-바꾸기">4. 한 글자만 바꾸기</h6>
+<p>세 가지 길이 있다.</p>
+<ul>
+<li><strong>입력 중일 때</strong>: 팝업이 뜬 채로 <code>한자</code> 를 거듭 눌러 대상을 한 글자까지 줄인다. <code>대한민국</code> → <code>민국</code> → <code>국</code>.</li>
+<li><strong>커서가 걸친 단어일 때</strong>: <code>한자</code> 를 거듭 눌러 한 글자 후보가 올 때까지 넘긴다. 한 글자 후보는 순서의 뒤쪽에 있다(위 표의 <code>대한|민국</code> 에서는 5번째, 6번째).</li>
+<li><strong>선택으로</strong>: 바꿀 글자 하나만 <code>Shift</code>+<code>←</code> 로 선택하고 <code>한자</code> 를 누른다. 선택 변환을 지원하는 앱에서만 된다(<a href="#user-guide--앱별-차이">앱별 차이</a> 참고).</li>
+</ul>
+<p>한 글자 후보 팝업에서는 후보가 많을 때 <code>.</code>(마침표)로 9×9=81칸 확장 격자를 쓸 수 있다. 두 글자 이상 단어 후보는 한 화면 9개짜리 목록으로 고정되어 있어 <code>.</code> 이 동작하지 않는다.</p>
+<h6 id="user-guide--5-선택으로-범위-지정하기-지원-앱">5. 선택으로 범위 지정하기 (지원 앱)</h6>
+<p>바꿀 범위를 눈으로 정확히 정하고 싶을 때 쓴다. 다만 선택은 단어 길이만큼 <code>Shift</code>+방향키를 더 눌러야 한다. 원하는 단어가 커서 방식 순서의 2~3번째 안에 있으면 <code>한자</code> 를 거듭 누르는 쪽이 키가 적다.</p>
+<ol>
+<li>바꿀 한글 단어를 정확히 선택한다. 마우스로 끌거나 <code>Shift</code>+방향키를 쓴다.</li>
+<li><code>한자</code> 를 누른다.</li>
+<li>숫자 <code>1</code>~<code>9</code> (또는 화살표 + <code>Enter</code>)로 확정한다. 선택한 범위가 그대로 한자로 바뀐다.</li>
+</ol>
+<p><strong>도식 설명</strong>: 선택한 "대한민국"이 한자 키와 숫자 1로 "大韓民國"이 된다.</p>
+<pre><code class="language-text">선택      만세 [대한민국] 만만세
+한자      팝업: 「대한민국」 → 한자
+숫자 1    만세 大韓民國| 만만세
+</code></pre>
+<ul>
+<li>선택한 글자가 <strong>사전에 있는 한글 단어와 정확히 같아야</strong> 한자 팝업이 뜬다. 그렇지 않으면(영문·숫자가 섞임, 공백뿐, 19글자 이상, 사전에 없음) 이모지 팝업이 뜬다. 이모지를 확정하면 선택한 글자가 이모지로 바뀐다. <code>Esc</code> 를 누르면 선택은 그대로 남는다.</li>
+<li>선택 앞뒤에 끼어 있는 공백은 바뀌지 않고 그대로 남는다.</li>
+<li><strong>선택 변환이 되지 않는 앱이 있다.</strong> 그런 앱에서는 선택 대신 <strong>커서를 단어에 두는 방식(2단계)</strong> 을 쓴다. 어느 앱이 되는지는 아래 <a href="#user-guide--앱별-차이">앱별 차이</a>에 있다.</li>
+</ul>
+<h6 id="user-guide--6-취소하기">6. 취소하기</h6>
+<ul>
+<li><code>Esc</code> 를 누르면 팝업이 닫히고 <strong>아무것도 바뀌지 않는다.</strong> 입력 중이었다면 치던 글자가 그대로 남는다. 선택이나 커서 위치도 그대로다.</li>
+<li>팝업 밖을 클릭해도 닫힌다. 그 클릭은 아래 창에 그대로 전달된다.</li>
+<li>팝업이 열려 있을 때 팝업이 처리하지 않는 키(예: 일반 글자 키)를 누르면 팝업이 닫히고 그 키는 평소처럼 입력된다.</li>
+</ul>
+<h5 id="user-guide--앱별-차이">앱별 차이</h5>
+<p>같은 <code>한자</code> 키라도 앱이 입력기에 <strong>주변 글자와 커서 위치를 알려 주는지</strong>에 따라 되는 범위가 다르다. 세 부류로 나뉜다.</p>
+<p><strong>🪟 Windows</strong></p>
+<div class="tablewrap"><table><thead><tr><th>부류</th><th>대표 환경·앱</th><th>입력 중인 단어</th><th>커서가 걸친 단어</th><th>선택한 범위</th></tr></thead><tbody>
+<tr><td><strong>모두 된다</strong></td><td>메모장·워드패드·Word·크롬 등 TSF 방식으로 연결되는 앱</td><td>됨</td><td>됨</td><td>됨</td></tr>
+<tr><td><strong>옛 입력 방식(IMM32) 앱 가운데 Qt 앱</strong></td><td>텔레그램 등</td><td>됨</td><td>띄어쓰기로 나뉜 덩어리 전체가 사전 단어일 때만 됨</td><td>같음</td></tr>
+<tr><td><strong>방금 입력한 단어만 된다</strong></td><td>그 밖의 옛 입력 방식(IMM32) 앱</td><td>됨</td><td>안 됨 (한자 키를 누르면 이모지)</td><td>안 됨</td></tr>
+</tbody></table>
+</div>
+<ul>
+<li><strong>옛 입력 방식 앱은 입력기에 지금 조합 중인 글자만 보여 준다.</strong> 이미 쓴 글자는 입력기가 볼 수 없으므로, 단어를 친 직후 조사나 공백을 붙이기 전에 <code>한자</code> 를 누른다. 이유는 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">FAQ Q37</a>에 있다.</li>
+<li><strong>텔레그램 같은 Qt 앱</strong>에서는 UNIM 이 앱에 "커서가 있는 단어"를 물어 그 단어를 선택한 뒤 바꾼다. 그래서 다음처럼 동작한다.
+<ul>
+<li>띄어쓰기로 나뉜 덩어리를 통째로만 바꾼다. <code>학교에서</code>처럼 조사가 붙은 덩어리는 사전에 없어서 바뀌지 않는다.</li>
+<li>바꾸거나 취소한 뒤에는 커서가 단어 끝에 있다.</li>
+<li>선택을 풀려고 단어를 한 번 다시 쳐 넣으므로, 그 입력이 앱의 실행 취소(<code>Ctrl</code>+<code>Z</code>) 기록에 남는다. 이모지를 부르려고 글 뒤에서 <code>한자</code> 를 눌러도 단어를 한 번 다시 친 뒤 이모지가 뜬다.</li>
+<li>팝업을 다른 곳 클릭으로 닫으면 단어가 선택된 채 남을 수 있다. 그 상태에서 글자를 치면 단어가 그 글자로 바뀌므로, 방향키로 선택을 먼저 푼다.</li>
+<li>팝업이 떠 있는 동안 <code>Delete</code>·<code>Ctrl</code>+<code>X</code> 는 앱으로 가서 선택된 단어를 지운다.</li>
+<li>다시 쳐 넣은 단어는 앱이 새 입력에 주는 서식을 따른다(굵게 등이 풀릴 수 있다).</li>
+<li>커서가 단어 뒤 공백 다음에 있으면 바뀌지 않는다. <code>←</code> 로 단어 끝에 놓고 누른다.</li>
+<li>Qt 앱 가운데 확인한 것은 텔레그램뿐이다.</li>
+</ul>
+</li>
+<li>조합 글자를 앱이 직접 그리지 않는 일부 옛 입력 방식 앱에서는 방금 입력한 단어도 한 글자만 바뀔 수 있다.</li>
+<li>옛 입력 방식 앱에서는 <a href="#user-guide--46-단어-단위-입력-조합-확정-단위">단어 단위 입력</a>을 켜 두어도 글자(음절) 단위로 확정한다. 방금 입력한 단어의 한자 변환은 그대로 된다.</li>
+<li>한컴오피스·카카오톡 같은 32비트 앱, Electron 앱, 콘솔(명령 프롬프트·Windows Terminal)에서는 아직 확인하지 못했다. 써 본 결과를 알려 주면 표에 반영한다(<a href="https://github.com/from104/unim#%EC%95%8C%EB%A0%A4%EC%A7%84-%ED%95%9C%EA%B3%84%EC%99%80-%EB%8F%84%EC%9B%80-%EC%9A%94%EC%B2%AD">README — 알려진 한계와 도움 요청</a>).</li>
+<li>안 되는 곳에서는 이모지가 뜨고, 글자는 지워지거나 바뀌지 않는다.</li>
+<li>비밀번호 칸에서는 한자 변환이 꺼져 있다.</li>
+</ul>
+<h5 id="user-guide--이모지-팝업이-뜨는-경우">이모지 팝업이 뜨는 경우</h5>
+<p><code>한자</code> 를 눌렀는데 한자 대신 이모지 팝업이 뜨면, 아래 가운데 하나다. <strong>이모지가 뜨는 것은 오류가 아니다.</strong> 글자를 지키려고 일부러 한자 변환을 건너뛴 것이다.</p>
+<div class="tablewrap"><table><thead><tr><th>상황</th><th>이유</th><th>이렇게 한다</th></tr></thead><tbody>
+<tr><td>커서 양옆이 한글이 아니다 (공백 뒤, 문장부호 뒤, 줄 끝, 영문·숫자 옆)</td><td>바꿀 단어가 없다</td><td><code>←</code> 로 단어 끝에 놓고 다시 누른다</td></tr>
+<tr><td>입력란이나 문단의 맨 앞이다</td><td>안전 장치 (글자 유실 방지)</td><td>커서를 단어 끝으로 옮긴다</td></tr>
+<tr><td>단어가 사전에 없다 (고유명사·신조어 등)</td><td>후보가 없다</td><td>한 글자씩 끊어 바꾼다 (<a href="#user-guide--4-한-글자만-바꾸기">4단계</a>)</td></tr>
+<tr><td>한글이 아닌 것이 섞인 선택, 공백뿐인 선택, 사전에 없는 선택</td><td>선택은 사전의 한글 단어와 정확히 같아야 한다</td><td>선택을 줄이거나 풀고 커서 방식을 쓴다</td></tr>
+<tr><td><code>Shift</code>+방향키·<code>Ctrl</code>+<code>A</code>·<code>Shift</code>+클릭·드래그·더블클릭 직후 (GNOME에서 확장을 거치는 앱)</td><td>앱이 입력기에 알리지 않은 선택이 있을 수 있다. 이때 변환하면 그 선택까지 지워질 수 있다</td><td><code>Shift</code> 없이 방향키를 한 번 누르거나 클릭해서 선택을 푼다</td></tr>
+<tr><td>창을 바꾸거나 클릭한 직후 (GNOME에서 확장을 거치는 앱)</td><td>앱이 새 커서 위치를 아직 알려 주지 않았다</td><td>방향키를 한 번 누른 뒤 다시 누른다</td></tr>
+<tr><td>팝업에서 <code>한자</code> 를 거듭 눌러 마지막 후보를 지났다</td><td>한자 키만으로 이모지에 닿게 한 의도된 동작이다</td><td>한자가 필요하면 <code>Esc</code> 로 닫고 다시 시작한다</td></tr>
+<tr><td>터미널·XIM 앱 등 주변 글자를 알려 주지 않는 곳에서 조합 중이 아니다</td><td>이미 쓴 글자를 입력기가 볼 수 없다</td><td>단어를 친 직후(조합 중)에 누른다</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>이모지를 확정하면 선택이 사라질 수 있다.</strong> 선택한 글자가 있는 채로 이모지가 뜨면, 이모지를 확정하는 순간 그 선택이 이모지로 바뀐다. 선택을 지키려면 <code>Esc</code> 로 닫는다.</p>
+</blockquote>
+<h5 id="user-guide--문제가-생기면">문제가 생기면</h5>
+<p>자주 묻는 문제는 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">FAQ</a>에 모아 두었다.</p>
+<ul>
+<li>단어가 아니라 <strong>한 글자만</strong> 바뀐다</li>
+<li>한자 대신 <strong>이모지</strong>가 뜬다</li>
+<li><strong>LibreOffice</strong> 에서 드래그로 선택한 뒤 안 된다</li>
+<li><strong>조사가 붙은</strong> 단어를 바꾸고 싶다</li>
+<li>원하는 <strong>길이</strong>의 단어가 첫 후보로 안 뜬다</li>
+</ul>
 <h5 id="user-guide--페이지-이동-마우스키보드">페이지 이동 (마우스/키보드)</h5>
 <p>후보가 한 페이지(9칸 또는 81칸)를 넘으면 푸터에 <strong>◀ / ▶</strong> 버튼이 나타난다.</p>
 <pre><code class="language-text">[◀]  page 2 / 5  [▶]  ⊞
@@ -485,6 +664,30 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 </ul>
 <blockquote>
 <p><strong>왜 flash가 등록(★ ON) 때는 없고 해제(★ OFF) 때만 있나?</strong> 등록은 cursor가 자연스럽게 1페이지 상단으로 따라가므로 시각 단서가 충분. 반면 해제는 다른 페이지로 점프할 때 사용자가 화면 변화를 놓치기 쉬워 flash로 위치를 찍어 준다.</p>
+</blockquote>
+<h5 id="user-guide--한자-출력-형식">한자 출력 형식</h5>
+<p>확정할 때 들어가는 문자열 형식을 바꿀 수 있다 — [설정] › [한자 출력 형식]에서 <strong>漢字</strong> / <strong>한자(漢字)</strong> / <strong>漢字(한자)</strong> 중 고른다. 단어 변환과 한 글자 변환 모두 같은 형식을 쓴다.</p>
+<h5 id="user-guide--단어-즐겨찾기">단어 즐겨찾기</h5>
+<p>단어 후보도 음절 후보와 똑같이 <strong>Space</strong> 키로 ☆/★를 토글해 즐겨찾기에 등록할 수 있다. 다만 즐겨찾기는 <strong>같은 단어의 팝업에서만</strong> 재사용된다 — "대한민국"에서 등록한 순서는 "대한민국" 팝업에만 적용되고 다른 단어 팝업에는 영향이 없다.</p>
+<h5 id="user-guide--한자-사용자-사전">한자 사용자 사전</h5>
+<p>내장 한자 사전에 없는 <strong>이름·기관명·전문용어</strong>를 직접 <code>한글 → 한자(+뜻)</code> 로 등록해 두면, 내장 단어와 똑같이 모든 한자 변환(한 글자·방금 쓴 단어·선택·커서가 걸친 단어)에서 후보로 나온다. 예: <code>서기현 → 徐基鉉</code>.</p>
+<p><strong>등록·고치기·지우기 — 설정 창</strong>: 「한자 사용자 사전」 페이지에서 한다(§5.5.1). 한글 칸에 쓰고 Enter, 한자 칸에 쓰고 Enter 하면 바로 저장된다. 한자는 한글을 쓴 뒤 한자키로 한 글자씩 바꿔 넣으면 편하다. 행을 누르면 고치기, 삭제는 한 번 누르면 되고 5초 안에 되돌릴 수 있다.</p>
+<ul>
+<li><strong>후보 순서</strong>: 즐겨찾기(★) → 사용자 사전 → 내장 사전. 같은 한자는 한 번만 나오고, 사용자 사전 쪽 위치를 따른다. 사용자 항목도 ★ 로 즐겨찾기할 수 있다.</li>
+<li><strong>적용 시점</strong>: 저장한 뒤 <strong>다음 한자키부터</strong> 바로 적용된다. 재시작·재로그인이 필요 없다. 열려 있는 팝업은 그대로 두고 다음 팝업부터 바뀐다.</li>
+<li><strong>뜻</strong>: 비워 두면 글자별 뜻을 자동으로 이어 붙여 보여 준다(<code>성씨 서 · 터 기 · …</code>). 내장 사전에 있는 한자와 같은 쌍을 등록하면 그 한자가 맨 앞으로 오고, 뜻을 적었으면 그 뜻이 쓰인다.</li>
+<li><strong>입력 규칙</strong>:
+<ul>
+<li>한글은 완성된 음절만 1~18자 (자모·공백·숫자·영문 불가).</li>
+<li>한자는 한글과 <strong>글자 수가 같아야</strong> 하고(1글자씩 대응), 모든 글자가 한자여야 한다. 한글·영문·<code>〇</code>·<code>々</code> 는 안 된다.</li>
+<li>뜻은 60자 이하, 줄바꿈 없이.</li>
+<li>같은 <code>한글 → 한자</code> 쌍은 한 번만 등록된다. 한글 하나에 한자를 여러 개 등록할 수는 있다.</li>
+</ul>
+</li>
+<li><strong>파일</strong>: <!-- @platform:linux --><code>~/.config/unim/hanja-userdict.yaml</code><!-- @endplatform --><!-- @platform:windows --><code>%APPDATA%\unim\hanja-userdict.yaml</code><!-- @endplatform --> — 이 파일에만 저장되니 <strong>백업 대상</strong>이다(§8). 손으로 고쳐도 되지만 파일이 깨지면 사전이 꺼지고 설정 창·CLI 는 덮어쓰지 않는다. 설정 창의 [보관하고 새로 시작] 이나 <code>clear</code> 를 쓰면 깨진 파일을 <code>.broken-날짜</code> 이름으로 남겨 둔 뒤 새로 시작한다.</li>
+</ul>
+<blockquote>
+<p>이 사전은 <strong>한자 변환용</strong>이다. 자동 오타 교정 쪽의 「자동 교정 사전」(§5.4)과는 다른 것이다.</p>
 </blockquote>
 <h4 id="user-guide--43-특수문자-입력">4.3 특수문자 입력</h4>
 <p>한글 모드에서 자음(초성) 키 → 한자 키. 초성에 따라 카테고리가 달라진다.</p>
@@ -520,7 +723,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 </ol>
 <p><strong>저장 위치</strong>: <code>%APPDATA%\unim\typefix-blacklist.yaml</code>. 파일이 바뀌면 잠시 뒤 자동으로 다시 읽어들인다.</p>
 <blockquote>
-<p><strong>사용자 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「사용자 사전」 페이지에서 추가/제거/수정.</p>
+<p><strong>자동 교정 사전 (역방향 화이트리스트)</strong>: 0.2.0 신규. 텍스트 선택 후 단축키로 <code>RegisterUserDictFromSelection</code> DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「자동 교정 사전」 페이지에서 추가/제거/수정.</p>
 </blockquote>
 <h5 id="user-guide--토글-단축키--지정한-키로-즉시-켜고-끄기">토글 단축키 — 지정한 키로 즉시 켜고 끄기</h5>
 <p>키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. <strong>전체 토글의 기본값은 <code>Shift+F8</code></strong> 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.</p>
@@ -541,7 +744,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <li>GNOME(Wayland)에서는 <code>Ctrl+Left</code> 같은 Ctrl/Alt/Super 조합도 동작한다 — UNIM 확장이 토글 조합을 엔진으로 전달한다(확장 업데이트 후 재로그인 필요).</li>
 <li>Windows(TSF)에서도 조합 표기가 리눅스와 동일하게 동작한다 — 기본값 <code>Shift+F8</code> 그대로 쓰면 된다.</li>
 <li>전체가 꺼진 상태에서 순방향만 토글로 켜도 실제 교정은 전체를 다시 켜야 발동한다(전체가 마스터 스위치). 순방향/역방향 토글은 각 방향의 플래그만 바꾼다.</li>
-<li>접근성 참고: <code>toggle-announce-beep</code> 설정을 켜면 이 토글도 한/영 전환과 같은 차등 비프(켜짐=상승음/꺼짐=하강음)로 상태를 알려 준다 — <strong>Windows·Linux 공통</strong>이다(리눅스는 daemon 이 <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> 중 PATH 에서 찾은 재생기로 소리를 낸다. 셋 다 없으면 무음 no-op). 기본값은 꺼짐 — <a href="#user-guide--41-한영-모드-전환">4.1 접근성 안내</a> 참고.</li>
+<li>접근성 참고: <code>toggle-announce-beep</code> 설정을 켜면 이 토글도 한/영 전환과 같은 차등 비프(켜짐=높은 음 2번/꺼짐=낮은 음 1번)로 상태를 알려 준다 — <strong>Windows·Linux 공통</strong>이다(리눅스는 daemon 이 <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> 중 PATH 에서 찾은 재생기로 소리를 낸다. 셋 다 없으면 무음 no-op). 기본값은 꺼짐 — <a href="#user-guide--41-한영-모드-전환">4.1 접근성 안내</a> 참고.</li>
 </ul>
 </blockquote>
 <h5 id="user-guide--비밀번호-필드-자동-보호">비밀번호 필드 자동 보호</h5>
@@ -588,6 +791,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <pre><code class="language-yaml"># %APPDATA%\unim\config.yaml — 직접 편집해도 되고, 잠시 뒤 자동 반영된다
 korean:
   commit_unit: Smart          # Syllable / Word / Smart — 대문자로 시작
+  hanja_output_format: Hanja  # Hanja / HangulHanja / HanjaHangul — 대문자로 시작
   word_mode_apps:
     - winword.exe
 </code></pre>
@@ -601,7 +805,7 @@ korean:
 </blockquote>
 <hr />
 <h3 id="user-guide--5-설정-gui-투어">5. 설정 GUI 투어</h3>
-<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 4개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
+<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 6개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
 <p><strong>🪟 Windows에서 여는 법</strong> — 세 가지 중 편한 것을 쓴다.</p>
 <div class="tablewrap"><table><thead><tr><th>방법</th><th>순서</th></tr></thead><tbody>
 <tr><td><strong>A. 언어바</strong> (추천)</td><td>작업 표시줄 시계 옆의 <code>한</code>/<code>A</code> 표시를 <strong>마우스 오른쪽 버튼</strong>으로 클릭 → <strong>설정</strong></td></tr>
@@ -617,12 +821,13 @@ korean:
 <p><strong>저장 버튼이 없다</strong>: 바꾸는 즉시 적용되고 파일에도 저장된다. 창을 그냥 닫아도 된다.</p>
 <p>같은 창의 사이드바 아래쪽 <strong>[도움말]</strong> 버튼을 누르면 지금 읽고 있는 이 매뉴얼이 기본 브라우저로 열린다.</p>
 </blockquote>
-<p>페이지 구성 (좌측 내비게이션 4개):</p>
+<p>페이지 구성 (좌측 내비게이션 5개):</p>
 <h4 id="user-guide--51-페이지-1--일반">5.1 페이지 1 — 일반</h4>
 <!-- screenshot: settings-general -->
 <div class="tablewrap"><table><thead><tr><th>그룹</th><th>항목</th><th>비고</th></tr></thead><tbody>
 <tr><td><strong>자판 옵션</strong></td><td>한글 자판 / 영문 자판</td><td><code>ko_2bulstd</code>(두벌식 표준) 등 — §7.1 참고. 자판별 동적 옵션(예: 세벌식 390의 순아래받침)도 이 그룹에 나타난다</td></tr>
 <tr><td></td><td>한글 확정 단위</td><td><code>음절</code>/<code>단어</code>/<code>스마트</code> — <a href="#user-guide--46-단어-단위-입력-조합-확정-단위">4.6</a> 참고</td></tr>
+<tr><td></td><td>한자 출력 형식</td><td><code>漢字</code>/<code>한자(漢字)</code>/<code>漢字(한자)</code> — 한 글자 변환과 단어 변환에 모두 적용, <a href="#user-guide--42-한자-변환-hanja">4.2</a> 참고</td></tr>
 <tr><td><strong>입력 모드</strong></td><td>시작 입력 모드</td><td>데몬 시작 시 한글/영문 중 어느 쪽으로 켤지</td></tr>
 <tr><td></td><td>모드 공유</td><td><code>전역 공유</code>(기본) / <code>앱별 독립</code> — <a href="#user-guide--41-한영-모드-전환">4.1</a> 참고</td></tr>
 <tr><td></td><td>앱별 규칙</td><td>특정 앱(창 식별자·클라이언트 이름 부분 일치)에서 항상 지정 모드로 시작하도록 규칙 추가. 「모드 공유=앱별 독립」일 때 효과가 크다</td></tr>
@@ -635,7 +840,7 @@ korean:
 </blockquote>
 <blockquote>
 <p><strong>조합키 자동반복 억제(접근성)</strong>: 키를 계속 누르고 있으면 운영체제가 같은 키를 빠르게 반복 입력하는데(자동 반복), 이 옵션을 켜면 입력기가 그 반복을 무시한다. 손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능이며, 리눅스판과 <strong>같은 방식으로 동작</strong>한다. 억제 대상은 <strong>한/영 토글 키와 한글 모드의 문자 키</strong>이며, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둔다. 기본값은 꺼짐이다.</p>
-<p><strong>이모지 입력</strong>은 별도 스위치가 없다 — 한자 팝업과 같은 경로로 항상 켜져 있다. 조합 중이 아닌 상태에서 <strong>한자 키(또는 F9)</strong> 를 누르면 이모지 팝업이 뜬다. 즉 같은 키가 상황에 따라 <strong>한자 · 특수문자 · 이모지</strong> 세 용도로 자동 전환된다.</p>
+<p><strong>이모지 입력</strong>은 별도 스위치가 없다 — 한자 팝업과 같은 경로로 항상 켜져 있다. 조합 중이 아니고, 선택한 단어도 없고, 커서가 한글 단어에 걸쳐 있지도 않은 상태에서 <strong>한자 키(또는 F9)</strong> 를 누르면 이모지 팝업이 뜬다(그 밖의 경우에는 한자 변환이 우선한다 — <a href="#user-guide--42-한자-변환-hanja">4.2</a> 참고). 즉 같은 키가 상황에 따라 <strong>한자 · 특수문자 · 이모지</strong> 세 용도로 자동 전환된다.</p>
 </blockquote>
 <h4 id="user-guide--52-페이지-2--오타-교정">5.2 페이지 2 — 오타 교정</h4>
 <!-- screenshot: settings-typefix -->
@@ -645,7 +850,7 @@ korean:
 <tr><td><strong>교정 방향</strong></td><td>정방향 사용 / 역방향 사용</td><td>각각 독립적으로 켜고 끌 수 있다 — 4.4 참고</td></tr>
 <tr><td><strong>토글 단축키</strong></td><td>전체 켜기·끄기 / 정방향 켜기·끄기 / 역방향 켜기·끄기 (세 칸 한 그룹)</td><td>지정한 키로 즉시 토글. 비우면 사용 안 함. <code>Shift+F9</code>처럼 수정자 조합 가능 — 4.4 참고</td></tr>
 <tr><td><strong>고급 설정</strong>(펼침)</td><td>한글 음절 임계값 / 영문 단어 최소 길이 / 정방향·역방향 감지창(ms) / 임시 항목 만료(시간) / 관찰 타임아웃(초) — 전부 슬라이더</td><td>대부분은 위 「교정 강도」 프리셋으로 충분하다</td></tr>
-<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 사용자 사전 사용</td><td>—</td></tr>
+<tr><td><strong>옵션</strong>(고급 설정 안)</td><td>영어 단어는 교정 건너뛰기 / 완성된 음절은 교정 건너뛰기 / 되돌리기(롤백) 감지 / 자동 교정 사전 사용</td><td>—</td></tr>
 <tr><td>—</td><td>기본값으로 복원</td><td>오타 교정 설정을 초기값으로 되돌린다(5초 안에 취소 가능)</td></tr>
 </tbody></table>
 </div><h4 id="user-guide--53-페이지-3--교정-억제-단어">5.3 페이지 3 — 교정 억제 단어</h4>
@@ -654,10 +859,29 @@ korean:
 <blockquote>
 <p>데몬이 파일을 갱신해도 GUI가 즉시 반영한다. 따로 리로드 안 해도 된다.</p>
 </blockquote>
-<h4 id="user-guide--54-페이지-4--사용자-사전-역방향-화이트리스트">5.4 페이지 4 — 사용자 사전 (역방향 화이트리스트)</h4>
+<h4 id="user-guide--54-페이지-4--자동-교정-사전-역방향-화이트리스트">5.4 페이지 4 — 자동 교정 사전 (역방향 화이트리스트)</h4>
 <!-- screenshot: settings-userdict -->
 <p>「단어」+「메모(선택)」를 입력해 [추가]하면 영어 단어 ↔ 한글 시퀀스 매핑이 등록된다. 예: <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. 아래 목록에서 선택 후 [선택 삭제]로 제거한다. reverse 교정에서 우선 매칭.</p>
+<h4 id="user-guide--541-페이지-5--한자-사용자-사전">5.4.1 페이지 5 — 한자 사용자 사전</h4>
+<!-- screenshot: settings-hanja-userdict -->
+<p>한자 변환용 사전이다(§4.2 「한자 사용자 사전」). 사이드바에서 「자동 교정 사전」 바로 다음, 다섯 번째 항목이다. 한글·한자·뜻(선택)을 쓰고 Enter 로 추가하며, 입력하는 동안 규칙에 어긋난 곳은 칸 아래에 이유가 바로 나온다. 목록에서 행을 누르면 폼에 채워져 고칠 수 있고, [선택 삭제] 는 5초 안에 되돌릴 수 있다. 파일이 깨졌으면 목록 대신 오류와 경로가 보이고 [보관하고 새로 시작] 만 쓸 수 있다. <code>unim-cli</code> 로 바꾼 내용도 몇 초 안에 목록에 반영된다.</p>
 <hr />
+<h4 id="user-guide--55-페이지-6--알림-상황-알림">5.5 페이지 6 — 알림 (상황 알림)</h4>
+<p>자동 교정이 발동했을 때, 비밀번호 칸에서 한/영 전환이 막혔을 때처럼 <strong>눈치채지 못하고 지나가기 쉬운 입력기 상황</strong>을 1~2초짜리 짧은 알림으로 알려 준다. 포커스를 가져가지 않고 자동으로 사라지며, 알림 센터(GNOME 알림 목록)에는 남지 않는다.</p>
+<div class="tablewrap"><table><thead><tr><th>항목</th><th>설명</th></tr></thead><tbody>
+<tr><td>상황 알림 사용</td><td>전체 스위치(기본 켜짐). 끄면 아래 이벤트가 모두 알림을 내지 않는다</td></tr>
+<tr><td>표시 시간</td><td>500~5000ms(기본 2000). <strong>GNOME 알림 배너에는 적용되지 않는다</strong>(GNOME 은 셸이 정한 시간 동안 표시)</td></tr>
+<tr><td>알림 언어</td><td><code>자동</code>(로케일 환경변수 <code>LC_ALL</code> &gt; <code>LC_MESSAGES</code> &gt; <code>LANG</code> 로 판정) / <code>한국어</code> / <code>English</code>. 세션에 따라 환경변수가 비어 있을 수 있어 직접 고르는 편이 확실하다</td></tr>
+<tr><td>표시 위치</td><td>Windows 전용 — 알림을 띄울 모서리(기본 우하단)</td></tr>
+<tr><td>교정 전후 텍스트 표시</td><td>기본 <strong>꺼짐</strong>(「자동 교정됨」만 표시). 켜면 <code>{교정 전} → {교정 후}</code>·단어를 보여 준다</td></tr>
+<tr><td>알림 이벤트</td><td>자동 교정됨 · 자동 교정 건너뜀 · 임시 제외 학습 · 비밀번호 칸 진입 · 비밀번호 칸 벗어남 · 한/영 전환 막힘 · 한/영 모드 변경 · 자동 교정 켜짐/꺼짐 · 기능 결과(GNOME 확장). 앞의 7종(비밀번호 칸 벗어남·모드 변경 제외)이 기본 켜짐</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>⚠️ <strong>교정 전후 텍스트 표시는 신중하게 켠다.</strong> XIM 처럼 비밀번호 칸을 감지하지 못하는 환경에서는 비밀번호 일부가 알림 화면·알림 서버·잠금 화면에 보일 수 있다. 비밀번호 칸으로 감지된 곳에서는 이 스위치와 무관하게 입력 텍스트를 담은 알림을 만들지 않는다.</p>
+<p><strong>비밀번호 칸 진입 알림은 같은 칸에서 한 번만</strong> 나가고 10분이 지나면 다시 나간다. 브라우저처럼 창 하나가 입력 칸 하나로 보이는 앱에서는 첫 알림 뒤 10분 안에 같은 창의 다른 사이트 비밀번호 칸으로 옮겨 가도 알리지 않는다.</p>
+</blockquote>
+<p>CLI 로도 바꿀 수 있다: <code>unim-cli config set notify-enabled false</code>, <code>notify-duration-ms</code>, <code>notify-language</code>, <code>notify-show-text</code>, <code>notify-corner</code>, <code>notify-events</code>(쉼표 구분).</p>
 <h3 id="user-guide--56-자판-도구-keymap-studio--typing-practice">5.6 자판 도구 (Keymap Studio / Typing Practice)</h3>
 <p><strong>🪟 Windows 에는 아직 포함되지 않는다.</strong> 자판을 눈으로 보며 편집하는 도구(Keymap Studio)와 타자 연습 도구(Typing Practice)는 현재 리눅스 패키지에만 들어 있다. Windows 설치본(MSI)에는 입력기 본체·설정 창·팝업 렌더러만 담긴다.</p>
 <p>자판 <strong>선택</strong>은 Windows 에서도 설정 창의 「일반」 → 「자판 옵션」에서 그대로 할 수 있다. 없는 것은 자판을 새로 만들거나 타자 연습을 하는 도구뿐이다.</p>
@@ -666,9 +890,13 @@ korean:
 <p><strong>🪟 Windows</strong></p>
 <div class="tablewrap"><table><thead><tr><th>상황</th><th>키</th><th>결과</th></tr></thead><tbody>
 <tr><td>어디서나</td><td>한/영 (또는 오른쪽 Alt)</td><td>모드 토글</td></tr>
-<tr><td>한글 모드, 글자 입력 후</td><td>한자 (F9)</td><td>한자 팝업</td></tr>
+<tr><td>한글 모드, 글자 입력 후</td><td>한자 (F9)</td><td>한자 팝업 (입력 중인 단어)</td></tr>
+<tr><td>조합 중이 아님, 한글 단어를 선택함</td><td>한자 (F9)</td><td>선택한 단어의 한자 팝업 (§4.2)</td></tr>
+<tr><td>조합 중이 아님, 선택 없음, 커서가 한글 단어에 걸침</td><td>한자 (F9)</td><td>커서가 걸친 단어의 한자 팝업 (§4.2)</td></tr>
+<tr><td>한자 팝업 (커서가 걸친 단어)</td><td>한자 (F9)</td><td>다음 후보 — 마지막 뒤에는 이모지 팝업 (§4.2)</td></tr>
+<tr><td>한자 팝업 (입력 중인 단어)</td><td>한자 (F9)</td><td>앞 글자부터 줄인 더 짧은 단어 (§4.2)</td></tr>
 <tr><td>한글 모드, 자음만 입력</td><td>한자 (F9)</td><td>특수문자 팝업</td></tr>
-<tr><td>조합 중이 아닐 때</td><td>한자 (F9)</td><td>이모지 팝업</td></tr>
+<tr><td>그 밖에 조합 중이 아닐 때 (커서가 한글 단어에 걸치지 않음)</td><td>한자 (F9)</td><td>이모지 팝업 (§4.2)</td></tr>
 <tr><td>한자 팝업</td><td>숫자 1~9</td><td>직접 선택</td></tr>
 <tr><td>한자 팝업</td><td>화살표</td><td>후보 이동</td></tr>
 <tr><td>한자 팝업</td><td><code>←</code>/<code>→</code> 또는 PageUp/PageDown</td><td>페이지 이동 (wrap-around)</td></tr>
@@ -678,7 +906,7 @@ korean:
 <tr><td>한자 팝업</td><td><strong>마우스 우클릭</strong></td><td><strong>동작 없음</strong> (의도된 무동작 — 팝업이 닫히지도, 후보가 확정되지도 않는다)</td></tr>
 <tr><td>한자 팝업</td><td>Enter</td><td>포커스 항목 확정</td></tr>
 <tr><td>한자 팝업</td><td>ESC</td><td>취소</td></tr>
-<tr><td>한자 팝업</td><td><code>.</code> (마침표)</td><td>9칸 ↔ 81칸 토글</td></tr>
+<tr><td>한자 팝업</td><td><code>.</code> (마침표)</td><td>9칸 ↔ 81칸 토글 (한 글자 후보만)</td></tr>
 <tr><td>한자 팝업</td><td>Space</td><td>즐겨찾기 ☆/★ 토글 (해제 시 cursor 셀 140ms flash)</td></tr>
 <tr><td>한글 입력 중</td><td>BackSpace</td><td>마지막 자모 1개 삭제</td></tr>
 <tr><td>forward 교정 후 후회</td><td>BS + 한/영</td><td>Tentative 학습 트리거</td></tr>
@@ -712,7 +940,8 @@ notepad "$env:APPDATA\unim\config.yaml"
 <div class="tablewrap"><table><thead><tr><th>파일</th><th>용도</th><th>백업 권장</th></tr></thead><tbody>
 <tr><td><code>config.yaml</code></td><td>일반 설정 (자판·모드·오타 교정 등)</td><td>YES</td></tr>
 <tr><td><code>typefix-blacklist.yaml</code></td><td>학습된 교정 억제 사전</td><td>YES</td></tr>
-<tr><td><code>typefix-userdict.yaml</code></td><td>역방향 사용자 사전</td><td>YES</td></tr>
+<tr><td><code>typefix-userdict.yaml</code></td><td>역방향 자동 교정 사전</td><td>YES</td></tr>
+<tr><td><code>hanja-userdict.yaml</code></td><td>한자 사용자 사전 (직접 등록한 한글→한자)</td><td>YES</td></tr>
 </tbody></table>
 </div>
 <pre><code class="language-powershell"># 통째 백업 — 바탕화면에 날짜가 붙은 zip 을 만든다
@@ -816,9 +1045,31 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-한국어">UNIM FAQ (한국어)</h2>
 <blockquote>
-<p>UNIM 0.4.4에 대해 사람들이 정말 자주 묻는 질문 모음.
+<p>UNIM 0.4.5에 대해 사람들이 정말 자주 묻는 질문 모음.
 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.</p>
 </blockquote>
+<hr />
+<h3 id="faq--q1-다른-한글-ime와-무엇이-다른가">Q1. 다른 한글 IME와 무엇이 다른가?</h3>
+<p><strong>🪟 Windows</strong> — Microsoft 한국어 IME, 날개셋, 새나루와 비교</p>
+<div class="tablewrap"><table><thead><tr><th>항목</th><th>UNIM</th><th>Microsoft 한국어 IME</th><th>날개셋 한글 입력기</th><th>새나루</th></tr></thead><tbody>
+<tr><td>배포</td><td>MSI 설치본</td><td>Windows 기본 내장</td><td>MSI 설치본</td><td>설치본</td></tr>
+<tr><td>최근 판</td><td>0.4.5 (2026)</td><td>Windows 와 함께 갱신</td><td>11.01 (2026-10)</td><td>1.1.0-p1 (2010) — 이후 새 판 없음</td></tr>
+<tr><td>소스 공개</td><td>✅ MIT, Rust</td><td>✗</td><td>—</td><td>✅</td></tr>
+<tr><td>입력 규격</td><td>TSF</td><td>—</td><td>TSF</td><td>—</td></tr>
+<tr><td>64비트 / 32비트 앱</td><td>✅ / ✅ (<code>unim_tsf32.dll</code>, Q30)</td><td>✅ / ✅ (OS 내장)</td><td>x64·x86·ARM64 설치본</td><td>—</td></tr>
+<tr><td>한국어 자판</td><td>두벌식, 세벌식 390·391·순아래, 안마태</td><td>두벌식, 세벌식 390·최종</td><td>두벌식·세벌식 등</td><td>두벌식, 세벌식 390·최종·순아래 (+ 설치 시 새두벌·옛두벌 등)</td></tr>
+<tr><td>사용자 자판</td><td>✅ JSON 파일 (리눅스와 같은 형식, Q7)</td><td>—</td><td>✅ 직접 설계</td><td>—</td></tr>
+<tr><td>한자 단어 변환</td><td>✅ TSF 앱. 옛 입력 방식 앱은 방금 친 단어만 (Q37)</td><td>—</td><td>✅ TSF 앱. 그 밖의 앱은 마지막 한 글자</td><td>✅ 단어 단위 편집 모드</td></tr>
+<tr><td>리눅스와 같은 엔진·설정</td><td>✅</td><td>✗</td><td>✗</td><td>✗</td></tr>
+</tbody></table>
+</div>
+<p><code>—</code> 는 공개 자료로 확인하지 못한 항목이다(2026-11 조사). 없다는 뜻이 아니다. 한컴 입력기는 한컴오피스와 함께 깔리는 입력기라 공식 사양을 찾지 못해 표에서 뺐다.</p>
+<ul>
+<li><strong>UNIM 쪽 고유 기능</strong>: AutoTypeFix(한↔영 오타 자동 교정, 순방향·역방향·학습), 한자 9칸/81칸 그리드, 특수문자·이모지 팝업. 다른 입력기의 공개 자료에서는 같은 기능을 확인하지 못했다.</li>
+<li><strong>한자 단어 변환의 한계는 입력기가 아니라 앱 쪽 규격에서 온다.</strong> 날개셋도 TSF 를 지원하지 않는 앱에서는 마지막 한 글자만 바꾼다고 밝힌다. UNIM 의 같은 한계는 Q37 에 정리했다.</li>
+<li><strong>오래 쓴 입력기를 지울 필요는 없다.</strong> 여러 입력기를 등록해 두고 골라 쓰는 구조다(Q2).</li>
+<li>그 밖에 TSF 기반 오픈소스 입력기 NavilIME(GPL-3.0)가 있으나 2020년 뒤로 갱신이 없다.</li>
+</ul>
 <hr />
 <h3 id="faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</h3>
 <p><strong>🪟 Windows</strong></p>
@@ -891,7 +1142,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <pre><code>%APPDATA%\unim\
 ├── config.yaml                # 일반 설정 (소스 오브 트루스)
 ├── typefix-blacklist.yaml     # 학습된 억제 사전 (억제 단어 탭)
-├── typefix-userdict.yaml      # 역방향 사용자 사전 (사용자 사전 탭)
+├── typefix-userdict.yaml      # 역방향 자동 교정 사전 (자동 교정 사전 탭)
 └── layouts\                   # 사용자 정의 v1 자판
     └── my_3bul_variant.json
 </code></pre>
@@ -1025,7 +1276,7 @@ cargo --version              # 1.95.0 이상
 </li>
 <li>
 <p>그때까지 무결성 확인은 <strong>SHA256 대조</strong>로 한다. 릴리스에 함께 올라오는 <code>SHA256SUMS-msi</code> 의 값과 비교하면 된다.</p>
-<pre><code class="language-powershell">Get-FileHash .\unim-0.4.4-x64.msi -Algorithm SHA256
+<pre><code class="language-powershell">Get-FileHash .\unim-0.4.5-x64.msi -Algorithm SHA256
 </code></pre>
 </li>
 <li>
@@ -1050,7 +1301,7 @@ cargo --version              # 1.95.0 이상
 <pre><code class="language-powershell"># 먼저 내려받아 읽어 본 뒤 실행
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
 # 특정 버전 고정
-$env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+$env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 </code></pre>
 </li>
 </ol>
@@ -1066,7 +1317,7 @@ $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/m
 <li><strong>설정 → 앱 → 설치된 앱</strong> 에서 <code>UNIM</code> 을 제거한다. 시작 메뉴 <strong>UNIM → Uninstall UNIM</strong> 단축키도 같은 일을 한다.</li>
 <li>제거가 끝나면 <strong>재로그인하거나 재부팅</strong>한다.</li>
 </ol>
-<p>제거하면 설치 폴더(<code>C:\Program Files\UNIM\</code>)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 <strong>사용자 설정(<code>%APPDATA%\unim\</code>)은 남는다</strong> — 재설치하면 설정·억제 사전·사용자 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.</p>
+<p>제거하면 설치 폴더(<code>C:\Program Files\UNIM\</code>)·입력기 등록 정보·시작 메뉴 단축키가 함께 사라진다. 다만 <strong>사용자 설정(<code>%APPDATA%\unim\</code>)은 남는다</strong> — 재설치하면 설정·억제 사전·자동 교정 사전이 그대로 이어진다. 완전히 지우고 싶으면 이 폴더를 직접 삭제한다.</p>
 <blockquote>
 <p>리눅스처럼 "시스템 입력기 지정을 원래대로 되돌리는" 별도 절차(Q23)는 없다. Windows에서 UNIM은 입력기 목록에 <strong>추가</strong>됐을 뿐 기존 입력기를 지우지 않기 때문이다. 제거 후 한글 입력이 이상하면 <strong>설정 → 시간 및 언어 → 한국어 → 키보드</strong> 에서 남아 있는 입력기를 확인한다.</p>
 </blockquote>
@@ -1074,11 +1325,13 @@ $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/m
 <h3 id="faq--q28-한자특수문자이모지-팝업이-안-뜹니다">Q28. 한자·특수문자·이모지 팝업이 안 뜹니다.</h3>
 <p><strong>🪟 Windows</strong> — Windows에서 팝업은 <code>unim-popup-win.exe</code> 라는 <strong>별도 프로그램</strong>이 그린다. 이게 떠 있지 않으면 팝업만 안 나오고 한글 입력 자체는 멀쩡한, 딱 이 증상이 된다.</p>
 <ol>
-<li><strong>키를 먼저 확인</strong> — <code>한자</code> 키(또는 <code>F9</code>)는 상황에 따라 세 갈래로 갈린다.
+<li><strong>키를 먼저 확인</strong> — <code>한자</code> 키(또는 <code>F9</code>)는 상황에 따라 갈린다.
 <ul>
-<li>한글을 조합한 상태 → <strong>한자</strong> 후보</li>
+<li>한글을 조합한 상태(방금 친 한 글자 또는 단어) → <strong>한자</strong> 후보</li>
+<li>이미 입력해 둔 한글 단어(사전에 있는 것)를 마우스 또는 Shift+방향키로 선택한 상태 → 그 단어 <strong>한자</strong> 후보</li>
+<li>조합도 선택도 없지만 커서가 한글 단어의 끝·안·앞에 있는 상태 → 그 단어 <strong>한자</strong> 후보 (가장 긴 단어부터, 다시 누르면 다음 후보)</li>
 <li>초성 하나만(예 <code>ㅁ</code>) 조합한 상태 → <strong>특수문자</strong></li>
-<li>아무것도 조합하지 않은 상태 → <strong>이모지</strong></li>
+<li>그 밖에 조합도 선택도 없고 커서가 한글 단어에 걸치지도 않은 상태 → <strong>이모지</strong> (자세한 경우는 Q33)</li>
 </ul>
 </li>
 <li><strong>프로그램이 떠 있는지 확인</strong> — 작업 관리자에 <code>unim-popup-win.exe</code> 가 있는지 본다. 없으면 설치 폴더(<code>C:\Program Files\UNIM\</code>)의 <code>unim-popup-win.exe</code> 를 직접 실행한다. 실수로 두 번 실행해도 중복으로 뜨지 않는다(스스로 종료한다).</li>
@@ -1105,9 +1358,9 @@ $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/m
 <p>특정 앱에서만 안 되면 그 <strong>앱 이름과 32/64비트 여부</strong>를 함께 적어 <a href="https://github.com/from104/unim/issues">GitHub Issues</a>로 알려 주면 진단이 훨씬 빠르다.</p>
 <hr />
 <h3 id="faq--q31-windows판은-리눅스판과-기능이-같나요">Q31. Windows판은 리눅스판과 기능이 같나요?</h3>
-<p><strong>🪟 Windows</strong> — <strong>입력의 알맹이는 같고, 주변 도구가 다르다.</strong> 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 사용자 사전은 <strong>같은 Rust 코어</strong>를 그대로 쓴다. 차이는 이 표가 전부다.</p>
+<p><strong>🪟 Windows</strong> — <strong>입력의 알맹이는 같고, 주변 도구가 다르다.</strong> 한글 조합, 자판 선택, 한자·특수문자·이모지 팝업, AutoTypeFix(순방향·역방향·학습), 억제 단어, 자동 교정 사전은 <strong>같은 Rust 코어</strong>를 그대로 쓴다. 차이는 이 표가 전부다.</p>
 <div class="tablewrap"><table><thead><tr><th>항목</th><th>리눅스</th><th>Windows</th></tr></thead><tbody>
-<tr><td>설정 창</td><td>설정 앱 (<code>unim-settings</code>)</td><td>설정 앱 (<code>unim-settings.exe</code>) — 일반 / 오타 교정 / 억제 단어 / 사용자 사전 4탭</td></tr>
+<tr><td>설정 창</td><td>설정 앱 (<code>unim-settings</code>)</td><td>설정 앱 (<code>unim-settings.exe</code>) — 일반 / 오타 교정 / 억제 단어 / 자동 교정 사전 4탭</td></tr>
 <tr><td>설정 반영</td><td>데몬이 즉시 전파</td><td>설정 창에서 바꾸면 즉시, 파일을 직접 고치면 약 2초 뒤</td></tr>
 <tr><td>명령줄 도구 <code>unim-cli</code></td><td>있음</td><td><strong>없음</strong> (설치본에 포함되지 않음)</td></tr>
 <tr><td>자판 스튜디오 · 타자 연습</td><td>있음</td><td><strong>없음</strong></td></tr>
@@ -1120,6 +1373,70 @@ $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/m
 <li>오프라인 도움말(지금 읽고 있는 이 문서)은 설치본에 함께 들어 있다 — <strong>설정 창의 도움말 버튼</strong>으로 언제든 열 수 있다.</li>
 <li>리눅스에서 쓰던 설정을 옮기고 싶다면 <code>~/.config/unim/</code> 의 파일을 <code>%APPDATA%\unim\</code> 로 복사하면 된다. 파일 형식은 양쪽이 같다(Q6 · Q7).</li>
 </ul>
+<hr />
+<h3 id="faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32. 단어가 아니라 한 글자만 바뀝니다.</h3>
+<p>원인은 대개 아래 넷 중 하나다. 팝업 머리글의 <code>「…」</code> 에 지금 바꿀 글자가 보이니 먼저 그것을 확인한다.</p>
+<ol>
+<li><strong>단어가 사전에 없다.</strong> 사전에 없는 말(고유명사·신조어)은 한 글자씩만 바뀐다. 한 글자씩 끊어서 바꾼다.</li>
+<li><strong>조사나 공백을 이미 쳤다.</strong> 글자를 치는 중에 <code>한자</code> 를 누르면 조합 중인 끝부분만 대상이 된다. 단어를 치고 <strong>조사를 붙이기 전에</strong> 누른다. 이미 쳤다면 커서를 단어 끝(조사 앞)에 놓고 누른다.</li>
+<li><strong>팝업에서 <code>한자</code> 를 거듭 눌렀다.</strong> 입력 중에 연 팝업은 키를 누를 때마다 앞 글자부터 줄어 마지막에 한 글자가 된다(<code>대한민국</code> → <code>민국</code> → <code>국</code>). 한 번 더 눌러 지나갔다면 <code>Esc</code> 로 닫고 다시 시작한다.</li>
+<li><strong>커서가 걸친 단어에서 순서를 넘겼다.</strong> 첫 팝업은 가장 긴 단어이고, 다시 누를 때마다 더 짧은 후보로 넘어간다(Q36).</li>
+</ol>
+<p>방법은 <a href="#user-guide--42-한자-변환-hanja">사용자 매뉴얼 §4.2</a>의 "단계별 튜토리얼"에 있다.</p>
+<hr />
+<h3 id="faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">Q33. <code>한자</code> 를 눌렀는데 한자 대신 이모지가 뜹니다.</h3>
+<p><strong>오류가 아니다.</strong> 한자로 바꿀 대상이 없거나, 글자를 잃을 위험이 있어서 UNIM이 일부러 한자 변환을 건너뛴 것이다. 아래에서 해당하는 것을 찾는다.</p>
+<div class="tablewrap"><table><thead><tr><th>상황</th><th>이렇게 한다</th></tr></thead><tbody>
+<tr><td>커서 양옆이 한글이 아니다 (공백 뒤, 문장부호 뒤, 줄 끝)</td><td><code>←</code> 로 단어 끝에 놓고 다시 누른다</td></tr>
+<tr><td>입력란이나 문단의 맨 앞이다</td><td>커서를 단어 끝으로 옮긴다</td></tr>
+<tr><td>단어가 사전에 없다</td><td>한 글자씩 바꾼다</td></tr>
+<tr><td>방금 <code>Shift</code>+방향키·<code>Ctrl</code>+<code>A</code>·드래그·더블클릭으로 선택했다 (GNOME에서 확장을 거치는 앱)</td><td><code>Shift</code> 없이 방향키를 한 번 누르거나 클릭해 선택을 푼다</td></tr>
+<tr><td>창을 바꾸거나 클릭한 직후다 (GNOME에서 확장을 거치는 앱)</td><td>방향키를 한 번 누르고 다시 누른다</td></tr>
+<tr><td>터미널·XIM 앱·X11 크롬 등이다</td><td>이 환경은 이미 쓴 단어를 볼 수 없다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
+<tr><td>Windows 의 옛 입력 방식(IMM32) 앱이다 (텔레그램 같은 Qt 앱 제외)</td><td>같다. 단어를 친 직후(조합 중)에만 된다(Q37)</td></tr>
+<tr><td>한자 팝업에서 <code>한자</code> 를 끝까지 눌렀다</td><td>의도된 동작이다. 마지막 후보 뒤에는 이모지로 간다</td></tr>
+</tbody></table>
+</div>
+<p>선택한 글자가 있는 채 이모지가 뜬 경우, 이모지를 확정하면 선택이 이모지로 바뀐다. 선택을 지키려면 <code>Esc</code> 로 닫는다. 자세한 표는 <a href="#user-guide--이모지-팝업이-뜨는-경우">사용자 매뉴얼 §4.2</a>에 있다.</p>
+<hr />
+<hr />
+<h3 id="faq--q35-조사가-붙은-단어는-어떻게-바꾸나요-대한민국은">Q35. 조사가 붙은 단어는 어떻게 바꾸나요? (대한민국은)</h3>
+<p>지금은 <strong>커서를 조사 앞에 놓고</strong> <code>한자</code> 를 누른다. 예: <code>대한민국|은</code> 에서 누르면 보통 「대한민국」이 첫 후보로 뜬다. 단어를 치는 중이라면 조사를 붙이기 전에 누르는 편이 가장 빠르다.</p>
+<p>조사를 자동으로 떼어 내 주는 기능은 <strong>별도 기능으로 준비 중</strong>이다. 그 기능이 들어오기 전까지는 위 방법을 쓴다.</p>
+<hr />
+<h3 id="faq--q36-원하는-길이의-단어가-첫-후보로-안-뜹니다">Q36. 원하는 길이의 단어가 첫 후보로 안 뜹니다.</h3>
+<p>첫 팝업은 커서가 걸친 단어 중 <strong>가장 긴 것</strong>이다. 더 짧은 단어를 원하면 <code>한자</code> 를 다시 눌러 다음 후보로 넘긴다.</p>
+<ul>
+<li>순서: 긴 단어 → (같은 길이면) 커서 바로 앞에서 끝나는 단어 → 커서 바로 뒤에서 시작하는 단어 → 커서를 가로지르는 단어.</li>
+<li>예: <code>국어|교육</code> 은 국어교육 → 국어 → 교육 → 어교 → 어 → 교 순이다(기본 사전 기준 — <code>어교</code>(魚膠)처럼 낯선 단어가 끼기도 한다). "국어"만 바꾸려면 <code>한자</code> 두 번 → 숫자 한 번이다.</li>
+<li>마지막 후보 다음에는 이모지 팝업이 열린다. 처음으로 돌아가지 않는다.</li>
+<li>팝업이 열려 있는 동안 후보 목록은 바뀌지 않는다.</li>
+</ul>
+<p>그림과 표는 <a href="#user-guide--42-한자-변환-hanja">사용자 매뉴얼 §4.2</a>의 "합성어에서 원하는 길이 고르기"에 있다.</p>
+<hr />
+<h3 id="faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37. 이미 쓴 단어가 한자로 안 바뀌는 앱이 있습니다.</h3>
+<p><strong>앱이 쓰는 입력 방식의 한계다.</strong> 이런 앱에서는 단어를 친 직후, 조사나 공백을 붙이기 전에 <code>한자</code> 를 누르면 된다. 이미 쓴 단어에 커서를 두거나 선택한 뒤 누르면 이모지가 뜬다. 글자가 지워지거나 바뀌지는 않는다.</p>
+<p>한자 단어 변환에는 세 가지가 있고, 필요한 것이 다르다.</p>
+<div class="tablewrap"><table><thead><tr><th>방식</th><th>입력기에 필요한 것</th></tr></thead><tbody>
+<tr><td>방금 입력한 단어</td><td>입력기가 스스로 기억한 방금 친 글자. 앱에게 받을 것은 "몇 글자 지우고 한자 넣기"뿐이다</td></tr>
+<tr><td>커서가 걸친 단어·선택한 범위</td><td>앱 문서의 <strong>커서 주변 글자와 선택</strong>. 앱이 입력기에 알려 줘야 한다</td></tr>
+</tbody></table>
+</div>
+<p>요즘 입력 방식(Windows TSF, 리눅스 GTK·Qt 입력기 모듈, Wayland text-input)은 주변 글자를 알려 준다. 옛 입력 방식은 알려 주지 않는다.</p>
+<ul>
+<li><strong>Windows IMM32</strong>: 입력기는 지금 조합 중인 글자만 갖고, 문서는 보지 못한다. 앱이 따로 "재변환" 요청에 답해야만 커서 앞뒤를 볼 수 있는데, 답하는지와 답하면서 선택을 바꾸는지가 앱마다 다르다. UNIM 은 그 동작을 확인한 <strong>Qt 앱(텔레그램에서 실측)</strong> 에서만 이 요청을 쓴다.</li>
+<li><strong>리눅스 XIM</strong>: 프로토콜에 주변 글자를 주고받는 수단이 없다.</li>
+<li><strong>X11 에서 도는 크롬·Electron 앱</strong>: 크롬이 GTK 입력기에 주변 글자를 넘기지 않는다.</li>
+<li><strong>터미널</strong>: 화면이 편집 문서가 아니라 주변 글자가 없다.</li>
+<li><strong>순수 Wayland(KDE·Sway 등)</strong>: 주변 글자는 오지만 입력기가 마우스 선택을 알 수 없어, 커서가 걸친 단어 방식은 아직 꺼 두었다.</li>
+</ul>
+<p><strong>이렇게 한다</strong></p>
+<ol>
+<li>단어를 치고 <strong>조사·공백을 붙이기 전에</strong> <code>한자</code> 를 누른다. 한 번에 바뀐다.</li>
+<li>이미 쓴 단어라면 그 단어를 지우고 다시 친 직후에 누른다.</li>
+<li>리눅스라면 그 앱을 UNIM 입력기 모듈로 연결할 수 있는지 본다(XIM 대신 GTK·Qt 모듈 — <a href="#user-guide--3-환경별-설정-가이드">사용자 매뉴얼 §3</a>). 모듈로 연결되면 대부분 세 방식이 모두 된다(예외는 매뉴얼 §4.2 표).</li>
+</ol>
+<p>앱별로 되는 것과 안 되는 것은 <a href="#user-guide--앱별-차이">사용자 매뉴얼 §4.2 "앱별 차이"</a>에 표로 있다. 이 한계를 넘는 일(새 요청 방식 실측, 업스트림 패치 등)을 도울 수 있다면 <a href="https://github.com/from104/unim#%EC%95%8C%EB%A0%A4%EC%A7%84-%ED%95%9C%EA%B3%84%EC%99%80-%EB%8F%84%EC%9B%80-%EC%9A%94%EC%B2%AD">README — 알려진 한계와 도움 요청</a>을 본다.</p>
 <hr />
 <h3 id="faq--더-읽을-거리">더 읽을 거리</h3>
 <ul>
@@ -1265,6 +1582,9 @@ taskkill /f /im ctfmon.exe
 </ul>
 <hr />
 <h3 id="troubleshooting--5-한자-팝업이-안-뜸">5. "한자 팝업이 안 뜸"</h3>
+<blockquote>
+<p><strong>한자 대신 이모지 팝업이 뜨거나, 단어가 아니라 한 글자만 바뀌는 경우</strong>는 고장이 아니라 동작 규칙 때문인 경우가 대부분이다. 먼저 <a href="#faq--q33-한자-를-눌렀는데-한자-대신-이모지가-뜹니다">FAQ Q33</a>와 <a href="#faq--q32-단어가-아니라-한-글자만-바뀝니다">Q32</a>를 본다. 이미 쓴 단어만 안 바뀌는 앱이라면 <a href="#faq--q37-이미-쓴-단어가-한자로-안-바뀌는-앱이-있습니다">Q37</a>이다. 팝업이 <strong>아예</strong> 뜨지 않을 때만 아래를 진행한다.</p>
+</blockquote>
 <p><strong>🪟 Windows</strong></p>
 <h4 id="troubleshooting--진단">진단</h4>
 <p>Windows에서도 팝업은 입력기가 직접 그리지 않는다. **별도 프로세스 <code>unim-popup-win.exe</code>**가 그리고, <code>unim_tsf.dll</code>이 명명 파이프로 그리라고 시킨다. 즉 이 실행 파일을 못 찾으면 팝업이 안 뜬다.</p>

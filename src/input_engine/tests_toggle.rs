@@ -7,7 +7,7 @@
 //! 일치하며, 단축키 조합(Ctrl+RightAlt)은 토글하지 않음을 고정한다.
 
 use super::InputEngine;
-use crate::config::{Config, InputCategory};
+use crate::config::{Config, ContentPurpose, InputCategory};
 use crate::keycode::{KeyCode, ModifierState};
 
 /// RightAlt 는 실제 입력 시 자기 자신이 Alt 비트를 세운다.
@@ -233,4 +233,41 @@ fn parse_switch_keys_result_stable_across_repeat_calls() {
     let second = InputEngine::parse_switch_keys(&names, "테스트 전용 필드 A");
     assert_eq!(first, second);
     assert_eq!(first, vec![KeyCode::Korean, KeyCode::F9]);
+}
+
+#[test]
+fn last_toggle_blocked_true_after_blocked_toggle_then_resets() {
+    // NOTIFY_SPEC §3.1a: 비밀번호 칸에서 한/영 전환이 거부된 직후에만 true,
+    // 다음 `press_key` 진입 때 false 로 돌아간다(드레인 없이 "마지막 호출" 의미).
+    let config = Config::default();
+    let mut engine = InputEngine::new(&config);
+    assert!(!engine.last_toggle_blocked(), "초기값은 false");
+
+    engine.set_input_category(InputCategory::Korean);
+    engine.set_content_purpose(ContentPurpose::Password);
+
+    let r = engine.press_key(KeyCode::Korean, ModifierState::default(), &config);
+    assert!(r.consumed, "차단 분기도 소비는 유지");
+    assert!(engine.last_toggle_blocked(), "차단 키 뒤에는 true");
+
+    // 읽기는 드레인이 아니다.
+    assert!(engine.last_toggle_blocked());
+
+    // 다음 키(일반 문자)에서 리셋.
+    engine.press_key(KeyCode::A, ModifierState::default(), &config);
+    assert!(!engine.last_toggle_blocked(), "다음 키에서 false");
+}
+
+#[test]
+fn last_toggle_blocked_false_for_normal_toggle() {
+    let config = Config::default();
+    let mut engine = InputEngine::new(&config);
+    engine.set_input_category(InputCategory::English);
+    let r = engine.press_key(KeyCode::Korean, ModifierState::default(), &config);
+    assert!(r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+    assert!(
+        !engine.last_toggle_blocked(),
+        "일반 칸의 전환은 차단이 아님"
+    );
 }

@@ -37,8 +37,8 @@
 
 | 하위 | 내용 |
 |---|---|
-| [`dev/architecture/`](dev/architecture/) | [AGENTS.md](dev/architecture/AGENTS.md) (작업 규칙) · [IME_BEHAVIOR.md](dev/architecture/IME_BEHAVIOR.md) · [LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md) (현행 자판 스키마) · [dbus-popup-migration-plan.md](dev/architecture/dbus-popup-migration-plan.md) (popup DBus 책임 이관 — **미착수**, 10항목) |
-| [`dev/specs/`](dev/specs/) | [POPUP_SPEC.md](dev/specs/POPUP_SPEC.md) — 팝업 동작 명세. **변경 시 사용자 승인 필수** |
+| [`dev/architecture/`](dev/architecture/) | [AGENTS.md](dev/architecture/AGENTS.md) (작업 규칙) · [IME_BEHAVIOR.md](dev/architecture/IME_BEHAVIOR.md) · [LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md) (현행 자판 스키마) · [dbus-popup-migration-plan.md](dev/architecture/dbus-popup-migration-plan.md) (popup DBus 책임 이관 — **미착수**, 10항목) · [hanja-word-impl-plan.md](dev/architecture/hanja-word-impl-plan.md) (한자 단어 입력 구현 계획 — **미착수**, WBS 16단위) |
+| [`dev/specs/`](dev/specs/) | [POPUP_SPEC.md](dev/specs/POPUP_SPEC.md) — 팝업 동작 명세. **변경 시 사용자 승인 필수** · [HANJA_WORD_SPEC.md](dev/specs/HANJA_WORD_SPEC.md) — 한자 단어 변환 규격(대상①·②). **Q1~Q9 기현님 최종 확인 대기** |
 | [`dev/windows/`](dev/windows/) | Windows TSF/IMM32 포팅. 활성 31 + [`_archive/`](dev/windows/_archive/) 31. 현재 지식 상태는 [_KNOWLEDGE_STATE.md](dev/windows/_KNOWLEDGE_STATE.md) 부터 |
 | [`dev/linux/`](dev/linux/) | Linux 프런트엔드 개별 이슈 |
 | [`dev/release/`](dev/release/) | [RELEASE.md](dev/release/RELEASE.md) — 릴리스 절차 |
@@ -56,6 +56,7 @@
 - [`archive/plans/`](archive/plans/) — 완결된 계획.
   - LAYOUT_PROFILE V1 / V1_IMPL / V2 — 현행 스키마는 [dev/architecture/LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md)
   - 팝업 재설계 3종 (사전 리서치 → Phase 계획 → 프로세스 아키텍처) — **Phase 7(팝업 중앙화)로 완결**. 현행 명세는 [dev/specs/POPUP_SPEC.md](dev/specs/POPUP_SPEC.md)
+  - [`hanja-word/`](archive/plans/hanja-word/) — 한자 단어 입력의 중간 산출물. 설계안 3벌(A-engine·B-ux·C-platform, 최종안이 흡수) + 코드베이스 조사 7건. 정본 계획은 [dev/architecture/hanja-word-impl-plan.md](dev/architecture/hanja-word-impl-plan.md)
 - [`archive/reports/`](archive/reports/) — 특정 시점의 세션 작업 보고. Windows 구현 검증(2026-07-03) · 나머지 개선점 구현(2026-07-04)
 
 ---

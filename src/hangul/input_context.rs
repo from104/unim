@@ -155,16 +155,14 @@ impl HangulInputContext {
 
         unim_log!(
             "CONTEXT",
-            "process_jamo_with_meta: {:?} meta={:?}",
-            jamo,
+            "process_jamo_with_meta: meta={:?}",
             meta
         );
         unim_log!(
             "CONTEXT",
-            "  BEFORE: preedit='{}', committed='{}', composer={:?}",
-            self.preedit,
-            self.committed,
-            self.composer.current_korean()
+            "  BEFORE: preedit={}자, committed={}자",
+            self.preedit.chars().count(),
+            self.committed.chars().count()
         );
 
         // 단어 모드: backspace 재생을 위해 키스트로크를 기록한 뒤 compose.
@@ -176,9 +174,9 @@ impl HangulInputContext {
 
         unim_log!(
             "CONTEXT",
-            "  AFTER: preedit='{}', committed='{}'",
-            self.preedit,
-            self.committed
+            "  AFTER: preedit={}자, committed={}자",
+            self.preedit.chars().count(),
+            self.committed.chars().count()
         );
         true
     }
@@ -194,7 +192,7 @@ impl HangulInputContext {
     /// 재적용하기 위함. 키 기록은 호출자(`process_jamo_with_meta`)가 담당한다.
     fn compose_and_route(&mut self, jamo: JamoEnum, meta: JamoMeta) {
         if let Some(committed_char) = self.composer.add_jamo_with_meta(jamo, meta) {
-            unim_log!("CONTEXT", "  -> 음절 완성: '{}'", committed_char);
+            unim_log!("CONTEXT", "  -> 음절 완성");
             if self.accumulate_word {
                 self.word_buffer.push(committed_char);
             } else {
@@ -598,21 +596,20 @@ impl HangulInputContext {
         let current = self.composer.current_korean();
         unim_log!(
             "CONTEXT",
-            "update_preedit: composer.current_korean()={:?}",
-            current
+            "update_preedit"
         );
 
         self.preedit = match current.get_syllable() {
             Ok(ch) => {
-                unim_log!("CONTEXT", "  -> get_syllable() = Ok('{}')", ch);
+                unim_log!("CONTEXT", "  -> get_syllable() = Ok");
                 ch.to_string()
             }
             Err(_) => {
                 let compat = current.to_compat_jamo_string();
                 unim_log!(
                     "CONTEXT",
-                    "  -> get_syllable() = Err, to_compat_jamo_string()='{}'",
-                    compat
+                    "  -> get_syllable() = Err, to_compat_jamo_string()={}자",
+                    compat.chars().count()
                 );
                 compat
             }

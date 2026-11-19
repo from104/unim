@@ -58,6 +58,9 @@ pub struct PopupState {
     pub(super) page_size: usize,
     /// 한자 팝업 확장 모드 여부 (true면 9×9 그리드, false면 1×9 리스트)
     pub(super) hanja_expanded: bool,
+    /// 한자 단어(대상 2음절 이상) 팝업 여부 — true 면 9×9 확장 없이 1×9 목록 고정
+    /// (POPUP_SPEC v3.5 §3.7 규칙 12). 단음절 한자·특수문자·이모지는 항상 false.
+    pub(super) hanja_word: bool,
 
     // === Emoji 전용 필드 (다른 kind 에선 기본값 / 빈 컨테이너) ===
     /// 카테고리 인덱스 (0=최근, 1..=8=SmileysPeople..Flags).
@@ -115,6 +118,7 @@ impl PopupState {
             cols: 1,
             page_size: HANJA_PAGE_SIZE,
             hanja_expanded: false,
+            hanja_word: target.chars().count() >= 2,
             cat_index: 0,
             categories: Vec::new(),
             recent_emojis: Vec::new(),
@@ -150,6 +154,7 @@ impl PopupState {
             cols: 0,
             page_size: SPECIAL_PAGE_SIZE,
             hanja_expanded: false,
+            hanja_word: false,
             cat_index: 0,
             categories: Vec::new(),
             recent_emojis: Vec::new(),
@@ -205,6 +210,7 @@ impl PopupState {
             cols: 0,
             page_size: EMOJI_PAGE_SIZE,
             hanja_expanded: false,
+            hanja_word: false,
             cat_index,
             categories,
             recent_emojis,
@@ -663,6 +669,33 @@ mod tests {
     }
 
     #[test]
+    fn hanja_word_target_ignores_expand() {
+        // 2음절 이상 대상(한자 단어)은 1×9 목록 고정 — Period 소비, toggle no-op.
+        let candidates: Vec<(String, String)> = (0..20)
+            .map(|i| (format!("漢{}", i), format!("뜻{}", i)))
+            .collect();
+        let mut state = PopupState::new_hanja("대한민국", candidates);
+        assert!(state.is_hanja_word());
+        assert_eq!(state.handle_key(PopupKey::Period), PopupKeyResult::Consumed);
+        state.toggle_hanja_expanded();
+        assert!(!state.is_hanja_expanded());
+        assert_eq!(state.total_pages, 3);
+        assert_eq!(state.cols, 1);
+        assert!(!state.view_model("").expand_visible);
+        // 숫자·페이지 이동은 compact 경로 그대로.
+        assert_eq!(state.handle_key(PopupKey::Number(2)), PopupKeyResult::Select(1));
+    }
+
+    #[test]
+    fn hanja_single_syllable_keeps_expand() {
+        let mut state = make_hanja(20);
+        assert!(!state.is_hanja_word());
+        assert!(state.view_model("").expand_visible);
+        assert_eq!(state.handle_key(PopupKey::Period), PopupKeyResult::Updated);
+        assert!(state.is_hanja_expanded());
+    }
+
+    #[test]
     fn hanja_expanded_layout_full_page() {
         let mut state = make_hanja(81);
         state.handle_key(PopupKey::Period);
@@ -765,6 +798,20 @@ mod tests {
         // compact에서는 Letter는 통과(NotHandled) — 회귀 방지
         let result = state.handle_key(PopupKey::Letter(2));
         assert_eq!(result, PopupKeyResult::NotHandled);
+    }
+
+    #[test]
+    fn hanja_and_special_home_row_not_handled() {
+        // 홈 행(ASDFGHJKL 위치)은 이모지 카테고리 단축키일 뿐 — 한자·특수문자 팝업에서는
+        // 기타 키로 재처리돼야 한다(POPUP_SPEC §3.4·§4.5). 소비하면 글자가 사라진다.
+        let mut hanja = make_hanja(9);
+        for i in 0..9 {
+            assert_eq!(hanja.handle_key(PopupKey::CatLetter(i)), PopupKeyResult::NotHandled);
+        }
+        hanja.handle_key(PopupKey::Period); // expanded 에서도 같다
+        assert_eq!(hanja.handle_key(PopupKey::CatLetter(0)), PopupKeyResult::NotHandled);
+        let mut special = make_special(20);
+        assert_eq!(special.handle_key(PopupKey::CatLetter(3)), PopupKeyResult::NotHandled);
     }
 
     #[test]

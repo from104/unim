@@ -104,6 +104,9 @@ impl HanjaPopup {
         target_label.set_halign(gtk4::Align::Start);
         target_label.set_hexpand(true);
         target_label.set_xalign(0.0);
+        // target 이 8~18자(공백 포함)면 팝업 폭을 넘을 수 있어 말줄임 처리한다
+        // (HANJA_WORD_SPEC.md §2.5.4).
+        target_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         header_box.append(&target_label);
 
         vbox.append(&header_box);
@@ -225,9 +228,9 @@ impl HanjaPopup {
 
         unim_log!(
             "INDICATOR",
-            "[Popup] 한자 show() 진입: display_server={:?}, top_row='{}', cursor=({},{},{})",
+            "[Popup] 한자 show() 진입: display_server={:?}, top_row={}자, cursor=({},{},{})",
             self.display_server,
-            top_row,
+            top_row.chars().count(),
             x,
             y,
             h
@@ -271,8 +274,8 @@ impl HanjaPopup {
         fetch_bookmark_states_async(self.context_path.clone());
         unim_log!(
             "INDICATOR",
-            "[Popup] 한자 팝업 표시 완료: target='{}', realized={}",
-            target,
+            "[Popup] 한자 팝업 표시 완료: target={}자, realized={}",
+            target.chars().count(),
             self.window.is_realized()
         );
     }

@@ -199,7 +199,7 @@ impl HangulChar {
      * ```
      */
     pub fn from_syllable(syllable: char) -> Result<Self, HangulError> {
-        unim_log!("CHAR", "HangulChar::from_syllable: '{}'", syllable);
+        unim_log!("CHAR", "HangulChar::from_syllable");
         let syllable_u32 = syllable as u32;
 
         // 입력된 문자가 한글 음절 영역(0xAC00-0xD7A3)에 있는지 검사
@@ -589,10 +589,10 @@ impl HangulChar {
     pub fn get_syllable(&self) -> Result<char, HangulError> {
         unim_log!(
             "CHAR",
-            "get_syllable: cho={:?}, jung={:?}, jong={:?}",
-            self.choseong,
-            self.jungseong,
-            self.jongseong
+            "get_syllable: cho={}, jung={}, jong={}",
+            self.choseong.is_some(),
+            self.jungseong.is_some(),
+            self.jongseong.is_some()
         );
 
         // 채움 문자(Filler, Empty)를 None으로 정규화
@@ -635,7 +635,7 @@ impl HangulChar {
             (None, None, Some(jo)) => Ok(jo.get_unicode_compat()), // 종성만
             _ => Err(HangulError::CompositionFailure),           // 그 외 조합 불가
         };
-        unim_log!("CHAR", "  -> result: {:?}", result);
+        unim_log!("CHAR", "  -> result: ok={}", result.is_ok());
         result
     }
 

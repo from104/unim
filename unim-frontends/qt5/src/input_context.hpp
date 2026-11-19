@@ -12,9 +12,11 @@
 #include <QObject>
 #include <QString>
 #include <QRect>
+#include <memory>
 
 /* 전방 선언 */
 class UnimDbusClient;
+class UnimSurroundingWordQt;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -44,7 +46,6 @@ public:
 private:
     void updatePreedit();
     void commitString(const QString &str);
-
     UnimDbusClient *m_dbus;
     QObject *m_focusObject;
     QString m_windowId;
@@ -54,6 +55,8 @@ private:
     /* 현재 입력 필드 목적 (focus 시 갱신). 1=Password, 2=Pin 이면 dev 로그의
      * 내용 필드(key·commit·preedit)를 "***"로 마스킹해 평문 잔류 방지. */
     quint32 m_contentPurpose = 0;
+    /* surrounding 보고·교체·능력 선언 (qt-common, dedupe 캐시 포함) */
+    std::unique_ptr<UnimSurroundingWordQt> m_surrounding;
 };
 
 #endif // UNIM_INPUT_CONTEXT_HPP

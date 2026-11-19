@@ -1,4 +1,4 @@
-.TH UNIM 1 "September 2026" "UNIM 0.4.4" "User Commands"
+.TH UNIM 1 "November 2026" "UNIM 0.4.5" "User Commands"
 .SH NAME
 unim \- Universal Next-generation Input Method for Korean
 .SH DESCRIPTION
@@ -78,6 +78,13 @@ Chord-based simultaneous jamo input for supported layouts (e.g.
 ko_3bul_anmatae). Multiple jamo pressed within chord_window_ms are combined
 into a single syllable using Atomic Window Principle.
 .TP
+.B Hanja User Dictionary
+Names and terms missing from the built-in hanja dictionary can be registered
+as hangul to hanja (with an optional meaning), for example with
+.BR "unim\-cli dict hanja add" .
+They appear in every hanja conversion after the bookmarks and before the
+built-in candidates, from the next Hanja key press.
+.TP
 .B Smart Backspace
 Decompose committed hangul syllables by jamo unit when backspacing.
 .TP
@@ -98,7 +105,10 @@ User keyboard layout profiles (v1 schema)
 AutoTypeFix suppression dictionary (auto-managed)
 .TP
 .B ~/.config/unim/userdict.yaml
-User dictionary for reverse AutoTypeFix
+Auto-correction dictionary for reverse AutoTypeFix
+.TP
+.B ~/.config/unim/hanja\-userdict.yaml
+Hanja user dictionary (hangul to hanja entries added by the user)
 .TP
 .B ~/.unim-errors.log
 Debug log (active when UNIM_DEVELOP=1)

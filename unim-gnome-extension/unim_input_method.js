@@ -10,7 +10,21 @@
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
-import { unimLog, unimError } from './logging.js';
+import Meta from 'gi://Meta';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { unimLog, unimError, unimProbe, isUnimDevelop } from './logging.js';
+import { hintKeyLogName } from './pointer_hints.js';
+import {
+    HINT_FIELD_FOCUS,
+    createSurroundingFacts, factsOnFocusIn, factsOnFocusOut, factsOnSurrounding,
+    factsOnHintSent, factsOnDocumentChanged, factsOnEngineKey, factsOnSensitive, decideResend,
+    isLibreOfficeWmClass, isFirefoxWmClass, cacheStateName, decidePoke, decideHanjaInvalidate,
+    pokeCancelledByPreedit, POKE_TIMEOUT_MS, shouldReportAppPress, shouldForwardSurrounding,
+    FIREFOX_HOLD_MS,
+} from './surrounding_facts.js';
+
+/** 구버전 이모지 팝업이 IM engage 용으로 세우던 U+200B — 커밋·COMMIT 모드 대상이 아니다. */
+const ZWSP = '\u200B';
 
 /** 수정자 키 — IM이 가로채지 않고 Mutter에 직접 전달 (고정키 등 접근성 호환) */
 const MODIFIER_KEYSYMS = new Set([
@@ -75,6 +89,61 @@ const PENDING_PURPOSE_TTL_US = 2_000_000;
 // 가드는 1회 소비되면 즉시 해제되므로 과차단 위험은 없다.
 const COMMIT_ECHO_GUARD_MS = 300;
 
+/** 마우스 버튼 눌림 비트 — 탐침이 `global.get_pointer()` 마스크에서 버튼만 뽑는 데 쓴다. */
+const POINTER_BUTTON_MASK = Clutter.ModifierType.BUTTON1_MASK |
+                            Clutter.ModifierType.BUTTON2_MASK |
+                            Clutter.ModifierType.BUTTON3_MASK;
+
+/**
+ * 탐침용: 지금 눌려 있는 마우스 버튼 비트(`0x100` = 주 버튼). 좌표는 읽어도 남기지 않는다.
+ * 일반 모드에서도 부른다(탐침 줄은 호출 앞에서 `isUnimDevelop()` 로 거른다).
+ * @returns {string} 예: '0x0', '0x100'
+ */
+function probePointerButtons() {
+    try {
+        const mods = global.get_pointer()[2];
+        return '0x' + ((mods & POINTER_BUTTON_MASK) >>> 0).toString(16);
+    } catch (_e) {
+        return 'err';
+    }
+}
+
+/**
+ * 탐침용: Shift 가 눌려 있는지(0|1). 탐침 줄에서만 부른다.
+ * @returns {number}
+ */
+function probeShiftDown() {
+    try {
+        return (global.get_pointer()[2] & Clutter.ModifierType.SHIFT_MASK) ? 1 : 0;
+    } catch (_e) {
+        return 0;
+    }
+}
+
+/**
+ * 탐침용: 포인터가 포커스 창 frame rect 안이고, 그 자리의 반응형 액터 조상에 창 액터
+ * (Meta.WindowActor)가 있으면 1 — 앱 창 "안" 을 가리키는지(패널·오버레이 위가 아닌지) 본다.
+ * 좌표는 읽어도 남기지 않는다. 앱 눌림 판정(`_noteAppPress`)에서도 일반 모드로 부른다.
+ * @returns {number}
+ */
+function probePointerOverWindow() {
+    try {
+        const win = global.display.focus_window;
+        if (!win) return 0;
+        const [x, y] = global.get_pointer();
+        const r = win.get_frame_rect();
+        if (x < r.x || y < r.y || x >= r.x + r.width || y >= r.y + r.height) return 0;
+        let a = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
+        while (a) {
+            if (a instanceof Meta.WindowActor) return 1;
+            a = a.get_parent();
+        }
+        return 0;
+    } catch (_e) {
+        return 0;
+    }
+}
+
 /**
  * UnimInputMethod
  *
@@ -98,6 +167,23 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._focusOutHandler = null;
         /** @type {Function|null} 리셋 콜백 (팝업 정리 등) */
         this._resetHandler = null;
+        /** @type {Function|null} 팝업이 보이는지 묻는 콜백 (빈 preedit 왕복 판정용, extension.js 가 설정) */
+        this._popupVisibleQuery = null;
+        /**
+         * 빈 preedit 왕복(S0b) 진행 상태. 없으면 null.
+         * @type {{atMs: number, reported: boolean, timeoutId: number, idleId: number}|null}
+         */
+        this._poke = null;
+        /** @type {Function|null} 앱 창 눌림 콜백 (KeyHandler 가 설정, S4) */
+        this._appPressHandler = null;
+        /** 직전에 보낸 앱 눌림의 버튼 마스크·시각 — 같은 눌림의 중복 reset 거르기 */
+        this._lastAppPress = { mask: 0, atMs: -Infinity };
+        /**
+         * 탐침 전용(develop 모드에서만 기록): 이번 키가 `factsOnEngineKey` 로 세어지기 **전**의 캐시 상태 이름.
+         * 한자키 자신이 keySent 를 세우므로, 키 핸들러 쪽에서 라이브 상태를 읽으면 늘 `keysent` 가 된다.
+         * @type {('none'|'dirty'|'keysent'|'fresh')|null}
+         */
+        this._probeCacheBeforeKey = null;
         /** @type {Function|null} bare 토글 후보 수정자(Alt_R) 비소비 통지 콜백 */
         this._toggleKeyNotifier = null;
         /** @type {{x: number, y: number, width: number, height: number}} 커서 위치 */
@@ -108,6 +194,11 @@ class UnimInputMethod extends Clutter.InputMethod {
          * 구분하는 기준. 0 이면 아직 키 입력 없음.
          */
         this._lastKeyEventTimeMs = 0;
+        /**
+         * Firefox 낡음 표시 뒤 보고를 데몬에 넘기지 않는 기한(단조 ms). 0 이면 없음.
+         * 문서 변경·포커스 변화에서 푼다(HANJA_WORD_SPEC §2.4b.6 Firefox).
+         */
+        this._ffHoldUntilMs = 0;
         /** @type {Object|null} DBus IME 클라이언트 연동 */
         this._dbusIME = null;
         /** @type {number} 최근 vfunc_update_content_purpose 로 받은 Clutter 원시값 */
@@ -140,6 +231,12 @@ class UnimInputMethod extends Clutter.InputMethod {
          * @type {{text: string, cursor: number, anchor: number}}
          */
         this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
+        /**
+         * 필드 세대 + 마지막 스냅샷 캐시 (surrounding_facts.js 의 순수 상태).
+         * FocusIn 계열을 보낸 직후의 재송신 판정과 ReplaceSurrounding 대조에 쓴다.
+         * @type {import('./surrounding_facts.js').SurroundingFacts}
+         */
+        this._facts = createSurroundingFacts();
 
         unimLog('IME', 'UnimInputMethod 인스턴스 생성');
     }
@@ -243,7 +340,9 @@ class UnimInputMethod extends Clutter.InputMethod {
         const typeName = eventType === Clutter.EventType.KEY_PRESS ? 'PRESS' :
                          eventType === Clutter.EventType.KEY_RELEASE ? 'RELEASE' : `OTHER(${eventType})`;
 
-        unimLog('IME', `vfunc_filter: type=${typeName}, keyval=${keyval}, keycode=${keycode}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
+        // 평문 금지(HANJA_WORD_SPEC §2.8) — 탐색·편집 키만 이름을 남기고 문자 키는 `char` 로 가린다
+        // (keyval·keycode 를 그대로 찍으면 개발 로그가 입력 내용을 복원할 수 있는 키 로거가 된다).
+        unimLog('IME', `vfunc_filter: type=${typeName}, key=${hintKeyLogName(keyval)}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
 
         // AutoTypeFix가 vkbd로 보낸 BackSpace는 IM 처리 없이 mutter에 직접 통과
         // (vkbd → mutter → IM filter 재진입 시 한글 엔진이 새 preedit을 깎는 self-feedback 차단)
@@ -277,6 +376,13 @@ class UnimInputMethod extends Clutter.InputMethod {
             this.notify_key_event(event, false);
             return true;
         }
+
+        // 탐침(develop 전용): 이 키가 세어지기 전의 캐시 상태를 먼저 찍어 둔다 — 한자키 판정용.
+        // 공유 상태(factsOnEngineKey)는 건드리지 않는다.
+        if (isUnimDevelop()) this._probeCacheBeforeKey = cacheStateName(this._facts);
+
+        // 엔진으로 가는 키(통과 키는 앱 문서를 바꾼다) — 캐시 재송신 금지 판정에 알린다.
+        this._facts = factsOnEngineKey(this._facts);
 
         // 키 핸들러가 직접 notify_key_event를 호출
         // (키 큐 패턴: call_sync 중 재진입 키를 큐에 저장 후 순차 처리)
@@ -325,36 +431,65 @@ class UnimInputMethod extends Clutter.InputMethod {
 
     vfunc_focus_in(_focus) {
         this._hasFocus = true;
+        this._ffHoldUntilMs = 0;
+        this._facts = factsOnFocusIn(this._facts, GLib.get_monotonic_time() / 1000);
         unimLog('IME', `vfunc_focus_in: _hasFocus=true`);
+        if (isUnimDevelop()) {
+            const c = this._facts.cache;
+            unimProbe('focus_in',
+                `gen=${this._facts.fieldGen} cache=${c ? (c.gen === this._facts.fieldGen ? 'same_gen' : 'old_gen') : 'none'}` +
+                `${c ? ` cache_age_ms=${Math.round(GLib.get_monotonic_time() / 1000 - c.atMs)}` : ''} btn=${probePointerButtons()}`);
+        }
 
-        // 포커스 없는 동안 도착해 대기 중이던 purpose 만 flush.
-        // 무조건 Normal 송신은 하지 않는다 — Mutter 가 vfunc_update_content_purpose
-        // 를 vfunc_focus_in 보다 먼저 호출하는 순서라면(호출 순서 미확정, gnome_reset_design
-        // 근거 1) 방금 받은 Password 를 여기서 즉시 Normal 로 덮어써 비번 차단을
-        // 영구 무력화하게 된다. Normal 복귀는 vfunc_focus_out 에서만 담당(하단).
-        if (this._pendingPurpose !== null) {
-            const p = this._pendingPurpose;
-            const age = GLib.get_monotonic_time() - (this._pendingPurposeTime ?? 0);
-            this._pendingPurpose = null;
-            // TTL 2초 — 대상 필드가 포커스를 끝내 못 받고 사라진 뒤(창 닫힘 등)
-            // 남은 stale pending 이 무관한 다음 필드에 재적용되는 over-block 을
-            // 막는다(SPEC §2.7 알려진 단방향 한계). 정상 순서(purpose 직후 focus_in)
-            // 는 ms 단위라 TTL 에 걸리지 않는다.
-            if (age > PENDING_PURPOSE_TTL_US) {
-                unimLog('IME', `pending purpose ${p} 폐기 (age=${Math.round(age / 1000)}ms > TTL)`);
-                return;
-            }
-            if (p !== this._sentPurpose) {
-                this._contentTypeHandler?.(p);
-                this._sentPurpose = p;
-            }
+        this._flushPendingPurpose();
+
+        // 필드(위젯) 단위 포커스를 엔진에 알린다 — 창 FocusIn(extension.js)은 필드가 바뀌어도 오지 않는다.
+        // 구버전 데몬은 알 수 없는 kind 를 무시한다. 비동기라 키 경로를 막지 않는다.
+        // purpose flush 뒤에 보내므로 비밀번호 칸이면 엔진이 Password 를 먼저 안 상태로 받는다.
+        if (this._dbusIME?.isConnected) {
+            this._dbusIME.surroundingHintAsync(HINT_FIELD_FOCUS, 0, 0);
+            unimLog('IME', `SurroundingHint: kind=${HINT_FIELD_FOCUS} (FIELD_FOCUS)`);
+            unimProbe('field_focus_sent', `gen=${this._facts.fieldGen}`);
+            this.resendSurroundingFacts('field_focus');
+        }
+    }
+
+    /**
+     * 포커스 없는 동안 도착해 대기 중이던 purpose 만 flush.
+     *
+     * 무조건 Normal 송신은 하지 않는다 — Mutter 가 vfunc_update_content_purpose 를
+     * vfunc_focus_in 보다 먼저 호출하는 순서라면(호출 순서 미확정, gnome_reset_design
+     * 근거 1) 방금 받은 Password 를 여기서 즉시 Normal 로 덮어써 비번 차단을
+     * 영구 무력화하게 된다. Normal 복귀는 vfunc_focus_out 에서만 담당.
+     * @private
+     */
+    _flushPendingPurpose() {
+        if (this._pendingPurpose === null) return;
+        const p = this._pendingPurpose;
+        const age = GLib.get_monotonic_time() - (this._pendingPurposeTime ?? 0);
+        this._pendingPurpose = null;
+        // TTL 2초 — 대상 필드가 포커스를 끝내 못 받고 사라진 뒤(창 닫힘 등)
+        // 남은 stale pending 이 무관한 다음 필드에 재적용되는 over-block 을
+        // 막는다(SPEC §2.7 알려진 단방향 한계). 정상 순서(purpose 직후 focus_in)
+        // 는 ms 단위라 TTL 에 걸리지 않는다.
+        if (age > PENDING_PURPOSE_TTL_US) {
+            unimLog('IME', `pending purpose ${p} 폐기 (age=${Math.round(age / 1000)}ms > TTL)`);
+            return;
+        }
+        if (p !== this._sentPurpose) {
+            this._contentTypeHandler?.(p);
+            this._sentPurpose = p;
         }
     }
 
     vfunc_focus_out() {
         unimLog('IME', `vfunc_focus_out 호출됨 (stack: popup commit 디버깅)`);
+        unimProbe('focus_out', `gen=${this._facts.fieldGen}`);
+        this._ffHoldUntilMs = 0;
+        this._cancelPoke('focus_out');
         // 1. 커밋 최우선: 로컬 preedit 백업
-        const localPreedit = this._preeditText;
+        // ZWSP 잔재(구버전 이모지 우회책)는 커밋 대상이 아니다.
+        const localPreedit = this._preeditText === ZWSP ? '' : this._preeditText;
 
         this._hasFocus = false;
 
@@ -399,11 +534,21 @@ class UnimInputMethod extends Clutter.InputMethod {
         }
         this._contentPurposeRaw = 0;
         this._contentHints = 0;
+        // 5. surrounding 캐시 초기화 — 이전 입력란의 본문이 다음 입력란(surrounding 을
+        // 안 보내는 VTE 등)에서 "지금 필드의 surrounding" 으로 쓰이면 안 된다.
+        // **새 객체**로 갈아 끼워 이전 필드의 참조를 끊는다(SPEC.md §2.8).
+        // focus_in 에서는 지우지 않는다 — Mutter 가 set_surrounding 을
+        // 먼저 보낸 순서라면 유효한 값을 지우게 된다.
+        this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
+        this._facts = factsOnFocusOut(this._facts);
         // _pendingPurpose 는 지우지 않는다 — 포커스 없는 동안 이미 도착한 다음 필드의
         // purpose 일 수 있으며, 그 몫은 다음 vfunc_focus_in 이 flush 한다.
     }
 
     vfunc_reset() {
+        this._cancelPoke('reset');
+        this._probeReset(false);
+        this._noteAppPress();
         // content purpose 는 건드리지 않는다 — reset 은 필드 "내부" 조합 취소(예:
         // Escape) 이벤트라, 여기서 Normal 로 되돌리면 비밀번호 필드 안에서 Escape
         // 한 번에 차단이 풀리는 회귀가 된다(GTK3 감사관의 "reset 에서도 Normal" 권고는
@@ -438,6 +583,298 @@ class UnimInputMethod extends Clutter.InputMethod {
             if (this._dbusIME) {
                 this._dbusIME.reset();
             }
+        }
+    }
+
+    /**
+     * 앱 눌림 핸들러를 설정한다 (KeyHandler 가 포인터 분류기와 연결). 앱 창 안 클릭은 stage 가 못 보므로
+     * mutter 가 앱 표면 눌림에서 부르는 `vfunc_reset` 이 유일한 신호다.
+     * @param {Function|null} handler - `() => void`
+     */
+    setAppPressHandler(handler) {
+        this._appPressHandler = handler;
+    }
+
+    /**
+     * `vfunc_reset` 시점의 버튼 상태로 앱 창 안 눌림을 알린다. 판정은 `shouldReportAppPress`(순수 함수).
+     * cursor-jump 직접 경로는 `vfunc_reset` 을 거치지 않으므로 여기 오지 않는다(direct=false 고정).
+     * @private
+     */
+    _noteAppPress() {
+        if (!this._appPressHandler) return;
+        try {
+            const mods = global.get_pointer()[2];
+            const btnMask = (mods & POINTER_BUTTON_MASK) >>> 0;
+            const nowMs = GLib.get_monotonic_time() / 1000;
+            const last = this._lastAppPress;
+            const d = shouldReportAppPress({
+                direct: false,
+                btnMask,
+                overWin: btnMask !== 0 && Main.modalCount === 0 && probePointerOverWindow() === 1,
+                popup: this._isPopupVisible(),
+                nowMs, lastMs: last.atMs, lastMask: last.mask,
+            });
+            if (!d.send) return;
+            this._lastAppPress = { mask: btnMask, atMs: nowMs };
+            this._appPressHandler();
+        } catch (e) {
+            unimError('IME', `앱 눌림 보고 오류(무시): ${e.message}`);
+        }
+    }
+
+    /**
+     * 탐침 `reset` 줄 — mutter 의 클릭 reset 시점에 버튼·Shift 가 보이는지, 포인터가 앱 창
+     * 안인지 잰다(대상③ S0a). develop 모드가 아니면 아무 일도 하지 않는다. 평문·좌표는 남기지 않는다.
+     * @param {boolean} direct - vfunc_reset 이 아니라 cursor-jump 경로에서 부른 경우
+     * @private
+     */
+    _probeReset(direct) {
+        if (!isUnimDevelop()) return;
+        unimProbe('reset',
+            `btn=${probePointerButtons()} shift=${probeShiftDown()} ` +
+            `preedit_len=${Array.from(this._preeditText ?? '').length} ` +
+            `popup=${this._isPopupVisible() ? 1 : 0} over_win=${probePointerOverWindow()} ` +
+            `direct=${direct ? 1 : 0}`);
+    }
+
+    /**
+     * 팝업이 보이는지 묻는 콜백을 설정한다 (extension.js 가 PopupView 를 만든 뒤 설정).
+     * @param {Function|null} query
+     */
+    setPopupVisibleQuery(query) {
+        this._popupVisibleQuery = query;
+    }
+
+    /** @returns {boolean} 팝업이 보이는지 (KeyHandler 의 PRIMARY_EMPTY 판정용) */
+    isPopupShown() {
+        return this._isPopupVisible();
+    }
+
+    /** @returns {boolean} @private */
+    _isPopupVisible() {
+        try {
+            return !!this._popupVisibleQuery?.();
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /**
+     * 포커스 창이 LibreOffice 인지. wm_class 이름은 밖으로 내보내지 않는다.
+     * @returns {boolean}
+     */
+    isFocusWindowLibreOffice() {
+        try {
+            // 셸 모달(오버뷰 검색칸·실행 대화상자 등)이 IM 포커스를 잡아도 focus_window 는 직전 앱 창으로
+            // 남는다 — 그때는 LO 가 아니다(왕복이 셸 ClutterText 를 상대로 발동하지 않게).
+            if (Main.modalCount > 0) return false;
+            return isLibreOfficeWmClass(global.display.focus_window?.get_wm_class());
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /**
+     * 포커스 창이 Firefox 인지. wm_class 이름은 밖으로 내보내지 않는다. 셸 모달 처리는 LO 와 같다.
+     * @returns {boolean}
+     */
+    isFocusWindowFirefox() {
+        try {
+            if (Main.modalCount > 0) return false;
+            return isFirefoxWmClass(global.display.focus_window?.get_wm_class());
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /**
+     * Firefox 낡음 표시 직후 부른다 — `FIREFOX_HOLD_MS` 동안 보고를 데몬에 넘기지 않는다.
+     */
+    beginFirefoxHold() {
+        this._ffHoldUntilMs = GLib.get_monotonic_time() / 1000 + FIREFOX_HOLD_MS;
+    }
+
+    /**
+     * 한자키를 엔진에 보내기 직전 마지막 보고를 낡은 것으로 표시해야 하는지(`decideHanjaInvalidate`).
+     * KeyHandler 가 참이면 KEY 힌트를 보내고 보고를 잠시 막는다(`beginFirefoxHold`).
+     * @returns {boolean}
+     */
+    shouldInvalidateBeforeHanja() {
+        return decideHanjaInvalidate({
+            hasFocus: this._hasFocus,
+            preeditEmpty: this._preeditText === '',
+            sensitive: this.isSensitivePurpose(),
+            popupVisible: this._isPopupVisible(),
+            isFirefox: this.isFocusWindowFirefox(),
+        });
+    }
+
+    /**
+     * vfunc_filter_key_event 가 방금 처리한 키가 세어지기 **전**의 캐시 상태 이름(develop 모드에서만 채워짐).
+     * 호출 직후 동기 경로에서 읽어야 정확하다. 큐에 들어가는 키는 호출자가 이 값을 항목에 실어 둔다.
+     * @returns {('none'|'dirty'|'keysent'|'fresh')|null}
+     */
+    cacheStateBeforeKey() {
+        return this._probeCacheBeforeKey;
+    }
+
+    /**
+     * 탐침·왕복 판정에 쓸 캐시 상태 이름. 키 직전 스냅샷이 있으면 그것을, 없으면 라이브 상태를 쓴다.
+     * @param {{cache: string|null, approx?: boolean}|undefined} before
+     * @returns {string}
+     * @private
+     */
+    _cacheStateForHanjaKey(before) {
+        return before?.cache ?? cacheStateName(this._facts);
+    }
+
+    /**
+     * 탐침 `hanja_key` 용 스냅샷 요약 — 문서 내용 없이 상태 이름·나이·길이만.
+     * @param {{cache: string|null, approx?: boolean}} [before] - 키 직전 캐시 상태 스냅샷
+     *   (없으면 라이브 상태). `approx` 면 큐에서 늦게 처리된 키라 근사값이다.
+     * @returns {{lo: number, ff: number, cache: string, cacheAgeMs: number, preeditLen: number, snap: string}}
+     */
+    probeHanjaKeyState(before) {
+        const c = this._facts.cache;
+        return {
+            lo: this.isFocusWindowLibreOffice() ? 1 : 0,
+            ff: this.isFocusWindowFirefox() ? 1 : 0,
+            cache: this._cacheStateForHanjaKey(before),
+            snap: before?.cache ? (before.approx ? 'queued' : 'pre') : 'live',
+            cacheAgeMs: c ? Math.round(GLib.get_monotonic_time() / 1000 - c.atMs) : -1,
+            preeditLen: Array.from(this._preeditText ?? '').length,
+        };
+    }
+
+    /**
+     * 빈 preedit 왕복(대상③ S0b 실험) — LibreOffice 는 키 이동·삭제 뒤 surrounding 을 보고하지
+     * 않아 엔진 R7 기한이 만료된다. 한자키를 엔진에 보내기 직전에 `""` preedit 을 세우면
+     * (GTK3 `done` → `update_im` → LO retrieve) 보고가 도착하는지 본다. 보고가 오면 **다음 주기**
+     * (GLib.idle_add)에 `null` 로 되돌린다 — 같은 idle 안의 done 은 mutter 가 병합하기 때문이다.
+     * 250ms 안에 보고가 없으면 타임아웃으로 되돌린다.
+     *
+     * LibreOffice 창에서만 발동한다(`decidePoke`, 순수 함수 — Firefox 는 빈 조합이 선택을 지워 제외).
+     * 일반 로그는 `poke start/end` 뿐이고
+     * 세부는 develop 탐침에만 남는다.
+     * 호출 위치: KeyHandler 가 한자키를 processKey 로 넘기기 직전. 로그에 평문은 없다.
+     *
+     * @param {{cache: string|null, approx?: boolean}} [before] - 한자키 자신이 세어지기 전의 캐시 상태
+     *   (`cacheStateBeforeKey`). 없으면 라이브 상태 — 라이브는 한자키가 이미 keySent 를 세운 뒤라 늘
+     *   `keysent` 로 보이므로 `cache_fresh` 건너뛰기가 영영 발동하지 못한다.
+     */
+    pokeSurroundingReport(before) {
+        const cacheState = this._cacheStateForHanjaKey(before);
+        const d = decidePoke({
+            hasFocus: this._hasFocus,
+            preeditEmpty: this._preeditText === '',
+            sensitive: this.isSensitivePurpose(),
+            popupVisible: this._isPopupVisible(),
+            isLibreOffice: this.isFocusWindowLibreOffice(),
+            inFlight: this._poke !== null,
+            cacheState,
+        });
+        if (!d.poke) {
+            unimProbe('poke_skip', `why=${d.reason}`);
+            return;
+        }
+        try {
+            this.set_preedit_text('', 0, 0, Clutter.PreeditResetMode.CLEAR);
+        } catch (e) {
+            unimError('IME', `빈 preedit 왕복 시작 실패: ${e.message}`);
+            return;
+        }
+        const poke = { atMs: GLib.get_monotonic_time() / 1000, reported: false, timeoutId: 0, idleId: 0 };
+        poke.timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POKE_TIMEOUT_MS, () => {
+            poke.timeoutId = 0;
+            if (this._poke === poke) this._endPoke('timeout');
+            return GLib.SOURCE_REMOVE;
+        });
+        this._poke = poke;
+        unimLog('IME', 'poke start');
+        unimProbe('poke_start', `cache=${cacheState}`);
+    }
+
+    /**
+     * vfunc_set_surrounding 이 호출한다 — 진행 중인 왕복의 첫 보고면 타임아웃을 끄고,
+     * 다음 주기에 null 로 되돌리도록 idle 을 건다.
+     * @private
+     */
+    _onPokeReport() {
+        const poke = this._poke;
+        if (!poke || poke.reported) return;
+        poke.reported = true;
+        unimProbe('poke_report', `ms=${Math.round(GLib.get_monotonic_time() / 1000 - poke.atMs)}`);
+        if (poke.timeoutId) {
+            GLib.source_remove(poke.timeoutId);
+            poke.timeoutId = 0;
+        }
+        poke.idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            poke.idleId = 0;
+            if (this._poke === poke) this._endPoke('report');
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /**
+     * 왕복을 마친다: 소스를 정리하고 preedit 을 `null` 로 되돌린다.
+     * @param {'report'|'timeout'} why
+     * @private
+     */
+    _endPoke(why) {
+        const poke = this._poke;
+        if (!poke) return;
+        this._clearPokeSources(poke);
+        this._poke = null;
+        if (this._hasFocus && this._preeditText === '') {
+            try {
+                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+            } catch (e) {
+                unimError('IME', `빈 preedit 왕복 종료 실패: ${e.message}`);
+            }
+        }
+        unimLog('IME', `poke end why=${why}`);
+        unimProbe('poke_end', `why=${why}`);
+    }
+
+    /**
+     * 왕복을 취소한다 — null 을 보내지 않는다. 실제 preedit·커밋·reset·focus_out 이 `""` 를 대체한다.
+     * @param {string} why
+     * @private
+     */
+    _cancelPoke(why) {
+        const poke = this._poke;
+        if (!poke) return;
+        this._clearPokeSources(poke);
+        this._poke = null;
+        unimLog('IME', `poke end why=${why}`);
+        unimProbe('poke_end', `why=${why}`);
+    }
+
+    /** @private */
+    _clearPokeSources(poke) {
+        if (poke.timeoutId) {
+            GLib.source_remove(poke.timeoutId);
+            poke.timeoutId = 0;
+        }
+        if (poke.idleId) {
+            GLib.source_remove(poke.idleId);
+            poke.idleId = 0;
+        }
+    }
+
+    /**
+     * 확장 disable/IME 끄기 때 호출 — 타이머·idle 소스를 남기지 않는다(GNOME 확장 심사 규칙).
+     * 진행 중이던 `""` preedit 은 null 로 되돌린다.
+     */
+    destroyPoke() {
+        const poke = this._poke;
+        if (!poke) return;
+        this._clearPokeSources(poke);
+        this._poke = null;
+        if (this._preeditText === '') {
+            try {
+                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+            } catch (_e) { /* 종료 중 — 무시 */ }
         }
     }
 
@@ -484,9 +921,15 @@ class UnimInputMethod extends Clutter.InputMethod {
         const preedit = this._preeditText;
         if (!preedit || preedit.length === 0) return;
         this._preeditText = '';
+        if (preedit === ZWSP) {
+            // 구버전 ZWSP 잔재는 문서에 커밋하지 않고 버린다(v3.5).
+            this.clearPreedit();
+            return;
+        }
         // 호출자가 곧이어 데몬 reset() 을 부르면 같은 글자가 CommitText 로 되돌아온다.
         // 미리 가드를 무장해 그 메아리를 흘린다(vfunc_reset 주석 참조).
         this._armCommitEchoGuard(preedit);
+        this._noteDocumentChanged();
         try {
             this.commit(preedit);
             this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
@@ -529,6 +972,8 @@ class UnimInputMethod extends Clutter.InputMethod {
                     `외부 cursor 점프 감지: prev=(${prev.x},${prev.y}) → new=(${newRect.x},${newRect.y}) ` +
                     `elapsed=${elapsedMs}ms — 로컬 flush 트리거`);
                 this._cursorRect = newRect;   // flush 전 갱신 (재귀 방지)
+                this._cancelPoke('reset');
+                this._probeReset(true);
                 try {
                     // 이 경로는 mutter 의 clutter_input_focus_reset() 을 거치지 않는다
                     // — 즉 COMMIT 모드가 발동하지 않으므로 vfunc_reset 에 맡길 수 없다.
@@ -560,11 +1005,35 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_set_surrounding(text, cursor, anchor) {
+        if (isUnimDevelop()) {
+            const prev = this._lastSurrounding;
+            unimProbe('set_surrounding',
+                `gen=${this._facts.fieldGen} im_focus=${this._hasFocus ? 1 : 0} len=${Array.from(text || '').length} ` +
+                `cursor_moved=${(cursor || 0) !== prev.cursor ? 1 : 0} sel=${(cursor || 0) !== (anchor || 0) ? 1 : 0} ` +
+                `btn=${probePointerButtons()}`);
+        }
         // 최신 surrounding text + cursor/anchor를 캐시 (gedit/gnome-text-editor 호환)
         this._lastSurrounding = { text: text || '', cursor: cursor || 0, anchor: anchor || 0 };
-        if (this._dbusIME?.isConnected) {
+        // 재송신·확정 대조용 스냅샷(필드 세대 태그 포함). 비밀번호 칸이면 보관하지 않는다.
+        this._facts = factsOnSurrounding(this._facts, this._lastSurrounding, {
+            hasFocus: this._hasFocus,
+            sensitive: this.isSensitivePurpose(),
+            nowMs: GLib.get_monotonic_time() / 1000,
+        });
+        // Firefox 낡음 표시 뒤에는 넘기지 않는다 — 한 박자 늦은 보고로 엔진이 재판정하지 않게.
+        const pokeAwaitingReply = this._poke !== null && !this._poke.reported;
+        const forward = shouldForwardSurrounding({
+            holdUntilMs: this._ffHoldUntilMs,
+            nowMs: GLib.get_monotonic_time() / 1000,
+            pokeAwaitingReply,
+        });
+        if (forward && this._dbusIME?.isConnected) {
             this._dbusIME.setSurroundingText(text || '', cursor || 0, anchor || 0);
         }
+        if (!forward) unimProbe('ff_hold_drop', `len=${Array.from(text || '').length}`);
+        if (pokeAwaitingReply) this._ffHoldUntilMs = 0;
+        // 빈 preedit 왕복 중이면 — 보고는 위에서 이미 데몬에 전달했다. 다음 주기에 null 로 되돌린다.
+        this._onPokeReport();
     }
 
     /**
@@ -574,6 +1043,65 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     getLastSurrounding() {
         return this._lastSurrounding;
+    }
+
+    /**
+     * 확정 대조용 마지막 스냅샷(필드 세대 태그 포함). 없으면 null — 비밀번호 칸·포커스 아웃 직후.
+     * @returns {import('./surrounding_facts.js').SurroundingCache|null}
+     */
+    getSurroundingCache() {
+        return this._facts.cache;
+    }
+
+    /**
+     * 엔진에 힌트를 보냈음을 기록한다 — KEY·포인터 힌트 뒤에는 스냅샷 재송신을 하지 않는다.
+     * (KeyHandler._sendHint 가 부른다.)
+     * @param {number} kind
+     */
+    noteHintSent(kind) {
+        this._facts = factsOnHintSent(this._facts, kind);
+    }
+
+    /**
+     * FIELD_FOCUS·창 FocusIn 을 보낸 직후 호출한다. 같은 필드 세대의 마지막 스냅샷이 있고 그 뒤
+     * KEY·포인터 힌트·커밋이 없었으면 `SetSurroundingText` 로 한 번 더 보내 엔진의 낡음을 푼다.
+     * 판정은 surrounding_facts.js `decideResend` (포커스 없음·비밀번호 칸·캐시 없음·세대 불일치·
+     * 낡음·묵음이면 보내지 않는다). 비동기라 키 경로를 막지 않는다. 로그는 길이만.
+     *
+     * @param {string} trigger - 'field_focus' | 'win_focus_in'
+     * @returns {boolean} 보냈는지
+     */
+    resendSurroundingFacts(trigger) {
+        const d = decideResend(this._facts, {
+            hasFocus: this._hasFocus,
+            sensitive: this.isSensitivePurpose(),
+            nowMs: GLib.get_monotonic_time() / 1000,
+        });
+        if (d.resend && !this._dbusIME?.isConnected) {
+            d.resend = false;
+            d.reason = 'disconnected';
+        }
+        unimProbe('resend', `trigger=${trigger} result=${d.resend ? 'sent' : 'skip'} reason=${d.reason}`);
+        if (!d.resend) return false;
+        const c = this._facts.cache;
+        this._dbusIME.setSurroundingTextAsync(c.text, c.cursor, c.anchor);
+        unimLog('IME', `surrounding 재송신: trigger=${trigger}, len=${Array.from(c.text).length}`);
+        return true;
+    }
+
+    /**
+     * 엔진이 소비하지 않은 키가 앱으로 간다(`notify_key_event(.., false)`·`return false`) — 그 키가
+     * 문서·커서를 바꿀 수 있으니 마지막 스냅샷을 낡음(dirty)으로 한다. 소비된 키(한자키·팝업 키·선택 키)는
+     * 부르지 않는다. 다음 `set_surrounding` 이 오면 해제된다.
+     */
+    noteKeyPassedToApp() {
+        this._noteDocumentChanged();
+    }
+
+    /** 확장이 문서를 직접 바꿨다 — 마지막 스냅샷은 더는 현재 문서가 아니다. @private */
+    _noteDocumentChanged() {
+        this._facts = factsOnDocumentChanged(this._facts);
+        this._ffHoldUntilMs = 0;
     }
 
     vfunc_update_content_hints(hints) {
@@ -606,6 +1134,22 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     /**
+     * 비밀번호·PIN 성격의 입력란인지(fail-closed).
+     *
+     * PRIMARY 선택 보강(key_handler `_probePrimaryThenProcess`)처럼 **필드 내용과
+     * 무관한 외부 데이터를 읽는 동작** 전에 반드시 확인한다. 계산값(effective)뿐 아니라
+     * 데몬에 이미 보낸 값과 포커스 전 대기값까지 하나라도 Password(1)/PIN(2) 이면 true —
+     * 순서 경합(purpose 가 포커스보다 늦게 오는 등)에서 놓치느니 과차단이 안전하다.
+     * @returns {boolean}
+     */
+    isSensitivePurpose() {
+        const sensitive = (p) => p === 1 || p === 2;
+        return sensitive(this._effectivePurpose()) ||
+               sensitive(this._sentPurpose) ||
+               (this._pendingPurpose !== null && sensitive(this._pendingPurpose));
+    }
+
+    /**
      * 계산된 effective purpose 를 포커스 상태에 따라 즉시 송신하거나 대기시킨다.
      *
      * 포커스 없음: 다음 vfunc_focus_in 이 flush 할 수 있도록 _pendingPurpose 에 버퍼.
@@ -614,6 +1158,8 @@ class UnimInputMethod extends Clutter.InputMethod {
      * @private
      */
     _applyContentPurpose() {
+        // focus_in 뒤 늦게 도착한 purpose 가 비밀번호·PIN 이면 이미 보관한 본문을 비운다.
+        if (this.isSensitivePurpose()) this._facts = factsOnSensitive(this._facts);
         const eff = this._effectivePurpose();
         if (!this._hasFocus) {
             this._pendingPurpose = eff;
@@ -637,13 +1183,15 @@ class UnimInputMethod extends Clutter.InputMethod {
     commitText(text) {
         if (!text || text.length === 0) return;
 
-        unimLog('IME', `commitText: text='${text}', _hasFocus=${this._hasFocus}, _preeditText='${this._preeditText}'`);
+        this._cancelPoke('commit');
+        unimLog('IME', `commitText: len=${Array.from(String(text ?? '')).length}, _hasFocus=${this._hasFocus}, preeditLen=${Array.from(this._preeditText ?? '').length}`); // 평문 금지(HANJA_WORD_SPEC §2.8)
 
         // preedit이 남아있으면 먼저 클리어
         if (this._preeditText.length > 0) {
             this.clearPreedit();
         }
 
+        this._noteDocumentChanged();
         try {
             this.commit(text);
             unimLog('IME', `commitText: commit() 호출 완료 (에러 없음)`);
@@ -657,10 +1205,27 @@ class UnimInputMethod extends Clutter.InputMethod {
      * @param {string} text - preedit 텍스트 (빈 문자열이면 클리어)
      */
     updatePreedit(text) {
-        this._preeditText = text || '';
+        const t = text || '';
+        if (this._poke) {
+            if (!pokeCancelledByPreedit(t)) {
+                // 빈 갱신(한자키 직후 _commitAndPreedit 의 updatePreedit(''))은 왕복을 건드리지 않는다.
+                // 여기서 null 을 보내면 "" 와 null 이 같은 주기에 들어가 mutter 가 done 을 병합한다.
+                // null 은 _endPoke 가 보고 도착(또는 타임아웃) 뒤 별도 주기에 보낸다.
+                this._preeditText = '';
+                return;
+            }
+            this._cancelPoke('preedit');   // 실제 preedit 이 "" 를 덮어쓴다 — null 을 따로 보내지 않는다
+        }
+        this._preeditText = t;
 
         try {
-            if (this._preeditText.length > 0) {
+            if (this._preeditText === ZWSP) {
+                // ZWSP 는 COMMIT 모드로 세우지 않는다 — mutter reset(클릭 등)이 ZWSP 를
+                // 문서에 커밋하는 것을 막는다(v3.5). 확장은 더 이상 ZWSP 를 보내지 않으며
+                // 이 분기는 방어용이다.
+                this.set_preedit_text(
+                    this._preeditText, 1, 1, Clutter.PreeditResetMode.CLEAR);
+            } else if (this._preeditText.length > 0) {
                 // reset 모드는 COMMIT — "리셋이 오면 이 preedit 을 커밋하라"고 mutter 에
                 // 미리 선언해 두는 것이다(mutter clutter-input-focus.c):
                 //
@@ -703,6 +1268,7 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     expectSelfBackspaces(count) {
         if (count <= 0) return;
+        this._noteDocumentChanged();   // vkbd 백스페이스가 문서를 지운다
         // 한 backspace = PRESS + RELEASE 두 이벤트
         this._selfBackspaceCount += count * 2;
         unimLog('IME', `expectSelfBackspaces: +${count} (대기 이벤트=${this._selfBackspaceCount})`);
@@ -714,12 +1280,39 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     deleteSurrounding(charCount) {
         if (charCount <= 0) return;
+        this._noteDocumentChanged();
         try {
             this.delete_surrounding(-(charCount), charCount);
             unimLog('IME', `deleteSurrounding: ${charCount}자 삭제`);
         } catch (e) {
             unimError('IME', `deleteSurrounding 실패: ${e.message}`);
         }
+    }
+
+    /**
+     * 커서 기준 앞 a자·뒤 b자를 지우고 text 를 확정한다 (대상③ 확정 —
+     * ReplaceSurroundingText 시그널, HANJA_WORD_SPEC §2.4b.5).
+     *
+     * a·b 는 코드포인트(문자) 단위 — 구간이 전부 한글 완성 음절(BMP)이라 Mutter 의
+     * delete_surrounding 단위와 같다. idle 이라 preedit 선클리어가 필요 없다.
+     * Clutter 쪽은 삭제 실패를 알 수 없다(엔진 `c==0` 방어·거부 플래그가 막는다).
+     * 로그는 a·b·길이만 남긴다(평문 금지).
+     *
+     * @param {number} deleteBefore - 커서 앞에서 지울 문자 수
+     * @param {number} deleteAfter - 커서 뒤에서 지울 문자 수
+     * @param {string} text - 확정할 문자열
+     */
+    replaceSurrounding(deleteBefore, deleteAfter, text) {
+        if (!text || text.length === 0) return;
+        this._noteDocumentChanged();
+        try {
+            this.delete_surrounding(-deleteBefore, deleteBefore + deleteAfter);
+            unimLog('IME', `replaceSurrounding: a=${deleteBefore}, b=${deleteAfter}, len=${Array.from(text).length}`);
+        } catch (e) {
+            unimError('IME', `replaceSurrounding 삭제 실패, 커밋 생략: ${e.message}`);
+            return;
+        }
+        this.commitText(text);
     }
 
     /**

@@ -4,6 +4,52 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [Unreleased]
+
+## [0.4.5] 2026-11-20
+
+### Added
+
+- Hanja conversion of the word just typed (e.g. 대한민국) and of a Hangul word selected in the app, in one step (selection conversion on GTK4, Qt, GNOME, Wayland and Windows)
+- Hanja output format setting — choose 漢字, 한자(漢字) or 漢字(한자) ([Settings] › [Hanja Output Format], `unim-cli config set hanja-output-format`)
+- Per-character meanings shown for multi-syllable hanja candidates
+- Hanja conversion of the word under the cursor — put the cursor anywhere in an already typed Hangul word (start, middle or end) and press the hanja key, no selection needed (GTK and Qt apps connected through the UNIM input method modules; GTK, Qt, Chromium-based apps and LibreOffice through the GNOME (Wayland) extension; Windows TSF apps. Firefox on GNOME falls back to the emoji popup)
+- Windows: hanja conversion in legacy (IMM32) apps — the word just typed converts as a whole word, and in Qt apps such as Telegram the word under the cursor or a selection converts too (whole space-separated chunks found in the dictionary)
+- Hanja user dictionary — register names, organisations and technical terms missing from the built-in dictionary as "Hangul → Hanja (+ meaning)"; they come first among the hanja candidates (after favourites) and work for the word just typed, selections and the word under the cursor. Edits apply from the next hanja key ([Settings] › [Hanja User Dictionary], `unim-cli dict hanja add 서기현 徐基鉉`)
+- Status notifications (toasts) for easy-to-miss input method events such as an automatic correction, entering a password field or a blocked Korean/English toggle (Linux and Windows, [Settings] › [Notifications], `unim-cli config set notify-enabled` and friends)
+
+### Changed
+
+- The Korean/English and auto-correction toggle beeps now differ in pitch and count — Korean/on plays two high beeps, English/off one low beep
+- Logs no longer record the text you type (lengths only)
+- The auto-correction "User Dictionary" is now called "Auto-correction Dictionary" to tell it apart from the Hanja User Dictionary (file and `unim-cli dict user-dict` unchanged)
+- Hanja conversion of the word under the cursor is now on by default on GNOME
+- Windows: legacy (IMM32) apps always commit per syllable, even with word-unit commit turned on — word-unit commit broke the app's first composition there
+
+### Fixed
+
+- Fixed syllables composed before the target being lost when cancelling the hanja popup or converting only the last syllable in word commit mode
+- Fixed the selection being erased when pressing the hanja key or the Korean/English toggle with text selected on GTK4 and Qt apps
+- Windows: fixed the next keystroke being handled as popup navigation after focus briefly moved away while the hanja popup was open
+- Fixed password fields losing their password status after an input method reset (e.g. clicking in the field), which re-enabled automatic correction and dropped the forced English mode
+- GNOME: fixed selected text being erased in GTK4 apps (Text Editor and others) when the hanja key opened the emoji popup over a selection
+- Fixed Korean/English toggling stalling and keys leaking to the app after long sessions with the global mode share (input contexts of closed apps are now reclaimed too)
+- Fixed the daemon loading a fresh copy of the hanja dictionary for every input field, which made its memory use grow sharply
+- Fixed the auto-correction dictionary and suppression-word files being wiped when a hand edit broke their format: they were read as empty lists and the next save (settings, CLI or the automatic suppression learning) overwrote them. A broken file is now left untouched and reported with its path, and can be archived to start fresh
+- Fixed deleting an auto-correction dictionary or suppression word in the settings window removing a different word when the CLI had changed the list in the meantime
+- Windows: fixed the last composed Hangul syllable being committed again when moving the cursor with the mouse in Chrome
+- Fixed letter keys on the home row being swallowed while the hanja or symbol popup was open — like other keys the popup does not use, they now close it and are typed
+- Windows: fixed text being duplicated when clicking inside the same field during composition in word commit mode (Chrome, Notepad, Word)
+- Windows: fixed the first characters typed being garbled or lost in Telegram and similar legacy apps and in the UNIM settings window
+- Windows Word: fixed the space typed right after an English word being lost, and English auto-correction missing words typed with layout keys such as the 3-beolsik number row
+- Windows: fixed a hanja key changed in the settings (e.g. to `F3`) not working in apps that check keys in advance, such as the UNIM settings window
+
+### Known limitations
+
+- Converting a word you already wrote (word under the cursor, selection) needs the app to report the surrounding text. Legacy input method protocols do not, so there only the word just typed converts and the hanja key otherwise opens the emoji popup (no text changes): Windows legacy (IMM32) apps other than Qt apps, Linux XIM apps, terminals and Chromium/Electron apps on X11. Pure Wayland compositors (KDE, Sway, …) do not support the word under the cursor yet. Help is wanted — see "Known limitations and help wanted" in the README
+- Windows Qt apps (Telegram, etc.): only a whole space-separated chunk converts (not `학교에서`), the cursor ends up at the end of the word, the word is retyped once to clear the selection (it appears in the app's undo history), the retyped word takes the formatting the app gives new input, nothing converts with the cursor after a space, and closing the popup by clicking elsewhere can leave the word selected. Only Telegram has been measured
+- Windows: 32-bit apps (Hancom Office, KakaoTalk), Electron apps and consoles have not been checked yet
+
 ## [0.4.4] 2026-09-21
 
 ### Fixed

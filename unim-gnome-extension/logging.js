@@ -155,3 +155,30 @@ export function unimError(module, message) {
     // 파일 출력
     appendToLogFile(logLine);
 }
+
+// ── 순서 탐침 (통합 계획 P0-3) ────────────────────────────────────────────────
+
+/** UNIM_DEVELOP=1 인지. 탐침이 값을 모으기 전에(비용이 드는 호출 앞에서) 확인하는 용도. */
+export function isUnimDevelop() {
+    return isDevelopMode();
+}
+
+let _probeSeq = 0;
+
+/**
+ * 사건 순서 탐침 로그 — UNIM_DEVELOP=1 일 때만, 내용 없이 종류·시각(ms)만 남긴다.
+ *
+ * 형식: `PROBE seq=<n> t=<단조 ms> ev=<종류> [k=v ...]`
+ * 읽는 법: `grep -h 'PROBE seq=' ~/.unim-log/*gnome-shell*.log (또는 journalctl --user -b | grep 'PROBE seq=')` 후 seq 순으로 본다.
+ * seq 는 같은 ms 안의 순서를 가리고, t 는 사건 사이의 간격을 잰다.
+ * 값에는 개수·길이·불리언·버튼 마스크만 넣는다 — 문서·키 내용 금지(HANJA_WORD_SPEC §2.8).
+ *
+ * @param {string} event - 사건 종류 (예: 'focus_in', 'set_surrounding')
+ * @param {string} [fields] - 덧붙일 `k=v` 열 (앞 공백 없이)
+ */
+export function unimProbe(event, fields = '') {
+    if (!isDevelopMode()) return;
+    _probeSeq++;
+    const t = Math.round(GLib.get_monotonic_time() / 1000);
+    unimLog('PROBE', `PROBE seq=${_probeSeq} t=${t} ev=${event}${fields ? ' ' + fields : ''}`);
+}

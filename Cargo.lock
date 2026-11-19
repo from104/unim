@@ -5828,7 +5828,7 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unim"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "chrono",
  "dirs",
@@ -5842,7 +5842,7 @@ dependencies = [
 
 [[package]]
 name = "unim-capi"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "cbindgen",
  "unim",
@@ -5850,7 +5850,7 @@ dependencies = [
 
 [[package]]
 name = "unim-cli"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "clap",
  "dialoguer",
@@ -5864,7 +5864,7 @@ dependencies = [
 
 [[package]]
 name = "unim-daemon"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "clap",
  "ctrlc",
@@ -5883,12 +5883,14 @@ dependencies = [
 
 [[package]]
 name = "unim-dbus"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
+ "futures-util",
  "log",
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "tokio",
  "unim",
  "unim-popup-types",
@@ -5897,14 +5899,14 @@ dependencies = [
 
 [[package]]
 name = "unim-gen-help"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "pulldown-cmark",
 ]
 
 [[package]]
 name = "unim-gui-common"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "futures-util",
  "ksni",
@@ -5919,7 +5921,7 @@ dependencies = [
 
 [[package]]
 name = "unim-imm32"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "embed-resource",
  "unim",
@@ -5930,7 +5932,7 @@ dependencies = [
 
 [[package]]
 name = "unim-indicator"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "gtk4",
  "ksni",
@@ -5945,7 +5947,7 @@ dependencies = [
 
 [[package]]
 name = "unim-keymap-common"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "cairo-rs",
  "dirs",
@@ -5959,7 +5961,7 @@ dependencies = [
 
 [[package]]
 name = "unim-keymap-studio"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dirs",
  "gtk4",
@@ -5972,7 +5974,7 @@ dependencies = [
 
 [[package]]
 name = "unim-popup-service"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dirs",
  "futures-util",
@@ -6000,11 +6002,11 @@ dependencies = [
 
 [[package]]
 name = "unim-popup-types"
-version = "0.4.4"
+version = "0.4.5"
 
 [[package]]
 name = "unim-popup-win"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "embed-resource",
  "serde",
@@ -6016,7 +6018,7 @@ dependencies = [
 
 [[package]]
 name = "unim-settings"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "embed-resource",
  "i-slint-backend-winit",
@@ -6032,7 +6034,7 @@ dependencies = [
 
 [[package]]
 name = "unim-settings-gtk"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dirs",
  "gtk4",
@@ -6048,7 +6050,7 @@ dependencies = [
 
 [[package]]
 name = "unim-test-common"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "cc",
  "pkg-config",
@@ -6056,15 +6058,16 @@ dependencies = [
 
 [[package]]
 name = "unim-test-dbus"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
+ "futures-util",
  "tokio",
  "unim-dbus",
 ]
 
 [[package]]
 name = "unim-test-wayland"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "calloop 0.13.0",
  "calloop-wayland-source 0.3.0",
@@ -6078,7 +6081,7 @@ dependencies = [
 
 [[package]]
 name = "unim-tsf"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "embed-resource",
  "serde",
@@ -6091,7 +6094,7 @@ dependencies = [
 
 [[package]]
 name = "unim-typing-practice"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "gtk4",
  "libadwaita",
@@ -6104,7 +6107,7 @@ dependencies = [
 
 [[package]]
 name = "unim-wayland"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "futures-util",
  "mio",
@@ -6121,7 +6124,7 @@ dependencies = [
 
 [[package]]
 name = "unim-windows-common"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "unim",
  "windows 0.62.2",
@@ -6130,7 +6133,7 @@ dependencies = [
 
 [[package]]
 name = "unim-xim"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "ahash",
  "ctrlc",

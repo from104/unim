@@ -1,5 +1,5 @@
 Name:           unim
-Version:        0.4.4
+Version:        0.4.5
 Release:        1%{?dist}
 Summary:        Universal Next-generation Input Method Engine (Korean IME)
 Summary(ko):    범용 차세대 한글 입력기 엔진
@@ -420,6 +420,21 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
+* Fri Nov 20 2026 from104 <from104@gmail.com> - 0.4.5-1
+- Hanja: convert the word just typed, a selected Hangul word, or the word under
+  the cursor in one step; hanja output format setting; per-character meanings.
+- Hanja user dictionary for names and terms missing from the built-in one.
+- Status notifications (toasts); toggle beeps differ in pitch and count;
+  logs no longer record typed text.
+- Fixes: password field status lost after an input method reset, GTK4
+  selection erased by the emoji popup on GNOME, toggle stalls with the global
+  mode share, hanja dictionary loaded once per input field, auto-correction
+  word lists wiped after a hand edit broke their format.
+- Fix: home-row letter keys swallowed while the hanja or symbol popup was open
+  (they now close the popup and are typed).
+- Known limitation: converting a word already written needs the app to report
+  the surrounding text; with XIM, terminals and Chromium/Electron on X11 only
+  the word just typed converts (see README).
 * Mon Sep 21 2026 from104 <from104@gmail.com> - 0.4.4-1
 - GNOME: the extension now follows the daemon across restarts; after a package
   update or `unim-daemon --replace`, Hangul input stopped working until the

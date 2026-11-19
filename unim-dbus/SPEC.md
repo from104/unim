@@ -112,14 +112,19 @@ tokio 런타임 (멀티 스레드)          전용 std::thread
 pub enum EngineRequest {
     ProcessKey { context_id, keyval, keycode, state, response },
     CreateContext { id, window_id, response },
-    DestroyContext { id },
+    DestroyContext { id, response },   // 응답: 팝업이 열려 있었는가(bool)
     FocusIn { context_id, window_id, response },
     FocusOut { context_id, response },
     Reset { context_id },
     SetGlobalMode { is_korean },
-    GetHanjaCandidates { context_id, response },
-    SelectHanja { context_id, index, response },
+    GetHanjaCandidates { context_id, response },   // 응답 (HanjaCandidateResponse, closed_popup: bool)
+    SelectHanja { context_id, index, response },   // 응답 SelectHanjaOutcome {None, Commit, Replace, ReplaceSurrounding}
     CancelHanja { context_id },
+    SetClientCapabilities { context_id, caps },    // 응답 없음 — 대상③ 능력 비트
+    SurroundingHint { context_id, kind, keyval, state }, // 응답 없음 — 엔진 밖 사건(키·포인터·PRIMARY·선택 불명)
+    CancelEmojiPopup { context_id, committed, response }, // committed=true 면 문서 낡음 표시
+    SetSurroundingTextDeferred { context_id, text, cursor_pos, anchor_pos, response }, // 판정 보류 중일 때만 — 응답 DeferOutcome (§6.3a)
+    DeferDue { context_id, response },             // 판정 보류 기한 타이머 → 워커, 응답 DeferOutcome
 }
 ```
 
@@ -131,8 +136,20 @@ pub struct EngineResponse {
     pub preedit: Option<String>,     // 변경된 preedit (None이면 변경 없음)
     pub commit: Option<String>,      // 커밋할 텍스트 (None이면 없음)
     pub mode_changed: Option<bool>,  // 모드 변경 시 is_korean (None이면 변경 없음)
+    pub replace_surrounding: Option<ReplaceSurrounding>, // 대상③ 확정 — {delete_before, delete_after, commit_text, expect_text}
+    pub deferred_hanja: Option<u64>, // 한자키 판정 보류의 기한(워커 단조 ms) — §6.3a
+    // (그 밖 popup_action·auto_typefix·render_state·chord_pending·atf_* 필드는 코드 참조)
 }
 ```
+
+### 4.4 InputContext 직렬 디스패치 (zbus 4.4 반전 속성 주의)
+
+`org.atit.unim.InputContext` 인터페이스(`InputContextHandler`)는 **메서드별 태스크를 만들지 않고 연결의 디스패치 루프에서 직렬로 처리**한다. 데몬의 버스 연결은 1개라 **모든 앱의 InputContext 호출이 전역으로 직렬**이며, 같은 컨텍스트에서 응답 없이 보낸 `SetSurroundingText` 가 뒤따르는 `GetHanjaCandidates`/`ProcessKeyEvent` 보다 **먼저 엔진 채널에 들어가야** 하기 때문이다(HANJA_WORD_SPEC §2.4.5 순서 불변식 — 별도 태스크면 도착 순서가 뒤집혀 낡은 선택으로 한자 대상이 잡힌다).
+
+- 속성: `#[interface(name = "org.atit.unim.InputContext", spawn = true)]`. **zbus_macros 4.4.0 `iface.rs:377` 의 `spawn` 은 반전**되어(`!spawn.unwrap_or(false)`) `spawn = true` 일 때 메서드별 태스크가 **꺼진다**(`spawn_tasks_for_methods() == false`). 지정 안 함·`spawn = false` 는 태스크 생성(켜짐). zbus 5.x 는 `unwrap_or(true)` 로 정상 방향이라, 5 로 올릴 때는 `spawn = false` 로 바꿔야 한다. 단위 시험 `unim-dbus/tests/surrounding_order.rs` 가 `spawn_tasks_for_methods()` 를 단언해 방향 변경을 드러낸다.
+- `org.atit.unim.InputMethod` 는 직렬화하지 않는다 — `set_config`·`set_global_mode`·`register/unregister` 가 RwLock write 와 파일 I/O 를 하므로 그 자리에서 실행하면 InputContext 까지 막는다.
+- 비용: InputContext 호출이 처리되는 동안 같은 연결의 다른 메시지 디스패치가 늦어진다(엔진이 단일 스레드라 실제 지연 증가는 미미).
+- 후속 과제(이번 범위 밖): IBus 호환 `org.freedesktop.IBus.InputContext`(`ibus_compat/ibus_context.rs:187`)도 메서드별 태스크라 같은 도착 순서 경쟁이 있다. IBus 경로에 응답 없는 선행 송신 → 후속 조회 패턴이 생기면 같은 방식(zbus 4.4 반전 `spawn = true`)으로 직렬화를 검토한다.
 
 ---
 
@@ -152,8 +169,8 @@ pub struct EngineResponse {
 | `GetConfigYaml` | — | `s` | 전체 Config를 YAML 문자열로 반환 (파일 포맷과 동일) |
 | `GetConfigJson` | — | `s` | 전체 Config를 JSON 문자열로 반환 (JS 친화) |
 | `SetConfigYaml` | `yaml: s` | — | YAML 파싱 → `clamp_ranges()` → 저장 → `ConfigChangedJson` 방출 |
-| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). §5.5 참조 — IM 프런트엔드 레지스트리가 아님 |
-| `UnregisterFrontend` | `name: s` | — | 등록형 서비스 목록에서 이름 제거 (없으면 no-op) |
+| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). 호출자 unique name 을 등록자로 기록(§5.5). IM 프런트엔드 레지스트리가 아님 |
+| `UnregisterFrontend` | `name: s` | — | **호출자 자신의** 등록만 제거, 등록자가 없어진 이름은 목록에서 빠짐 (없으면 no-op). §5.5 |
 | `GetActiveFrontends` | — | `as` | 현재 등록된 이름 목록 조회 (정렬됨) |
 | `TypeFix` | `direction: u` | `(i, u, s)` | 글로벌(InputContext 비보유) 수동 TypeFix. direction: 0=자동,1=영→한,2=한→영. 반환 (offset_from_cursor, delete_chars, replacement) — 호출자(현재 GNOME extension)가 직접 삭제/커밋 수행 |
 | `AddReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 AutoTypeFix 억제 사전에 단어 추가 (영문 알파벳만) |
@@ -162,7 +179,7 @@ pub struct EngineResponse {
 | `UpdateReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 사전 단어의 메모 갱신 |
 | `RegisterUserDictFromSelection` | — | `s` | 마지막 selection surrounding text를 역방향 사전에 등록 |
 | `GetEmojiRecent` | — | `as` | 최근 사용 이모지 목록 조회 |
-| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`뿐 — §5.6 참조 |
+| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`, `"notify_test"` — §5.6 참조 |
 | `SetEmojiCategory` | `idx: u` | — | **internal-only** — popup-service forward 전용. 외부 frontend는 `org.atit.unim.Popup::SetEmojiCategory` 사용 |
 | `CommitEmoji` | `emoji: s` | — | 글로벌 이모지 커밋 (InputContext 비보유 경로) |
 
@@ -173,7 +190,8 @@ pub struct EngineResponse {
 | `GlobalModeChanged` | `is_korean: b` | 모드 변경, FocusIn, ProcessKey 모드 변경 |
 | `ConfigChanged` | `key: s, value: s` | (legacy) SetConfig 호출 시 |
 | `ConfigChangedJson` | `json: s` | SetConfigYaml 호출 시 전체 Config JSON payload |
-| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
+| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로, 또는 등록자 소멸(`NameOwnerChanged`, §5.5)로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
+| `Notify` | `kind: s, title: s, body: s, duration_ms: u, flags: u` | 상황 알림(토스트) 표시 요청. 알림 전담 태스크가 **`gnome-shell-notify` 등록자가 1명 이상일 때만** 발행하고, 없으면 데몬이 `org.freedesktop.Notifications` 를 직접 호출한다(시그널 미발행). `kind` 는 snake_case 이벤트 종류(`atf_corrected_forward`·`atf_corrected_reverse`·`atf_suppressed`·`blacklist_learned`·`password_enter`·`password_leave`·`mode_toggle_suppressed`·`mode_changed`·`feature_toggled`, 테스트 액션은 `test`). `flags`: 0x01=text_shown(`notify.show_text` 로 입력 텍스트 포함 — 수신측 로그 금지), 0x02=replace(직전 알림 교체). `title`/`body` 는 데몬이 `engine.notify.language` 로 렌더링한 완성 문구이며 **로그에 남기지 않는다**(`kind` 만). 설계 [`NOTIFY_SPEC.md`](../docs/dev/specs/NOTIFY_SPEC.md) §3.2 |
 
 ### 5.3 CreateInputContext 상세
 
@@ -184,8 +202,43 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
   → 3. window_id가 빈 문자열이면 client_name으로 대체
   → 4. EngineRequest::CreateContext → 엔진 워커에 전송
   → 5. InputContextHandler를 해당 경로에 DBus 등록
-  → 6. 경로 문자열 반환
+  → 6. 호출자 unique name(메시지 헤더 sender)을 컨텍스트 소유자로 기록 (§5.3a)
+  → 7. 경로 문자열 반환
 ```
+
+### 5.3a 입력 컨텍스트 회수 (연결 종료)
+
+클라이언트가 `Destroy` 없이 죽으면 컨텍스트가 영원히 남아(CI 실측 create 428 / destroy 76) 전역 모드
+전파 루프(ATF 전파·토글 전파·`SetGlobalMode`)가 살아 있는 컨텍스트 수만큼 돈다. 이를 막기 위해
+데몬이 소유자의 연결 종료를 감시해 컨텍스트를 회수한다. 구현은 `src/context_registry.rs`.
+
+- **키**: 컨텍스트를 만든 호출자의 **unique name**(`:1.N`) → 컨텍스트 id 집합(`OwnerMap`).
+  `org.atit.unim.InputMethod.CreateInputContext`, IBus 호환 `org.freedesktop.IBus.CreateInputContext`,
+  포털 `org.freedesktop.IBus.Portal.CreateInputContext` 세 생성 경로가 모두 `#[zbus(header)]` 의
+  sender 를 기록한다. IBus 호환 레이어는 별도 연결 없이 데몬과 **같은 세션 버스 연결**을 쓰므로
+  동일하게 동작한다. 레지스트리(`ContextRegistry`)는 `InputMethodService` 가 소유하고 IBus 호환
+  레이어와 `InputContextHandler`/`IBusInputContextHandler` 가 핸들을 공유한다.
+- **감시**: 프런트엔드 등록자 감시(§5.5)와 **같은** `NameOwnerChanged` 구독
+  (`spawn_frontend_watcher`)을 재사용한다. `:` 로 시작하는 unique name 의 `new_owner` 가 비면
+  그 owner 의 컨텍스트를 전부 회수한다(프런트엔드 등록 여부와 무관).
+- **공통 경로**: 회수와 명시적 `Destroy`(UNIM·IBus 양쪽)는 `destroy_context` 하나를 탄다 —
+  레지스트리 제거 → `last_active` 캐시 무효화(해당 path 일 때) → `EngineRequest::DestroyContext`
+  (per-context 엔진 상태와 알림 게이트의 비밀번호 칸 기록 정리) → 팝업(한자·특수문자·이모지)이
+  열려 있었으면 그 컨텍스트 path 로 `HidePopup` 발행(UNIM 컨텍스트만 — 앱이 팝업을 연 채 죽어도 창이
+  남지 않게. 열려 있지 않으면 내지 않는다: 경로 무관 구독자가 다른 앱의 팝업을 닫지 않게) →
+  object_server 에서 핸들러 제거.
+- **멱등·경합**: owner 의 id 는 맵에서 한 번만 꺼내지고, 엔진 `HashMap::remove` 는 이미 없어도 오류가 아니고
+  `ObjectServer::remove` 의 `InterfaceNotFound` 는 버리므로 `Destroy` 와 경합하거나 같은 owner 가 두 번 통지돼도 이중 파괴·패닉이
+  없다. `Destroy` 된 컨텍스트는 레지스트리에서 빠지므로 회수 대상이 아니다.
+- **생성 직후 경합 방어**: 등록 직후 `NameHasOwner(sender)` 로 소유자 생존을 한 번 확인하고, 이미
+  죽었으면 즉시 회수한다(응답 전에 죽으면 `NameOwnerChanged` 가 등록보다 먼저 도착하기 때문).
+- **회수 대상에서 제외되는 경우**: sender 가 없는 p2p 연결(주로 시험용 `UnixStream::pair`)은
+  버스가 없어 `NameOwnerChanged` 를 낼 수 없으므로 추적하지 않는다. 실제 데몬은 항상 버스 연결이다.
+- **한계**: 컨텍스트를 만든 연결이 살아 있는 한 회수되지 않는다(다른 연결이 대신 종료돼도 무관).
+  살아 있으나 응답하지 않는 클라이언트의 컨텍스트도 회수되지 않는다. 감시는 `with_notify` 로 켜지며
+  데몬 `main` 은 항상 호출한다.
+- **로그**: 회수 시 `연결 종료 :1.N — 컨텍스트 K개 회수: ids=[...]` 형식으로 개수와 id 만 남긴다
+  (사용자 텍스트·창 제목 평문 금지, HANJA_WORD_SPEC §2.8).
 
 ### 5.4 설정 키 매핑
 
@@ -212,15 +265,36 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `auto-typefix-rollback-detection` | bool | `engine.auto_typefix.rollback_detection` (4315dce) |
 | `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
 | `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |
+| `notify_enabled` | bool | `engine.notify.enabled` (알림 전역 스위치) |
+| `notify_duration_ms` | u32 | `engine.notify.duration_ms` (500..=5000, `clamp_ranges`). GNOME 알림 배너에는 적용되지 않음 |
+| `notify_language` | enum | `engine.notify.language` — `auto`, `ko`, `en` |
+| `notify_show_text` | bool | `engine.notify.show_text` — 교정 전후 텍스트·단어 표시(기본 false, 민감정보 주의) |
+| `notify_corner` | enum | `engine.notify.corner` — `auto`, `top_right`, `bottom_right`, `top_left`, `bottom_left` (Windows 전용) |
+| `notify_events` | string list | `engine.notify.events` — 쉼표 구분 설정명(`atf_corrected`, `atf_suppressed`, `blacklist_learned`, `password_enter`, `password_leave`, `mode_toggle_suppressed`, `mode_changed`, `feature_toggled`, `feature_result`). 기본 7종(`password_leave`·`mode_changed` 제외), 미지 원소는 무시 |
 
 ### 5.5 RegisterFrontend / UnregisterFrontend / GetActiveFrontends — 의미 명시 (FUNC-LINUX-04)
 
 이 세 메서드 + `ActiveFrontendsChanged` 시그널은 **"현재 어떤 IM 입력 경로(GTK/Qt/XIM/Wayland)가
 쓰이는지 진단하는 레지스트리"가 아니다.** GTK/Qt/XIM/Wayland IM 모듈은 이 메서드를 호출하지 않는다.
 
-실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`) 뿐이며,
-목적은 **트레이 조정용 등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의
-`has_gnome` 판정이 이 목록을 읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정한다.
+실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`), 그리고
+GNOME 확장(`gnome-shell`, 알림 브리지 `gnome-shell-notify`) 이며, 목적은 **트레이 조정·알림 라우팅용
+등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의 `has_gnome` 판정이 이 목록을
+읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정하고(이름 `gnome-shell` 정확 일치),
+데몬의 알림 전담 태스크는 `gnome-shell-notify` 등록자가 있을 때만 `Notify` 시그널(§5.2)을 내고 없으면
+fdo 직접 호출로 폴백한다. 두 이름은 서로 독립이라 구버전 확장(`gnome-shell` 만 등록)은 fdo 로 떨어진다.
+
+**등록자 추적**(NOTIFY_SPEC §3.2): 목록은 `이름 → 등록자 집합(호출자 unique name)` 맵으로 보관한다.
+- `RegisterFrontend` 는 `header.sender()` 를 해당 이름의 등록자로 기록한다(같은 호출자 재호출은 멱등).
+- `UnregisterFrontend` 는 **호출자 자신의 등록만** 지운다(타인 등록 해제 불가). 등록자 집합이 비면 이름이 목록에서 빠진다.
+- **`NameOwnerChanged` 정리**: 데몬은 `org.freedesktop.DBus.NameOwnerChanged` 를 구독해 `name` 이 `:`
+  접두(unique name)이고 `new_owner` 가 비면(연결 종료) 그 등록자를 **모든 이름**에서 제거하고, 이름
+  집합이 바뀌었으면 `ActiveFrontendsChanged` 를 발행한다(`gnome-shell` 등 기존 이름에도 동일 적용).
+  **한계**: GNOME 확장은 gnome-shell 프로세스의 버스 연결을 공유하므로 셸이 살아 있고 확장만 고장 난
+  경우에는 정리되지 않는다.
+- **재연결 재등록**: 데몬 재시작 후 목록은 비어 있으므로 등록자는 재연결 시 다시 등록해야 한다
+  (GNOME 확장은 `_onDaemonReady` 에서 `gnome-shell`, 알림 브리지가 켜져 있으면 `gnome-shell-notify` 도 재등록).
+- `GetActiveFrontends` 반환형(`as`, 이름만·정렬)은 변하지 않는다.
 
 따라서 `unim-cli daemon frontends`(활성 목록 조회)의 결과에는 GTK3/GTK4/Qt5/Qt6/XIM/Wayland IM
 경로가 **원래부터** 나타나지 않으며, 이는 결함이 아니라 설계된 범위다. IM 입력 경로 자체의 활성
@@ -229,8 +303,8 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 ### 5.6 TriggerAction — 지원 액션 범위
 
 `TriggerAction`(InputMethod, 글로벌)과 `InputContext.TriggerAction`(컨텍스트-scoped, §6.1)은
-현재 **`"emoji_popup"` 한 가지만** 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
-유지 목적의 fail-open). `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
+현재 **`"emoji_popup"`** 과 알림 검증용 **`"notify_test"`** 만 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
+유지 목적의 fail-open). `notify_test` 는 `kind="test"` 의 `Notify` 시그널/fdo 알림을 한 번 발생시키며(`engine.notify.enabled` 게이트 적용, L2·L3 검증용), `InputContext.TriggerAction` 에는 해당 없다. fdo 직접 경로의 `Notify` 호출은 `app_icon="unim-korean"`(unim-common 설치 hicolor 아이콘), hints `transient=true`·`urgency=1`·`desktop-entry="io.github.from104.unim.Settings"`·`category="x-unim.input"`, `replaces_id`=직전 id(실패 시 0 으로 초기화)이다. `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
 에 전 데스크톱으로 노출하는 것은 v0.4.0 범위 밖이다(FUNC-LINUX-05) — 실제 텍스트 치환에는
 GNOME extension이 갖는 IM vfunc(`delete_surrounding`/`commitText`) 수준의 앱 조작 권한이 필요하고,
 이 권한이 없는 환경(CLI 단독 호출 등)에서는 `TypeFix`/`SmartBackspace`가 반환하는 (offset, delete,
@@ -239,6 +313,8 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 ---
 
 ## 6. InputContext 인터페이스 (`org.atit.unim.InputContext`)
+
+`SetClientCapabilities`·`SurroundingHint` 도 같은 직렬 처리에 기댄다 — 응답 없이 보낸 힌트가 바로 뒤의 `GetHanjaCandidates`/`ProcessKeyEvent` 보다 먼저 엔진에 반영돼야 낡음·선택 거부 판정이 맞다(HANJA_WORD_SPEC §2.4b.6, `tests/surrounding_word.rs` (11)).
 
 경로: `/org/atit/unim/InputContext_{id}` (동적 생성)
 
@@ -250,18 +326,20 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `FocusIn` | `window_id: s` | — | 포커스 획득 + 모드 시그널 발송 |
 | `FocusOut` | — | `s` | 포커스 상실 → 조합 커밋 텍스트 반환 |
 | `Reset` | — | — | 입력 상태 초기화 |
-| `Destroy` | — | — | 컨텍스트 파괴 |
-| `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]) |
-| `SelectHanja` | `index: u` | `s` | 한자 선택 → 선택된 한자 반환 |
-| `CancelHanja` | — | — | 한자 모드 취소 |
-| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
+| `Destroy` | — | — | 컨텍스트 파괴 (연결 종료 시 자동 회수와 같은 경로, §5.3a) |
+| `GetHanjaCandidates` | — | `(s, a(ss))` | (대상③ 후보가 소진돼 열려 있던 팝업이 이 호출로 닫히면 `HidePopup` 을 자기 path 로 발행 — 이어지는 `ProcessKeyEvent` 폴백이 이모지를 연다) 한자 후보 조회 → (target, [(한자, 뜻풀이)]). target 은 다음절 어절일 수 있다(최근 확정 음절+preedit·단어 모드 preedit·선택 영역 — [`HANJA_WORD_SPEC`](../docs/dev/specs/HANJA_WORD_SPEC.md) §2) |
+| `SelectHanja` | `index: u` | `s` | 한자 선택 → 출력 형식(`hanja_output_format`) 적용 문자열 반환(시그니처 불변). 확정 접두가 있으면(대상①) `CommitText` 대신 `AutoTypefixApply(delete_chars, text, "")` 가 popup-owner path 로 발행되고 `HidePopup` 이 이어진다. 대상③ 이면 `ReplaceSurroundingText(a, b, text, expect)` → `HidePopup` 순서로 발행 — 워커 내부 결과 `SelectHanjaOutcome{None, Commit, Replace, ReplaceSurrounding}` |
+| `CancelHanja` | — | `s` | 한자 모드 취소 — 팝업 진입 때 내려간 preedit 부분만 `CommitText` 로 되돌린다(확정 접두는 앱에 이미 있으므로 제외, 선택 영역 대상은 커밋 없음). 한자 모드였으면 커밋이 없어도 `HidePopup` 발행 |
+| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. 비밀번호/PIN 진입 시 열린 팝업(한자·특수문자·이모지)은 **재커밋 없이** 닫고 `HidePopup` 만 호출 컨텍스트 자신의 path 로 발행한다(워커 `SetContentTypeWithReply` 응답 채널, HANJA_WORD_SPEC §2.8). ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
 | `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
 | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 | `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
 | `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
-| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건) |
+| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | **응답 없이 보내도 이후 호출(GetHanjaCandidates·ProcessKeyEvent) 전에 엔진에 반영된다(§4.4 직렬 디스패치).** 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건). 한자 선택 변환(대상②) 감지·확정 접두 정합성 검증에도 쓴다 — Wayland 는 `done` 마다, Qt 는 `update()` 마다(변경 시, 빈 텍스트 포함), TSF 는 idle 한자키 시점에 전송. 커서가 걸친 단어(대상③) 판정에도 쓰고, 수신(비밀번호 필드 포함)이 엔진의 "낡음"·"소진"·"선택 불명" 표시를 푼다(HANJA_WORD_SPEC §2.4b.6). GNOME 확장은 Mutter 값을 그대로 전달만 한다(PRIMARY 로 만든 가짜 anchor 송신은 퇴역) |
+| `SetClientCapabilities` | `caps: u` | — | 클라이언트 능력 선언(응답 없이 보냄, 멱등 — FocusIn 직후마다). 비트 `0x1` REPLACE_SURROUNDING · `0x2` SELECTION_RELIABLE · `0x4` POINTER_HINTS. 대상③ 허용 조건은 `(caps&1) && (caps&6)`. 엔진 재생성(Reset·FocusOut)·FocusIn 을 건너 유지되고, 보내지 않으면 0(종전 동작, IBus 호환·XIM·순수 Wayland 포함) |
+| `SurroundingHint` | `kind: u, keyval: u, state: u` | — | 프런트가 엔진 밖에서 관측한 사건(응답 없이 보냄). `kind` 1 KEY(엔진을 거치지 않고 앱에 넘긴 키 — keyval 은 X11 keysym, state 는 X11/Clutter 마스크) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED · 5 SELECTION_UNKNOWN(다음 한자키 한 번) · 6 FIELD_FOCUS(입력란이 바뀜 — 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 보낸다. FocusIn 과 같은 낡음·선택 거부 표시를 하되 모드 복원·ATF 리셋은 하지 않으며, push 컨텍스트(caps 에 `0x2` 없음·`0x4` 있음)에서만 효력이 있고 그 밖에는 무시) · 7 PRIMARY_EMPTY(v1.8 — 한자키 직전 PRIMARY 가 비어 있음. push 컨텍스트에서 선택 가능 표시의 원인이 PRIMARY_CHANGED 단독일 때만 표시를 푼다. 구버전 엔진은 알 수 없는 kind 로 무시) · 8 POINTER_APP(v1.8 — 앱 표면 눌림, 눌린 곳이 글 영역인지 모름. push 컨텍스트에서 낡음 표시·보류 취소, 선택 거부 표시는 원인이 FocusIn·FieldFocus 뿐일 때만 해제). `kind≠1` 이면 keyval·state=0. 알 수 없는 kind 는 무시하고 로그. 로그에는 탐색·편집 키 이름만 남긴다(글자 평문 금지) |
 | `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
 | `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
 | `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
@@ -282,7 +360,8 @@ replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후
 | `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
 | `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
 | `DeleteSurroundingText` | `offset: i, n_chars: u` | 커서 기준 삭제 요청 (SmartBackspace 결과 반영용) |
-| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로 |
+| `ReplaceSurroundingText` | `delete_before: u, delete_after: u, commit_text: s, expect_text: s` | 대상③(커서 주변 단어) 확정 — 커서 기준 앞 a자·뒤 b자(유니코드 코드포인트)를 지우고 `commit_text` 커밋. `expect_text`(지울 한글 원문, 항상 비어 있지 않음)를 GTK·Qt 는 문서 재조회 후 완전 일치할 때만 실행하고, GNOME 은 대조 없이 실행. 키보드 확정은 `ProcessKeyEvent` 안에서 `HidePopup` 뒤 자기 path 로, 마우스 확정은 popup-owner path 로 `ReplaceSurroundingText` → `HidePopup`. 로그는 a·b·길이만 |
+| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로. 한자 단어 교체에도 사용 — 그때 `delete_chars`=확정 접두 글자 수, `preedit_text=""`(키보드 확정은 `ProcessKeyEvent` 응답 뒤, 마우스 확정은 `SelectHanja` 에서 발행). 교체 프레임에서는 ATF 검사·Global 모드 전파를 건너뛰고 키스트로크 버퍼를 폐기한다 |
 
 ### 6.3 ProcessKeyEvent 상세
 
@@ -301,6 +380,44 @@ ProcessKeyEvent(keyval, keycode, state)
 ```
 
 > **키 자동 반복 억제 게이트(접근성, `ignore_key_repeat`)**: 설정이 켜져 있으면 엔진 워커가 `press_key` 앞단에서 반복 press 를 소비-드롭한다. 반복 판정은 `state` 의 `UNIM_REPEAT_AWARE_MASK`(1<<31)/`UNIM_KEY_REPEAT_MASK`(1<<29) 비트를 우선하고(aware 프런트: Wayland·Qt5/6·GNOME), aware 비트가 없는 프런트(GTK3/4·XIM·ibus)는 per-context 80ms 시간창(`REPEAT_INFER_WINDOW`)으로 근사한다 — 첫 반복 1회 누출·80ms 초과 interval 미검출 한계는 항상 "미억제(현행 유지)" 방향의 fail-safe. 억제 대상은 토글 키·한글 모드 문자 키뿐이며, 드롭 응답은 현재 preedit 를 에코해 조합 증발·preedit-end 오발사를 막는다. off 면 게이트 첫 조건에서 탈락(오버헤드 0·동작 무손상).
+
+### 6.3a 한자키 판정 보류 (Defer, push 컨텍스트 전용)
+
+대상③(커서 주변 단어) 판정 입력은 push 프런트(GNOME — caps `0x5`)에서 한자키 시점에 낡았거나 아직 안정되지 않았을 수 있다. 이 경우 엔진은 판정을 **미루고**(R7: 낡음 → 150ms, R8: 키 없는 커서 이동 뒤 안정 300ms), 데몬은 팝업 없이 응답한다. caps 에 `0x2`(SELECTION_RELIABLE)가 있는 GTK·Qt·TSF 는 이 경로를 타지 않는다(종전 즉시 판정). 대상②(앱 선택)의 낡음 거절도 caps 에 `0x1`(REPLACE)이 있으면 같은 보류를 받는다.
+
+```
+ProcessKeyEvent(한자키) → consumed=true, preedit="", commit=""  (팝업 시그널 없음)
+   └ EngineResponse.deferred_hanja = Some(기한)  →  service 가 tokio 타이머 태스크를 건다
+재판정(R9) — 둘 중 먼저 오는 쪽
+   (a) SetSurroundingText 도착(F2): 서비스가 보류를 안다면 SetSurroundingTextDeferred 로 보내
+       반영 직후 재판정한다. 낡음만 풀렸는데 안정 대기(R8)가 남았다면 일찍 판정하지 않고 기한을 안정
+       시각으로 늦춰 계속 기다린다(`poll_deferred_hanja`). 한자키 시점부터 총 대기는
+       SETTLE+WAIT = 450ms 를 넘지 않는다.
+   (b) 기한 도달: 타이머가 DeferDue 를 보낸다. 기한이 늦춰졌으면(Wait) 새 기한까지 다시 잔다.
+결과 → 평소 ProcessKeyEvent 가 내는 것과 같은 시그널을 **한자키를 받은 그 InputContext path** 로
+       발행한다: 한자 후보면 ShowHanjaPopup + PopupRender, 거절이면 이모지 폴백(ShowEmojiPopupV2 +
+       PopupRender). 팝업 위치는 재판정 시점의 CursorRect. 두 번째 보류는 없다.
+```
+
+- **취소(R10)**: 보류 중 같은 컨텍스트에 다른 키(수정자 단독 제외)·FocusIn·FIELD_FOCUS·FocusOut·Reset·POINTER_PLAIN/SELECT·KEY 힌트·비밀번호 목적 진입·AutoTypeFix 되돌리기가 오면 보류를 조용히 취소한다(팝업 없음, 그 사건은 정상 처리, 로그 `reason=defer_cancel`). 컨텍스트 파괴(회수 포함)는 엔진을 버리므로 보류도 사라지고, 깨어난 타이머는 `DeferOutcome::Idle` 을 받아 끝난다. 엔진 재생성(FocusOut·Reset) 전에 `cancel_deferred_hanja()` 를 부른다.
+- **취소 로그 `why=` 값**(엔진 `sw_cancel_defer` 호출처 전수 — `reason=defer_cancel client=<태그> why=<값>`):
+
+  | `why` | 원인 | 코드 |
+  |-------|------|------|
+  | `key` | 보류 중 다른 키(수정자 단독 제외) | `press_key.rs` |
+  | `hint_key` | KEY 힌트(수정자 단독 제외) | `surrounding_word.rs` `SurroundingHint` |
+  | `pointer` | POINTER_PLAIN·POINTER_SELECT 힌트 | 같은 곳 |
+  | `field_focus` | FIELD_FOCUS 힌트 | `sw_focus_mark` |
+  | `focus_in` | FocusIn(창) | `sw_focus_mark` |
+  | `purpose` | 비밀번호/PIN 목적 진입 | `surrounding.rs` |
+  | `reset` | 엔진 `reset()` (Reset RPC·모드 재설정) | `engine.rs` |
+  | `host` | 호스트의 `cancel_deferred_hanja()` — 엔진 재생성(FocusOut·Reset 후 재생성) 전, pull 시작 | `engine_worker.rs` |
+
+  취소는 보류 상태(`sw_pending_defer`)가 있을 때만 로그를 남긴다. 컨텍스트 파괴·회수는 엔진째 사라져 로그가 없다(타이머가 `Idle`).
+- **팝업 발행 순서**: 기한 재판정은 디스패치 밖(타이머 태스크)에서 `DeferDue → 워커 응답 → ShowXxx` 를 낸다. 이 사이에 Esc `ProcessKeyEvent` 의 `HidePopup` 이 먼저 나가면 닫힌 엔진 위에 팝업만 남으므로, 컨텍스트별 async 잠금(`DeferGate`)으로 "워커 요청~시그널 발행" 구간을 직렬화한다: 타이머는 재판정 한 번마다 잠그고, `ProcessKeyEvent`·`FocusOut`·`Reset`·`SetContentType`·보류 중 `SetSurroundingText` 는 **보류 타이머가 살아 있을 때만** 같은 잠금을 잡는다(타이머는 `ProcessKeyEvent` 디스패치 안에서만 생기므로 `armed==0` 이면 경쟁 상대가 없다 — S 컨텍스트·보류 없는 push 핫패스는 원자 읽기 한 번뿐). 잠금을 쥔 채 기다리는 대상은 워커 응답과 시그널 송신뿐이라 순환 대기가 없다.
+- **타이머 근거**: 워커는 `blocking_recv` 루프라 자체 타이머가 없고, `replace_verify.sweep` 식 청산은 다음 요청이 올 때만 돌아 키를 누르지 않고 기다리는 이 상황에서 기한을 놓친다. 서비스 tokio 타이머는 ms 정확하고(`ChordIdleFlush` 와 같은 방식) 보류 상태는 워커의 엔진에만 둔다.
+- **GNOME 확장**: 무변경. 팝업 표시는 시그널 구동이고 키는 항상 `ProcessKeyEvent` 로 가므로, 늦게 온 팝업 시그널로도 숫자·방향·Esc 가 정상 라우팅된다.
+- **pull 경로**(`GetHanjaCandidates`)에서 보류가 나오면(pull 프런트는 S 를 선언하므로 정상 조합에서는 없음) 보류를 취소하고 빈 후보로 답한다.
 
 ### 6.4 FocusIn 상세
 
@@ -321,7 +438,7 @@ FocusOut()
   → 1. EngineRequest::FocusOut 전송
   → 2. 엔진 워커:
        조합 중이면 preedit → commit 변환
-       엔진 리셋 (InputEngine::new)
+       엔진 리셋 (new_daemon_engine — §7.6)
        비-Global 모드에서는 입력 모드 복원
   → 3. 커밋 텍스트를 RPC 반환값으로만 돌려준다.
        (CommitText 시그널은 context-scoped가 아니어서
@@ -409,7 +526,9 @@ FocusOut 요청 수신
   → preedit이 비어있지 않으면:
     1. current_mode 저장
     2. preedit 텍스트를 commit_text로 변환
-    3. engine = InputEngine::new(&config) (전체 리셋)
+       (한자 팝업 중이면 `hanja_cancel_text()` = 팝업 진입 당시 preedit 전체 —
+        확정 접두·선택 영역은 앱에 이미 있으므로 제외)
+    3. engine = new_daemon_engine(&config, window_id) (전체 리셋)
     4. 비-Global 모드 → set_input_category(current_mode) (모드 복원)
     5. commit_text 반환
 ```
@@ -417,6 +536,18 @@ FocusOut 요청 수신
 > [!NOTE]
 > `flush_preedit`이 private이므로, 엔진 전체를 `InputEngine::new()`로 다시 생성합니다.
 > 이때 입력 모드가 기본값으로 초기화되므로, 비-Global 모드에서는 명시적으로 복원합니다.
+>
+> 엔진 생성은 전부 `new_daemon_engine(config, window_id)` 를 거친다(테스트 제외) —
+> `InputEngine::new` + `set_hanja_word_replace_capable(!window_id.starts_with("ibus-"))`.
+> 데몬은 한자 단어 교체 페이로드를 `AutoTypefixApply` 로 내보내는 호스트이므로, 생성 경로
+> 하나라도 헬퍼를 건너뛰면 그 경로 뒤 컨텍스트에서 확정 접두 단어 변환이 조용히 단음절로
+> 퇴화한다. 예외는 IBus 호환 컨텍스트(`ibus-` 접두) — 그 응답 소비자(`emit_engine_response`)가
+> commit·preedit 만 내보내고 `auto_typefix` 를 버리므로 능력을 끄고 단음절 확정으로 둔다
+> (켜 두면 교체 확정 시 preedit 만 지워지고 한자가 삽입되지 않는다). FocusOut/Reset 재생성은
+> `context_windows` 의 현재 window_id 로 같은 판정을 한다. AutoTypeFix 순방향 교정은 `reset()` 뒤
+> 마지막 음절만 replay 하므로, replay·`clear_commit()` **뒤**에 교정된 접두(`commit_text`)로
+> 최근 확정 음절 버퍼를 시드한다(`recent_clear` + `recent_push_char`) — 교정 직후 한자키의
+> target 이 "대한민"+"국" 이 되게 한다(HANJA_WORD_SPEC §4.1).
 
 ---
 
@@ -516,6 +647,8 @@ sequenceDiagram
     SVC-->>FE: commit_text 반환 (RPC 반환값 단일 채널 — 552b5bd)
 ```
 
+대상③ 확정 흐름: `SetClientCapabilities(caps)`·`SetSurroundingText`·`SurroundingHint` (응답 없음) → `ProcessKeyEvent`(한자키) → 후보 팝업 → 확정 시 `EngineResponse.replace_surrounding` 또는 `SelectHanjaOutcome::ReplaceSurrounding` → `ReplaceSurroundingText(a,b,text,expect)` + `HidePopup`.
+
 ---
 
 ## 11. 빌드
@@ -540,6 +673,10 @@ cargo build --workspace
 | `ENGINE_WORKER` | `engine_worker.rs` (요청 처리, 모드 변경) |
 
 로그 매크로: `unim_log!("DBUS", "...")` / `unim_log!("ENGINE_WORKER", "...")`
+
+`SetSurroundingText` 로그는 DBus 계층(send 직후)이 아니라 **엔진 워커가 처리한 뒤** 길이만 한 줄로 찍는다 — 엔진 처리 순서를 반영하고 텍스트 평문을 남기지 않기 위함(HANJA_WORD_SPEC §2.8).
+
+`ReplaceSurroundingText` 교체 검증 로그(관측 전용, `replace_verify.rs`): 시그널을 내는 순간(키보드·마우스 확정 공통, 모든 프런트) 그 컨텍스트의 직전 surrounding(메모리에만)과 a·b·commit 길이를 보관했다가, 같은 컨텍스트의 다음 `SetSurroundingText`(발행 3초 이내, 그 사이 FocusIn/FocusOut/컨텍스트 파괴 없을 때)와 코드포인트 단위로 비교해 `[REPLACE_VERIFY] ctx=N frontend=<GNOME|GTK3|GTK4|Qt5|Qt6|…> expect(before=a, after=b, ins=k) actual(before=x, after=y, ins=z) verdict=ok|over|under|mismatch|unknown|timeout` 한 줄을 `ENGINE_WORKER` 태그로 남긴다. 텍스트 평문은 로그에 없고 보관본은 비교 직후(또는 취소·타임아웃 청산 시) 버린다. 옛 문서와 똑같은 재보고는 교체 결과가 아니므로 소비하지 않고 대기를 유지한다. GNOME 경로는 삭제와 커밋이 따로 적용돼 앱이 보고를 두 번 보내기도 하므로, 첫 보고가 커서에 닿는 순수 삭제(ins=0)이면 그 관측값을 보관한 채 최종 보고를 기다려 중간 보고를 건너뛰고 정확히 일치하는 보고만 비교한다(최종이 끝내 오지 않으면 보관한 관측값으로 `mismatch`(ins=0)를 남긴다). `over` = 기대보다 많이 지움(예: 한글을 바이트 a×3 으로 지움), `unknown` = surrounding 창 이동 등 비교 불가, `timeout` = 3초 내 보고 없음(워커에 타이머가 없어 다음 요청 처리 시 청산). `frontend` 는 `CreateInputContext` 의 `client_name` 에서 구한다(`NoteFrontend` 요청, IBus 호환 컨텍스트는 `unknown`). 실측 절차는 HANJA_WORD_SPEC §6.5 (10).
 
 활성화: `UNIM_DEVELOP=1`
 

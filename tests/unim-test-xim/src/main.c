@@ -24,6 +24,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xresource.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/Xft/Xft.h>
 
@@ -82,6 +83,21 @@ static struct {
      * 절반 크기로 떴다 — 2026-08-09 실측(760x960 요청 → 다른 앱은 1520x2208).
      */
     double          scale;
+
+    /* 텍스트 선택 — 마우스 드래그·다중 클릭 상태 */
+    int             dragging;          /* Button1 이 눌려 있는 동안 1 */
+    Time            click_time;        /* 직전 클릭 시각(X 서버 ms) */
+    int             click_x, click_y;
+    int             click_field;
+    int             click_count;       /* 1=캐럿 2=단어 3=전체 */
+
+    /* PRIMARY 소유 — XIM 앱은 툴킷이 없어 SelectionRequest 에 직접 답한다 */
+    Atom            atom_utf8, atom_targets, atom_timestamp;
+    Time            last_time;                       /* 마지막 키·버튼·모션 이벤트 시각(ICCCM) */
+    Time            prim_time;                       /* PRIMARY 를 소유한 시각 */
+    char            prim_text[UNIM_FIELD_TEXT_MAX];  /* 내보내는 실물(비면 없음) */
+    int             prim_owner;                      /* 내보낸 필드 인덱스, -1=없음 */
+    char            prim_last[UNIM_SPEC_N_CORE_FIELDS][UNIM_FIELD_TEXT_MAX];
 } A;
 
 static UnimTestField *cur(void) { return &A.fields[A.active]; }
@@ -195,7 +211,106 @@ static void update_spot(void) {
 
 static void redraw(void);
 
+/* ─── PRIMARY 선택 ────────────────────────────────────────────────────── */
+
+/**
+ * 현재 필드의 선택이 바뀌었으면 PRIMARY 를 소유(또는 반납)한다.
+ * 필드별로 마지막에 반영한 텍스트를 기억해, 포커스만 옮겼을 때(선택은 그대로)
+ * 다시 소유권을 가져가지 않는다 — GTK 위젯 관례와 같다.
+ * 비밀번호 필드는 unim_field_primary_text() 가 NULL 이라 내보내지 않는다.
+ */
+static void sync_primary(void) {
+    char txt[UNIM_FIELD_TEXT_MAX];
+    const char *t = unim_field_primary_text(cur(), txt, sizeof txt);
+    const char *want = t ? t : "";
+    if (!strcmp(A.prim_last[A.active], want)) return;
+    snprintf(A.prim_last[A.active], sizeof A.prim_last[0], "%s", want);
+
+    if (t) {
+        snprintf(A.prim_text, sizeof A.prim_text, "%s", t);
+        A.prim_owner = A.active;
+        /* ICCCM — CurrentTime 이 아니라 마지막 사용자 이벤트 시각으로 소유한다. */
+        Time when = A.last_time ? A.last_time : CurrentTime;
+        XSetSelectionOwner(A.dpy, XA_PRIMARY, A.win, when);
+        if (XGetSelectionOwner(A.dpy, XA_PRIMARY) == A.win) {
+            A.prim_time = when;
+            unim_log_note("PRIMARY 소유: %s \"%s\"", cur()->id, A.prim_text);
+        } else {
+            /* 서버가 시각이 낡았다며 거절했다 — 소유하지 못했다. */
+            A.prim_owner = -1;
+            A.prim_text[0] = '\0';
+            unim_log_note("PRIMARY 소유 실패: %s (시각 %lu)", cur()->id, (unsigned long)when);
+        }
+    } else if (A.prim_owner == A.active) {
+        /* 이 필드가 내보내던 선택이 풀렸다 */
+        A.prim_owner = -1;
+        A.prim_text[0] = '\0';
+        if (XGetSelectionOwner(A.dpy, XA_PRIMARY) == A.win)
+            XSetSelectionOwner(A.dpy, XA_PRIMARY, None,
+                               A.last_time ? A.last_time : CurrentTime);
+        unim_log_note("PRIMARY 반납: %s", cur()->id);
+    }
+}
+
+/** 다른 클라이언트가 PRIMARY 를 가져갔다. 필드의 선택 자체는 유지한다. */
+static void handle_selection_clear(XSelectionClearEvent *ev) {
+    if (ev->selection != XA_PRIMARY) return;
+    A.prim_owner = -1;
+    A.prim_text[0] = '\0';
+    /* prim_last 는 둔다 — 지우면 키 하나만 눌러도 낡은 선택으로 PRIMARY 를
+     * 도로 빼앗는다. 선택이 실제로 바뀔 때만 sync_primary 가 다시 소유한다. */
+    unim_log_note("PRIMARY 를 다른 클라이언트에 빼앗김");
+}
+
+/** PRIMARY 요청에 답한다 — TARGETS · UTF8_STRING · STRING. */
+static void handle_selection_request(XSelectionRequestEvent *rq) {
+    XSelectionEvent ev = {
+        .type = SelectionNotify, .display = rq->display,
+        .requestor = rq->requestor, .selection = rq->selection,
+        .target = rq->target, .property = None, .time = rq->time,
+    };
+    Atom prop = rq->property != None ? rq->property : rq->target;
+
+    /* 소유 시각보다 앞선 요청은 거절한다(CurrentTime 은 항상 통과). */
+    int stale = rq->time != CurrentTime && A.prim_time != CurrentTime &&
+                (long)(rq->time - A.prim_time) < 0;
+    if (rq->selection == XA_PRIMARY && A.prim_owner >= 0 && A.prim_text[0] && !stale) {
+        if (rq->target == A.atom_targets) {
+            Atom list[] = { A.atom_targets, A.atom_timestamp, A.atom_utf8, XA_STRING };
+            XChangeProperty(A.dpy, rq->requestor, prop, XA_ATOM, 32,
+                            PropModeReplace, (unsigned char *)list, 4);
+            ev.property = prop;
+        } else if (rq->target == A.atom_timestamp) {
+            long t = (long)A.prim_time;
+            XChangeProperty(A.dpy, rq->requestor, prop, XA_INTEGER, 32,
+                            PropModeReplace, (unsigned char *)&t, 1);
+            ev.property = prop;
+        } else if (rq->target == A.atom_utf8) {
+            XChangeProperty(A.dpy, rq->requestor, prop, A.atom_utf8, 8,
+                            PropModeReplace, (unsigned char *)A.prim_text,
+                            (int)strlen(A.prim_text));
+            ev.property = prop;
+        } else if (rq->target == XA_STRING) {
+            /* STRING 은 Latin-1 — 표현 못 하는 글자가 있으면 거절한다. */
+            gsize n = 0;
+            gchar *l1 = g_convert(A.prim_text, -1, "ISO-8859-1", "UTF-8",
+                                  NULL, &n, NULL);
+            if (l1) {
+                XChangeProperty(A.dpy, rq->requestor, prop, XA_STRING, 8,
+                                PropModeReplace, (unsigned char *)l1, (int)n);
+                ev.property = prop;
+                g_free(l1);
+            }
+        }
+    }
+    unim_log_note("PRIMARY 요청: target=%lu → %s", (unsigned long)rq->target,
+                  ev.property != None ? "응답" : "거절");
+    XSendEvent(A.dpy, rq->requestor, False, NoEventMask, (XEvent *)&ev);
+    XFlush(A.dpy);
+}
+
 static void after_change(void) {
+    sync_primary();
     update_spot();
     redraw();
 }
@@ -323,7 +438,7 @@ static int xim_init(void) {
         XSelectInput(A.dpy, A.win,
                      ExposureMask | KeyPressMask | KeyReleaseMask |
                      FocusChangeMask | StructureNotifyMask |
-                     ButtonPressMask | mask);
+                     ButtonPressMask | ButtonReleaseMask | Button1MotionMask | mask);
     }
     return 1;
 }
@@ -384,6 +499,18 @@ static void draw_field(const UnimTestField *f) {
 
     char buf[UNIM_FIELD_TEXT_MAX + UNIM_FIELD_PREEDIT_MAX];
     int x = tx;
+
+    /* 선택 하이라이트 — 글자보다 먼저 깐다. 범위는 표시 문자열(비밀번호는
+     * 마스킹 기준) 안의 바이트 구간이라 접두 폭을 재서 x 를 얻는다. */
+    int ss, se;
+    if (unim_field_selection_display_range(f, &ss, &se)) {
+        snprintf(buf, sizeof buf, "%.*s", ss, shown);
+        int x0 = tx + text_width(A.font_field, buf, strlen(buf));
+        snprintf(buf, sizeof buf, "%.*s", se, shown);
+        int x1 = tx + text_width(A.font_field, buf, strlen(buf));
+        fill_rect(focused ? 0x2f5db3 : 0x5a5a6e, x0, f->y + S(6),
+                  x1 - x0, f->h - S(12));
+    }
 
     snprintf(buf, sizeof buf, "%.*s", head_bytes, shown);
     draw_text(A.font_field, UNIM_SPEC_COL_TEXT, x, ty, buf);
@@ -531,13 +658,19 @@ static void handle_key(XKeyEvent *ev) {
     }
 
     /* 편집·이동 키는 raw keysym 으로 처리한다 (IM 상태와 무관). */
+    int shift = (ev->state & ShiftMask) != 0;
     switch (raw) {
         case XK_BackSpace: unim_field_backspace(f);      break;
         case XK_Delete:    unim_field_delete(f);         break;
-        case XK_Left:      unim_field_move_caret(f, -1); break;
-        case XK_Right:     unim_field_move_caret(f, +1); break;
-        case XK_Home:      unim_field_caret_home(f);     break;
-        case XK_End:       unim_field_caret_end(f);      break;
+        /* Shift 확장 이동. Shift 없이 이동하면 선택이 접힌다(공통 모델). */
+        case XK_Left:      unim_field_move_caret_ex(f, -1, shift); break;
+        case XK_Right:     unim_field_move_caret_ex(f, +1, shift); break;
+        case XK_Home:      unim_field_caret_home_ex(f, shift);     break;
+        case XK_End:       unim_field_caret_end_ex(f, shift);      break;
+        case XK_a:
+        case XK_A:
+            if (ev->state & ControlMask) unim_field_select_all(f);   /* Ctrl+A */
+            break;
         case XK_Escape:    unim_field_clear(f);          break;
         case XK_Return:
         case XK_KP_Enter:
@@ -573,9 +706,40 @@ static void handle_click(XButtonEvent *ev) {
 
     UnimTestField *f = cur();
     int before = f->caret;
-    f->caret = unim_field_caret_from_x(f, ev->x, measure_cb, NULL);
+    int off = unim_field_caret_from_x(f, ev->x, measure_cb, NULL);
+
+    if (ev->button != Button1) {
+        /* 왼쪽 버튼이 아니면 예전처럼 캐럿만 옮긴다(선택 해제). */
+        unim_field_set_caret(f, off);
+    } else {
+        /* 더블·트리플 클릭 판정 — 같은 필드·가까운 위치·400ms 이내. */
+        int near = abs(ev->x - A.click_x) <= S(4) && abs(ev->y - A.click_y) <= S(4);
+        if (A.click_field == hit && near && ev->time - A.click_time <= 400)
+            A.click_count = A.click_count % 3 + 1;
+        else
+            A.click_count = 1;
+        A.click_field = hit;
+        A.click_time  = ev->time;
+        A.click_x = ev->x;
+        A.click_y = ev->y;
+
+        if (A.click_count == 3)       unim_field_select_all(f);        /* 트리플: 전체 */
+        else if (A.click_count == 2)  unim_field_select_word_at(f, off); /* 더블: 단어 */
+        else if (ev->state & ShiftMask) unim_field_extend_to(f, off);  /* Shift+클릭: 확장 */
+        else                          unim_field_set_anchor(f, off);   /* 드래그 시작 */
+        /* 더블·트리플 직후의 드래그는 단어 단위 확장 없이 캐럿만 움직인다(한계). */
+        A.dragging = 1;
+    }
     unim_log_click(ev->x, ev->y, f->id, before, f->caret);
-    unim_field_log_render(f);
+    /* field.render 는 선택·캐럿 연산이 이미 낸다 — 또 내지 않는다. */
+    after_change();
+}
+
+/** 왼쪽 버튼을 누른 채 움직이면 anchor 는 두고 캐럿만 따라간다. */
+static void handle_motion(XMotionEvent *ev) {
+    if (!A.dragging || !(ev->state & Button1Mask)) return;
+    UnimTestField *f = cur();
+    unim_field_extend_to(f, unim_field_caret_from_x(f, ev->x, measure_cb, NULL));
     after_change();
 }
 
@@ -614,6 +778,11 @@ static void main_loop(void) {
             XEvent ev;
             XNextEvent(A.dpy, &ev);
 
+            /* 사용자 이벤트 시각 기록 — XSetSelectionOwner 에 쓴다. */
+            if (ev.type == KeyPress || ev.type == KeyRelease) A.last_time = ev.xkey.time;
+            else if (ev.type == ButtonPress || ev.type == ButtonRelease) A.last_time = ev.xbutton.time;
+            else if (ev.type == MotionNotify) A.last_time = ev.xmotion.time;
+
             /* XFilterEvent 앞에서 원본 키를 먼저 남긴다 — 앱이 그 키를
              * "받기는 했는지" 와 "IM 이 삼켰는지" 를 구분해야 XTest 재주입
              * 같은 문제를 추적할 수 있다. */
@@ -640,6 +809,18 @@ static void main_loop(void) {
                 break;
             case ButtonPress:
                 handle_click(&ev.xbutton);
+                break;
+            case MotionNotify:
+                handle_motion(&ev.xmotion);
+                break;
+            case ButtonRelease:
+                if (ev.xbutton.button == Button1) A.dragging = 0;
+                break;
+            case SelectionRequest:
+                handle_selection_request(&ev.xselectionrequest);
+                break;
+            case SelectionClear:
+                handle_selection_clear(&ev.xselectionclear);
                 break;
             case FocusIn:
                 A.focused = 1;
@@ -754,7 +935,13 @@ int main(int argc, char *argv[]) {
 
     XSelectInput(A.dpy, A.win,
                  ExposureMask | KeyPressMask | FocusChangeMask |
-                 StructureNotifyMask | ButtonPressMask);
+                 StructureNotifyMask | ButtonPressMask |
+                 ButtonReleaseMask | Button1MotionMask);
+
+    A.atom_utf8    = XInternAtom(A.dpy, "UTF8_STRING", False);
+    A.atom_targets = XInternAtom(A.dpy, "TARGETS", False);
+    A.atom_timestamp = XInternAtom(A.dpy, "TIMESTAMP", False);
+    A.prim_owner   = -1;
 
     /*
      * ⚠️ 폰트 크기에는 배율을 **곱하지 않는다.**

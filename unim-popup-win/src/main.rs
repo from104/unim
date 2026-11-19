@@ -12,6 +12,9 @@
 //! unim-tsf 와 동일 패턴 — 모든 windows 의존 코드를 `#[cfg(windows)]` 로 게이트하고
 //! non-Windows 에는 빈 `fn main()` 스텁만 둔다 (E0432 unresolved crate `windows` 방지).
 #![cfg_attr(windows, windows_subsystem = "windows")]
+// 와이어 타입·토스트 순수 로직은 Linux `cargo test` 로도 검증한다(아래 `any(windows, test)`).
+// 비 Windows 에서는 `main` 이 스텁이라 그 코드들이 미사용으로 보이므로 경고를 막는다.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 #[cfg(not(windows))]
 fn main() {
@@ -25,10 +28,16 @@ mod d2d;
 mod logging;
 #[cfg(windows)]
 mod pipe_server;
-#[cfg(windows)]
+// protocol·toast_logic 은 serde/std 만 쓰는 순수 모듈 — Windows 가 아니어도 테스트 빌드에는 포함해
+// 골든·역호환·dedupe·배치 단위 테스트를 리눅스에서 돌린다.
+#[cfg(any(windows, test))]
 mod protocol;
 #[cfg(windows)]
 mod render;
+#[cfg(windows)]
+mod toast;
+#[cfg(any(windows, test))]
+mod toast_logic;
 #[cfg(windows)]
 mod window;
 
@@ -128,6 +137,11 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // 상황 알림(토스트) 창 1회 생성 — 실패해도 후보 팝업은 정상 동작한다(토스트만 비활성).
+    if let Err(e) = toast::create() {
+        logln!("toast: create failed ({e}) — notifications disabled");
+    }
 
     // 역방향 송신 writer 스레드 1회 기동 + 송신 채널을 UI 스레드 상태에 등록(B4).
     // 클릭/외부클릭 역IPC 를 UI 스레드 블로킹 WriteFile → 비차단 try_send 로 전환해
@@ -254,6 +268,27 @@ fn handle_msg(conn_id: u64, conn_handle: isize, msg: WireMsg, owner: &mut OwnerS
                     "stale hide from pid={} (owner={:?}) seq={} — ignored",
                     msg.pid, owner.current_owner_pid, msg.seq
                 );
+            }
+        }
+        "toast" => {
+            // 상황 알림(NOTIFY_SPEC §3.4). owner 규칙(후보 팝업의 pid/conn)과 무관하다 —
+            // 토스트는 어떤 클라이언트가 보내도 되고 팝업 상태를 건드리지 않는다.
+            // 본문은 로그에 남기지 않는다(kind 만).
+            match msg.toast {
+                Some(t) => {
+                    logln!(
+                        "recv toast conn_id={conn_id} pid={} seq={} kind={} text_shown={}",
+                        msg.pid,
+                        msg.seq,
+                        t.kind,
+                        t.flags & protocol::toast_flags::TEXT_SHOWN != 0
+                    );
+                    toast::show(&t, msg.owner_hwnd.unwrap_or(0));
+                }
+                None => logln!(
+                    "toast cmd without payload pid={} seq={} — ignored",
+                    msg.pid, msg.seq
+                ),
             }
         }
         "ping" => {

@@ -1,4 +1,4 @@
-.TH UNIM-CLI 1 "September 2026" "UNIM 0.4.4" "User Commands"
+.TH UNIM-CLI 1 "November 2026" "UNIM 0.4.5" "User Commands"
 .SH NAME
 unim\-cli \- Korean/English keyboard converter and UNIM settings manager
 .SH SYNOPSIS
@@ -8,6 +8,10 @@ unim\-cli \- Korean/English keyboard converter and UNIM settings manager
 .br
 .B unim\-cli config
 .RI [ SUBCOMMAND ]
+.RI [ ARGS ...]
+.br
+.B unim\-cli dict
+.IR user\-dict | blacklist | hanja
 .RI [ ARGS ...]
 .SH DESCRIPTION
 .B unim\-cli
@@ -90,6 +94,87 @@ Reset the configuration file to default values.
 .B config interactive
 Launch an interactive prompt-driven configuration session. Useful when a
 graphical settings dialog is not available.
+.SH DICT SUBCOMMANDS
+The
+.B dict
+group manages the three word lists that UNIM reads from its configuration
+directory. The files are read and written directly (not through the
+daemon), and the running daemon picks up changes automatically.
+.SS dict user\-dict
+Reverse (Korean\->English) AutoTypeFix auto\-correction dictionary. Words
+listed here are always corrected back to English.
+.TP
+.B dict user\-dict list
+Print every registered word with its note.
+.TP
+.BR "dict user\-dict add" " \fIWORD\fR... [\fB\-\-note\fR \fINOTE\fR]"
+Register one or more English words (letters only).
+.TP
+.BR "dict user\-dict remove" " [\fB\-y\fR] \fIWORD\fR..."
+Remove words (case\-insensitive).
+.TP
+.B dict user\-dict clear
+Delete all entries after confirmation.
+.TP
+.B dict user\-dict path
+Print the file path
+.RB ( typefix\-userdict.yaml ).
+.SS dict blacklist
+AutoTypeFix suppression dictionary (corrections the user undid).
+.TP
+.B dict blacklist list
+Print the entries with their 1\-based index, status and key sequence.
+.TP
+.BR "dict blacklist remove" " [\fB\-y\fR] \fIINDEX\fR..."
+Remove entries by the 1\-based indices shown by
+.BR list .
+.TP
+.B dict blacklist clear
+Delete all entries after confirmation.
+.TP
+.B dict blacklist path
+Print the file path
+.RB ( typefix\-blacklist.yaml ).
+.SS dict hanja
+Hanja user dictionary: names and terms that are missing from the built\-in
+dictionary, as \fIhangul \-> hanja\fR (with an optional meaning). Candidates
+are shown in the order bookmarks, user dictionary, built\-in dictionary.
+Changes apply from the next Hanja key press; no restart is needed. The hanja
+must have exactly as many characters as the hangul (1 to 18 syllables).
+.TP
+.BR "dict hanja list" " [\fIHANGUL\fR]"
+Print all entries (or only those for
+.IR HANGUL ).
+Invalid entries are marked with a warning.
+.TP
+.BR "dict hanja add" " \fIHANGUL\fR \fIHANJA\fR [\fB\-\-meaning\fR \fIMEANING\fR]"
+Add an entry after validation.
+.TP
+.BR "dict hanja edit" " \fIHANGUL\fR \fIHANJA\fR [\fB\-\-hangul\fR \fINEW\fR] [\fB\-\-hanja\fR \fINEW\fR] [\fB\-\-meaning\fR \fIMEANING\fR]"
+Change the entry identified by the (HANGUL, HANJA) pair. An empty
+.B \-\-meaning ""
+clears the meaning. At least one option is required.
+.TP
+.BR "dict hanja remove" " \fIHANGUL\fR [\fIHANJA\fR] [\fB\-y\fR]"
+Remove one entry. Without
+.I HANJA
+all entries for
+.I HANGUL
+are removed; with two or more a confirmation is asked
+.RB ( \-y
+skips it, and is required when not interactive).
+.TP
+.B dict hanja clear
+Delete all entries after confirmation. If the file is unreadable it is first
+renamed to
+.B hanja\-userdict.yaml.broken\-\fIDATE\fR
+instead of being overwritten.
+.TP
+.B dict hanja path
+Print the file path
+.RB ( hanja\-userdict.yaml ).
+.PP
+The exit status is 0 on success and 1 if any operation failed.
 .SH EXAMPLES
 .PP
 Convert a stream of QWERTY keystrokes to Hangul:
@@ -116,10 +201,28 @@ unim\-cli config show
 unim\-cli config set korean\-layout 3bul390
 .fi
 .RE
+.PP
+Register a name in the Hanja user dictionary:
+.PP
+.RS
+.nf
+unim\-cli dict hanja add 서기현 徐基鉉 \-\-meaning "my name"
+unim\-cli dict hanja list
+.fi
+.RE
 .SH FILES
 .TP
 .B ~/.config/unim/config.yaml
 The configuration file managed by the \fBconfig\fR subcommand.
+.TP
+.B ~/.config/unim/hanja\-userdict.yaml
+The Hanja user dictionary managed by \fBdict hanja\fR.
+.TP
+.B ~/.config/unim/typefix\-userdict.yaml
+The auto\-correction dictionary managed by \fBdict user\-dict\fR.
+.TP
+.B ~/.config/unim/typefix\-blacklist.yaml
+The suppression dictionary managed by \fBdict blacklist\fR.
 .SH SEE ALSO
 .BR unim (1),
 .BR unim\-gui\-gtk (1)

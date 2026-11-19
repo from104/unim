@@ -41,7 +41,7 @@ jobs:
     # 24.04 레그도 러너 네이티브가 아니라 컨테이너다 — rpm 워크플로·로컬
     # 매트릭스와 1:1 로 같은 환경이 되고, sudo 유무 분기가 사라진다.
     container: ${{ matrix.image }}
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       # 한 배포판의 실패가 다른 배포판 빌드를 중단시키지 않는다.
       # 단 publish-deb 는 전 레그 성공을 요구한다 — 부분 릴리스 금지.

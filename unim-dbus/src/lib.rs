@@ -10,9 +10,12 @@
 
 pub mod beep;
 pub mod client;
+pub mod context_registry;
 pub mod engine_worker;
 pub mod ibus_compat;
 pub mod interfaces;
+pub mod notify_task;
+pub mod replace_verify;
 pub mod service;
 
 /// DBus 버스 이름

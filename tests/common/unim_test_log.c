@@ -111,6 +111,7 @@ static const char *color_of(const char *ev) {
     if (strcmp(ev, "commit") == 0)             return "\x1b[1;32m";
     if (strncmp(ev, "preedit", 7) == 0)        return "\x1b[0;36m";
     if (strcmp(ev, "field.render") == 0)       return "\x1b[1;37m";
+    if (strcmp(ev, "field.select") == 0)       return "\x1b[1;33m";
     if (strncmp(ev, "key.", 4) == 0)           return "\x1b[2m";
     if (strncmp(ev, "focus", 5) == 0)          return "\x1b[0;35m";
     if (strncmp(ev, "dbus", 4) == 0)           return "\x1b[2;34m";
@@ -368,23 +369,63 @@ void unim_log_commit(const char *field, const char *text) {
 void unim_log_field_render(const char *field, const char *committed,
                            const char *preedit, int caret,
                            const char *rendered) {
+    unim_log_field_render_sel(field, committed, preedit, caret, rendered, caret);
+}
+
+void unim_log_field_render_sel(const char *field, const char *committed,
+                               const char *preedit, int caret,
+                               const char *rendered, int anchor) {
     static char fe[256], ce[LOG_ESC_MAX], pe[LOG_ESC_MAX], re[LOG_ESC_MAX];
     unim_log_json_escape(nn(field), fe, sizeof fe);
     unim_log_json_escape(nn(committed), ce, sizeof ce);
     unim_log_json_escape(nn(preedit), pe, sizeof pe);
     unim_log_json_escape(nn(rendered), re, sizeof re);
 
+    int s0 = anchor < caret ? anchor : caret;
+    int s1 = anchor < caret ? caret : anchor;
+
     static char kv[LOG_KV_MAX];
     snprintf(kv, sizeof kv,
              "\"field\":\"%s\",\"committed\":\"%s\",\"preedit\":\"%s\","
-             "\"caret\":%d,\"rendered\":\"%s\"",
-             fe, ce, pe, caret, re);
+             "\"caret\":%d,\"rendered\":\"%s\","
+             "\"anchor\":%d,\"sel_start\":%d,\"sel_end\":%d",
+             fe, ce, pe, caret, re, anchor, s0, s1);
 
     static char human[LOG_KV_MAX];
-    snprintf(human, sizeof human, "%-14s 화면=\"%s\"  확정=\"%s\" 조합=\"%s\" 캐럿%d",
-             nn(field), nn(rendered), nn(committed), nn(preedit), caret);
+    if (s0 != s1)
+        snprintf(human, sizeof human,
+                 "%-14s 화면=\"%s\"  확정=\"%s\" 조합=\"%s\" 캐럿%d 선택[%d,%d)",
+                 nn(field), nn(rendered), nn(committed), nn(preedit), caret, s0, s1);
+    else
+        snprintf(human, sizeof human, "%-14s 화면=\"%s\"  확정=\"%s\" 조합=\"%s\" 캐럿%d",
+                 nn(field), nn(rendered), nn(committed), nn(preedit), caret);
 
     emit("field.render", kv, human);
+}
+
+void unim_log_select(const char *field, int anchor, int caret,
+                     const char *text, int exported, const char *reason) {
+    static char fe[256], te[LOG_ESC_MAX], re[64];
+    unim_log_json_escape(nn(field), fe, sizeof fe);
+    unim_log_json_escape(nn(text), te, sizeof te);
+    unim_log_json_escape(nn(reason), re, sizeof re);
+
+    int s0 = anchor < caret ? anchor : caret;
+    int s1 = anchor < caret ? caret : anchor;
+
+    static char kv[LOG_KV_MAX];
+    snprintf(kv, sizeof kv,
+             "\"field\":\"%s\",\"anchor\":%d,\"caret\":%d,"
+             "\"sel_start\":%d,\"sel_end\":%d,\"text\":\"%s\","
+             "\"exported\":%d,\"reason\":\"%s\"",
+             fe, anchor, caret, s0, s1, te, exported ? 1 : 0, re);
+
+    static char human[LOG_KV_MAX];
+    snprintf(human, sizeof human, "%-14s 선택[%d,%d) \"%s\" (%s%s)",
+             nn(field), s0, s1, nn(text), nn(reason),
+             exported ? ", PRIMARY" : "");
+
+    emit("field.select", kv, human);
 }
 
 /* ─── 포커스·클릭·리셋 ────────────────────────────────────────────────── */

@@ -212,10 +212,10 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
   → Wayland: ProcessKey 로 전달 → GNOME extension 이 팝업 처리, return TRUE
   → X11 (Standalone): cursor_area 절대 좌표를 데몬에 보고
     → DBus GetHanjaCandidates
-      → 한자 후보 있으면: 후보 배열 즉시 해제, "Standalone popup 위임" 로그
-         (popup-service 가 ShowHanja 경로로 렌더)
+      → 한자 후보 있으면: 후보 배열 즉시 해제, popup_active = TRUE,
+         "Standalone popup 위임" 로그 (popup-service 가 ShowHanja 경로로 렌더)
       → 한자 후보 없으면: DBus GetSpecialCharCandidates
-        → 특수문자 후보 있으면: 후보 배열 즉시 해제, popup-service 위임
+        → 특수문자 후보 있으면: 후보 배열 즉시 해제, popup_active = TRUE, popup-service 위임
         → 둘 다 없으면(idle): ProcessKey 로 dual-purpose Hanja 분기 →
            엔진이 ShowEmojiPopupV2 시그널 발행 → 핸들러가 popup_active 마킹
   → return TRUE (키 소비)
@@ -253,6 +253,10 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 데몬이 그 키를 받아 popup-service의 선택/페이지 이동·확정·취소를 구동합니다.
 선택 확정 커밋은 `ProcessKey` 응답 또는 `CommitText` 시그널로 도달하고,
 팝업 종료 시 `HidePopup` 시그널로 `popup_active`가 해제됩니다.
+`Show*Popup` 시그널이 없는 pull 경로(한자/특수문자 후보가 있어 `GetHanjaCandidates`·
+`GetSpecialCharCandidates` 로 팝업을 띄울 때)에서는 모듈이 **직접** `popup_active = TRUE` 를
+세웁니다 — 미설정이면 §4.5 idle 우회가 Esc·방향키·Enter·Backspace 를 앱으로 흘려 Backspace 가
+앱 선택을 지웠습니다. `focus_out` 도 방어적으로 `popup_active = FALSE` 로 해제합니다.
 
 ### 4.5 비조합 시 특수키 바이패스
 
@@ -295,31 +299,43 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 #### 4.6.2 결과 처리
 
 ```
-result.consumed == TRUE:
+result.consumed == TRUE && (commit 비어있지 않음 || preedit 비어있지 않음):
   → 1. 선택 영역 삭제 (retrieve-surrounding → delete_surrounding)
   → 2. commit 텍스트 커밋  (commit 시그널)
   → 3. preedit-changed 시그널
+  → return TRUE
+
+result.consumed == TRUE && commit 비어있음 && preedit 비어있음:
+  → 선택 영역 삭제 건너뜀 (§4.7 게이트)
   → return TRUE
 
 result.consumed == FALSE:
   → return FALSE (앱에 키 바이패스)
 ```
 
-### 4.7 선택 영역 자동 삭제
+### 4.7 선택 영역 자동 삭제 — 래퍼 게이트 [HANJA_WORD_SPEC.md §4.5]
 
-키가 엔진에 의해 소비된 경우, 선택 영역이 있으면 자동 삭제:
+키가 엔진에 의해 소비되고 **commit 또는 preedit 중 하나라도 비어있지 않을 때만**
+선택 영역을 자동 삭제한다(치환):
 
 ```
-retrieve-surrounding 시그널 → 최신 주변 텍스트 획득
-  → cursor_index != selection_index (선택 영역 존재)
-    → 바이트 오프셋 → 문자 오프셋 변환
-    → gtk_im_context_delete_surrounding(context, offset, length)
-    → 캐시 무효화
+result.consumed && (commit 비어있지 않음 || preedit 비어있지 않음)
+  → retrieve-surrounding 시그널 → 최신 주변 텍스트 획득
+    → cursor_index != selection_index (선택 영역 존재)
+      → 바이트 오프셋 → 문자 오프셋 변환
+      → gtk_im_context_delete_surrounding(context, offset, length)
+      → 캐시 무효화
 ```
 
 > [!NOTE]
 > GTK3에서는 `g_signal_emit_by_name(context, "delete-surrounding", ...)` 사용,
 > GTK4에서는 **`gtk_im_context_delete_surrounding()`** API 직접 호출합니다.
+
+> [!NOTE]
+> commit·preedit 가 모두 없는 "빈 소비 키"(한자 팝업 열림, 팝업 중 내비/Esc,
+> 불일치 선택 + 한자키 등)에서는 선택을 지우지 않는다. 이전에는 `result.consumed`
+> 만으로 게이트해 이런 키에서도 선택이 조용히 사라졌다 — 특히 선택한 채
+> 한/영 전환키를 누르면 선택이 지워지던 것은 의도된 동작이 아니었다.
 
 ---
 
@@ -340,6 +356,7 @@ GTK focus_out 호출
   → DBus FocusOut → 조합 중 텍스트 커밋
        → commit 시그널 (커밋할 텍스트가 있으면)
        → preedit-changed 시그널
+  → popup_active = FALSE (방어 — HidePopup 유실 대비)
   → is_focused = FALSE
 ```
 
@@ -408,6 +425,25 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 > GTK3에서는 `set_surrounding`만 존재하고, anchor 정보가 없어
 > `selection_index = cursor_index`로 동일하게 설정합니다.
 > GTK4에서는 정확한 선택 범위를 알 수 있어 선택 영역 삭제가 더 정확합니다.
+
+> [!NOTE]
+> **한자 단어 확정 — 선택 영역(대상②, `HANJA_WORD_SPEC.md` §2.4)**: GTK4는 매 키
+> 입력 직전 `set_surrounding_with_selection`으로 정확한 anchor/cursor 를 이미
+> 보내므로(위 §7.2), IM 모듈 쪽 배선은 무수정이다. idle 상태에서 앱 선택 영역이
+> 사전에 있는 한글 단어와 정확히 일치하면 한자키가 그 단어를 target 으로 한자
+> 팝업을 띄운다(판정은 엔진). 확정은 §4.6 의 일반 커밋 경로(위젯이 선택 영역을
+> 커밋 문자열로 치환)를 그대로 탄다 — 별도 교체 채널이 필요 없다.
+> GTK3 의 `set_surrounding` 은 anchor 가 항상 `cursor_index` 와 같지만 v1.4 부터 GTK3 모듈이
+> 한자키 직전 위젯 직접 조회로 선택을 복원한다(`gtk3/SPEC.md` §4.2).
+> **(v1.6, 구현)** 선택이 없으면 커서가 걸친 단어(대상③, `HANJA_WORD_SPEC.md` §2.4b)가 대상이다.
+> GTK4 는 App-pull 등급이라(HANJA_WORD_SPEC §2.4.6) 컨텍스트 생성 뒤
+> `SetClientCapabilities(REPLACE_SURROUNDING|SELECTION_RELIABLE)` 를 보내고, 확정 시그널
+> `ReplaceSurroundingText(uuss: delete_before, delete_after, commit_text, expect_text)` 는 문서 재조회로
+> `expect_text` 와 완전 일치함을 확인한 뒤 `gtk_im_context_delete_surrounding(-a, a+b)` 가 TRUE 일 때만 커밋한다
+> (`is_focused` 가 아니면 드롭). 이 경로는 §4.6 선택 삭제 래퍼를 거치지 않는다.
+> 한자키 시점에 클라이언트 위젯이 `GtkText`·`GtkTextView` 계열이 아니면(폐기 예정 `set_surrounding` 만 부르는
+> 위젯일 수 있다 — anchor 가 선택을 반영하지 않는다) `SurroundingHint(SELECTION_UNKNOWN)` 을 보내 그 한자키의
+> 대상③ 을 막는다(HANJA_WORD_SPEC §2.10).
 
 ---
 

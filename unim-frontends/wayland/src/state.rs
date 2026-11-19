@@ -13,6 +13,7 @@
 use std::os::fd::AsFd;
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
+use unim::hangul::HangulCharExt;
 use unim::keycode::{UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 use unim::unim_log;
 use wayland_client::{
@@ -66,6 +67,21 @@ pub struct AppState {
     /// FocusIn 뒤에 송신하되, 사이클에 ContentType 이 없었으면 Normal 을 명시 송신해
     /// 잔존을 차단한다(fail-safe). 각 Done 에서 `take` 로 소비된다.
     pending_content_purpose: Option<u32>,
+    /// 이번 더블버퍼 사이클에 받은 `surrounding_text` 원본(텍스트, 커서, 앵커).
+    ///
+    /// 프로토콜상 이 값도 더블버퍼라 `done` 전까지는 확정이 아니다(중간 값을 보내면
+    /// 엔진이 앱 문서와 어긋난 스냅샷으로 접두 검증·선택 판정을 한다). 그래서
+    /// 이벤트에서는 보관만 하고 Done 에서 문자 오프셋으로 바꿔 송신한다.
+    /// 오프셋 단위는 **바이트**(엔진 계약은 문자 단위 → Done 에서 변환).
+    pending_surrounding: Option<(String, u32, u32)>,
+    /// 이 활성화 구간에서 `surrounding_text` 를 한 번이라도 받았는가.
+    ///
+    /// 프로토콜은 "첫 `done` 이전에 이 이벤트가 오지 않으면 텍스트 입력이 기능을
+    /// 지원하지 않는 것으로 봐도 된다" 고 규정한다. 미지원 앱에서는 엔진이 지울
+    /// 접두를 대조할 방법이 없어 한자 단어 교체가 무관 텍스트를 지울 수 있으므로,
+    /// 활성화 커밋에서 빈 값 마커를 보내 엔진이 단음절 변환으로 퇴화하게 한다
+    /// (HANJA_WORD_SPEC §0 Q9(b)).
+    saw_surrounding: bool,
 
     // 키 처리
     keymap_handler: KeymapHandler,
@@ -103,6 +119,8 @@ impl AppState {
             grab_active: false,
             keymap_init: false,
             pending_content_purpose: None,
+            pending_surrounding: None,
+            saw_surrounding: false,
             keymap_handler: KeymapHandler::new(),
             last_preedit: String::new(),
             repeat_timer: RepeatTimer::new(),
@@ -249,6 +267,16 @@ impl AppState {
     pub fn apply_auto_typefix(&mut self, delete_chars: u32, commit_text: &str, preedit_text: &str) {
         if let Some(ref im) = self.input_method {
             if delete_chars > 0 {
+                // 한자 교체 판별자 — 휴리스틱보다 **먼저** 본다.
+                // commit_text 에 ASCII 도 한글(음절·자모)도 아닌 문자가 하나라도
+                // 있으면 한자 단어 교체다. 이때 삭제 대상은 구성상 항상 완성 음절
+                // (UTF-8 3B)이라 추정이 아닌 확정값이다.
+                // 이 판별이 없으면 `한자(漢字)` 형식은 첫 글자가 한글이라 아래
+                // 휴리스틱이 순방향으로 오판해 1/3 만 지운다.
+                // AutoTypeFix 의 commit_text 는 한글(순방향) 아니면 ASCII(역방향)
+                // 뿐이라 이 판별자와 서로소다 → 기존 경로 바이트 동일.
+                let is_hanja = commit_text.chars().any(|c| !c.is_ascii() && !c.is_hangul());
+
                 // 삭제할 텍스트의 바이트 수 계산
                 // 순방향(영→한): commit이 한글 → 삭제 대상은 ASCII (1 byte/char)
                 // 역방향(한→영): commit이 ASCII → 삭제 대상은 한글 (3 bytes/char)
@@ -261,7 +289,9 @@ impl AppState {
                     })
                     .unwrap_or(false);
 
-                let before_bytes = if is_forward {
+                let before_bytes = if is_hanja {
+                    delete_chars * 3 // 한자 교체: 삭제 대상은 완성 음절 (UTF-8 3B)
+                } else if is_forward {
                     delete_chars // ASCII: 1 byte per char
                 } else {
                     delete_chars * 3 // 한글: 3 bytes per char (UTF-8)
@@ -269,10 +299,11 @@ impl AppState {
 
                 unim_log!(
                     "WAYLAND",
-                    "AutoTypeFix delete_surrounding_text: chars={}, bytes={}, forward={}",
+                    "AutoTypeFix delete_surrounding_text: chars={}, bytes={}, forward={}, hanja={}",
                     delete_chars,
                     before_bytes,
-                    is_forward
+                    is_forward,
+                    is_hanja
                 );
 
                 im.delete_surrounding_text(before_bytes, 0);
@@ -293,6 +324,56 @@ impl AppState {
             }
 
             im.commit(self.serial);
+        }
+    }
+
+    /// surrounding 의 **바이트** 오프셋을 **문자** 오프셋으로 변환한다.
+    ///
+    /// input-method-v2 의 `surrounding_text` 오프셋은 UTF-8 바이트지만 엔진 계약
+    /// (`SetSurroundingText`)은 문자 단위다. 앱이 어긋난 오프셋을 줘도 슬라이스가
+    /// 패닉하지 않도록 길이로 클램프하고 문자 경계까지 내린다.
+    /// (`str::floor_char_boundary` 는 선언 MSRV 에서 불안정이라 쓰지 않는다.)
+    fn byte_offset_to_chars(text: &str, byte: u32) -> u32 {
+        let mut b = (byte as usize).min(text.len());
+        while !text.is_char_boundary(b) {
+            b -= 1;
+        }
+        text[..b].chars().count() as u32
+    }
+
+    /// 빈 surrounding 송신 — 엔진의 stale 스냅샷 제거와 "미지원" 마커 공용.
+    fn send_empty_surrounding(&self) {
+        let _ = self
+            .dbus_tx
+            .blocking_send(DbusRequest::SetSurroundingText {
+                context_path: self.context_path.clone(),
+                text: String::new(),
+                cursor: 0,
+                anchor: 0,
+            });
+    }
+
+    /// Done(더블버퍼 커밋)에서 이번 사이클의 surrounding 을 엔진에 확정 전달한다.
+    ///
+    /// `activating` 은 이번 Done 이 활성화 커밋인지 여부다. 활성화 커밋인데 이
+    /// 구간에서 surrounding 을 한 번도 못 받았으면 프로토콜상 미지원 앱이므로
+    /// 빈 값 마커를 보낸다(§0 Q9(b) — 엔진이 접두 검증 실패로 단음절 퇴화).
+    fn flush_pending_surrounding(&mut self, activating: bool) {
+        if let Some((text, cursor, anchor)) = self.pending_surrounding.take() {
+            let cursor = Self::byte_offset_to_chars(&text, cursor);
+            let anchor = Self::byte_offset_to_chars(&text, anchor);
+            self.saw_surrounding = true;
+            let _ = self
+                .dbus_tx
+                .blocking_send(DbusRequest::SetSurroundingText {
+                    context_path: self.context_path.clone(),
+                    text,
+                    cursor,
+                    anchor,
+                });
+        } else if activating && !self.saw_surrounding {
+            unim_log!("WAYLAND", "surrounding 미지원 앱 → 빈 값 마커 송신");
+            self.send_empty_surrounding();
         }
     }
 
@@ -364,6 +445,12 @@ impl AppState {
             }
             im.commit(self.serial);
         }
+
+        // surrounding stale 제거 — 다음 앱이 미지원이어도 이전 앱의 스냅샷이
+        // 엔진에 남아 선택 판정·접두 검증을 오염시키지 않게 한다.
+        self.pending_surrounding = None;
+        self.saw_surrounding = false;
+        self.send_empty_surrounding();
 
         // 키 반복 취소
         self.repeat_timer.cancel();
@@ -589,6 +676,10 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                         context_path: state.context_path.clone(),
                         purpose,
                     });
+
+                    // surrounding 은 FocusIn·SetContentType 뒤에 보낸다(비번 필드면
+                    // 엔진이 목적을 먼저 알아야 스냅샷을 버린다).
+                    state.flush_pending_surrounding(true);
                 } else if should_deactivate {
                     unim_log!("WAYLAND", "Done → 비활성화 (serial={})", state.serial);
                     state.handle_deactivate();
@@ -616,6 +707,9 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                             purpose,
                         });
                     }
+
+                    // 포커스 유지 중 커서 이동·편집으로 갱신된 surrounding 반영.
+                    state.flush_pending_surrounding(false);
                 }
 
                 // pending 상태 리셋
@@ -623,8 +717,16 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                 state.pending_deactivate = false;
             }
 
-            zwp_input_method_v2::Event::SurroundingText { .. } => {
-                // surrounding text 정보 (현재 미사용)
+            zwp_input_method_v2::Event::SurroundingText {
+                text,
+                cursor,
+                anchor,
+            } => {
+                // 더블버퍼 값이라 done 전에는 확정이 아니다 — 보관만 하고
+                // Done 에서 문자 오프셋으로 바꿔 엔진에 보낸다.
+                // 한자 단어 교체의 접두 정합성 검증(§2.2.3)과 선택 영역 변환
+                // (대상②, §2.4) 판정에 쓰이며, AutoTypeFix 바이트 계산에는 쓰지 않는다.
+                state.pending_surrounding = Some((text, cursor, anchor));
             }
 
             zwp_input_method_v2::Event::TextChangeCause { .. } => {
@@ -778,5 +880,58 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
 
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 프로토콜의 바이트 오프셋 → 엔진 계약의 문자 오프셋 변환.
+    #[test]
+    fn byte_offset_to_chars_converts_utf8_offsets() {
+        let text = "대한민국 만세";
+        // "대한민국" = 4자 × 3B = 12B
+        assert_eq!(AppState::byte_offset_to_chars(text, 0), 0);
+        assert_eq!(AppState::byte_offset_to_chars(text, 12), 4);
+        assert_eq!(AppState::byte_offset_to_chars(text, 13), 5); // 공백 뒤
+        assert_eq!(
+            AppState::byte_offset_to_chars(text, text.len() as u32),
+            text.chars().count() as u32
+        );
+        // ASCII 는 1B/자라 그대로
+        assert_eq!(AppState::byte_offset_to_chars("abcd", 3), 3);
+    }
+
+    /// 앱이 어긋난 오프셋을 줘도 패닉하지 않고 안전한 값으로 내려앉는다.
+    #[test]
+    fn byte_offset_to_chars_clamps_out_of_range_and_mid_char() {
+        let text = "대한민국";
+        // 길이 초과 → 전체 길이로 클램프
+        assert_eq!(AppState::byte_offset_to_chars(text, 9999), 4);
+        // 문자 중간(3B 음절의 1·2번째 바이트) → 경계까지 내림
+        assert_eq!(AppState::byte_offset_to_chars(text, 4), 1);
+        assert_eq!(AppState::byte_offset_to_chars(text, 5), 1);
+        assert_eq!(AppState::byte_offset_to_chars(text, 6), 2);
+        // 빈 텍스트(미지원 마커)
+        assert_eq!(AppState::byte_offset_to_chars("", 7), 0);
+    }
+
+    /// 한자 교체 판별자 — `한자(漢字)` 서식이 순방향으로 오판되지 않아야 한다.
+    /// (`apply_auto_typefix` 는 Wayland 오브젝트가 있어야 돌아가므로 판별식만 검증)
+    #[test]
+    fn hanja_discriminator_is_disjoint_from_autotypefix_commits() {
+        let is_hanja = |s: &str| s.chars().any(|c| !c.is_ascii() && !c.is_hangul());
+
+        // 한자 출력 서식 3종
+        assert!(is_hanja("大韓民國"));
+        assert!(is_hanja("대한민국(大韓民國)"));
+        assert!(is_hanja("大韓民國(대한민국)"));
+
+        // AutoTypeFix 순방향(한글)·역방향(ASCII) 커밋 — 종전 경로 바이트 동일
+        assert!(!is_hanja("대한민국"));
+        assert!(!is_hanja("ㄷㅐㅎㅏㄴ"));
+        assert!(!is_hanja("hello world"));
+        assert!(!is_hanja(""));
     }
 }

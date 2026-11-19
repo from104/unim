@@ -12,28 +12,34 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath, Value};
 use unim::unim_log;
 
 use super::ibus_context::IBusInputContextHandler;
+use crate::context_registry::{self, ContextKind, ContextRegistry};
 use super::ibus_types;
 use crate::service::EngineRequest;
 
 /// IBus 컨텍스트 ID 시작값 (기존 UNIM 컨텍스트와 충돌 방지)
 const IBUS_CONTEXT_ID_BASE: u32 = 1_000_000;
 
-/// IBus InputContext 객체 경로 접두사
-const IBUS_IC_PATH_PREFIX: &str = "/org/freedesktop/IBus/InputContext_";
+use crate::context_registry::IBUS_IC_PATH_PREFIX;
 
 /// IBus 메인 서비스 핸들러
 pub struct IBusServiceHandler {
     next_context_id: Arc<AtomicU32>,
     engine_tx: mpsc::Sender<EngineRequest>,
     connection: zbus::Connection,
+    contexts: ContextRegistry,
 }
 
 impl IBusServiceHandler {
-    pub fn new(engine_tx: mpsc::Sender<EngineRequest>, connection: zbus::Connection) -> Self {
+    pub fn new(
+        engine_tx: mpsc::Sender<EngineRequest>,
+        connection: zbus::Connection,
+        contexts: ContextRegistry,
+    ) -> Self {
         Self {
             next_context_id: Arc::new(AtomicU32::new(IBUS_CONTEXT_ID_BASE)),
             engine_tx,
             connection,
+            contexts,
         }
     }
 }
@@ -41,7 +47,11 @@ impl IBusServiceHandler {
 #[interface(name = "org.freedesktop.IBus")]
 impl IBusServiceHandler {
     /// InputContext 생성
-    async fn create_input_context(&self, client_name: &str) -> zbus::fdo::Result<OwnedObjectPath> {
+    async fn create_input_context(
+        &self,
+        client_name: &str,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<OwnedObjectPath> {
         let id = self.next_context_id.fetch_add(1, Ordering::SeqCst);
         let path_str = format!("{}{}", IBUS_IC_PATH_PREFIX, id);
         let path = ObjectPath::try_from(path_str.as_str())
@@ -65,9 +75,9 @@ impl IBusServiceHandler {
         // IBus InputContext 핸들러 등록
         let handler = IBusInputContextHandler::new(
             id,
-            &path_str,
             self.engine_tx.clone(),
             self.connection.clone(),
+            self.contexts.clone(),
         );
 
         self.connection
@@ -75,6 +85,19 @@ impl IBusServiceHandler {
             .at(path.clone(), handler)
             .await
             .map_err(|e| zbus::fdo::Error::Failed(format!("Registration error: {}", e)))?;
+
+        // 호출자 연결이 Destroy 없이 죽어도 회수되도록 소유자를 기록한다.
+        // (IBus 호환 레이어는 같은 세션 버스 연결을 쓰므로 sender 가 있다.)
+        context_registry::track_context(
+            &self.connection,
+            &self.engine_tx,
+            &self.contexts,
+            None,
+            hdr.sender().map(|s| s.as_str()),
+            ContextKind::IBus,
+            id,
+        )
+        .await;
 
         unim_log!(
             "DAEMON",

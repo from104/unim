@@ -7,15 +7,16 @@ use std::path::{Path, PathBuf};
 use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
-    normalize_korean_layout_name, CommitUnit, Config as UnimConfig, InputCategory, KoreanConfig,
-    ModeSharingMode,
+    normalize_korean_layout_name, CommitUnit, Config as UnimConfig, HanjaOutputFormat,
+    InputCategory, KoreanConfig, ModeSharingMode, NotifyCorner, NotifyLanguage,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN, ENGLISH_LAYOUT_BUILTINS,
     KOREAN_LAYOUT_BUILTINS, KOREAN_LAYOUT_DUBEOLSIK, KOREAN_LAYOUT_SEBEOLSIK_390,
-    KOREAN_LAYOUT_SEBEOLSIK_391, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+    KOREAN_LAYOUT_SEBEOLSIK_391, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT, NOTIFY_DURATION_MAX,
+    NOTIFY_DURATION_MIN, NOTIFY_EVENT_NAMES,
 };
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
@@ -30,6 +31,8 @@ use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
 
 rust_i18n::i18n!("locales");
+
+mod hanja_dict;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Help text helpers (i18n via rust-i18n)
@@ -76,6 +79,14 @@ fn commit_unit_display_name_localized(unit: CommitUnit) -> String {
         CommitUnit::Syllable => t!("commit_unit_syllable").to_string(),
         CommitUnit::Word => t!("commit_unit_word").to_string(),
         CommitUnit::Smart => t!("commit_unit_smart").to_string(),
+    }
+}
+
+fn hanja_output_format_display_name_localized(fmt: HanjaOutputFormat) -> String {
+    match fmt {
+        HanjaOutputFormat::Hanja => t!("hanja_output_format_hanja").to_string(),
+        HanjaOutputFormat::HangulHanja => t!("hanja_output_format_hangul_hanja").to_string(),
+        HanjaOutputFormat::HanjaHangul => t!("hanja_output_format_hanja_hangul").to_string(),
     }
 }
 
@@ -263,7 +274,7 @@ enum ConfigCommands {
 /// `blacklist` 를 최상위로 옮긴 신설 그룹 (2026-09-07, 기현님 지시).
 #[derive(Subcommand, Debug)]
 enum DictCommands {
-    /// Manage reverse user dictionary (placeholder)
+    /// Manage reverse auto-correction dictionary (placeholder)
     #[command(
         about = h("help_cfg_userdict_about"),
         long_about = h("help_cfg_userdict_long"),
@@ -281,9 +292,138 @@ enum DictCommands {
         #[command(subcommand)]
         action: BlacklistCommand,
     },
+    /// Manage the Hanja user dictionary (words missing from the built-in dictionary)
+    #[command(
+        about = h("help_hd_about"),
+        long_about = h("help_hd_long"),
+    )]
+    Hanja {
+        #[command(subcommand)]
+        action: HanjaDictCommand,
+    },
 }
 
-/// 역방향 사용자 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
+/// 한자 사용자 사전(`hanja-userdict.yaml`) 관리 서브커맨드.
+/// 위치 인자(현재 쌍)와 옵션(새 값 `--hangul`/`--hanja`)은 필드 id 가 달라 충돌하지 않는다.
+#[derive(Subcommand, Debug)]
+enum HanjaDictCommand {
+    /// List entries (optionally only one Hangul reading)
+    #[command(
+        about = h("help_hd_list_about"),
+        long_about = h("help_hd_list_long"),
+    )]
+    List {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: Option<String>,
+    },
+    /// Add an entry
+    #[command(
+        about = h("help_hd_add_about"),
+        long_about = h("help_hd_add_long"),
+    )]
+    Add {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_short"),
+            long_help = h("help_hd_arg_hanja_long"),
+        )]
+        hanja: String,
+        #[arg(
+            long,
+            help = h("help_hd_arg_meaning_short"),
+            long_help = h("help_hd_arg_meaning_long"),
+        )]
+        meaning: Option<String>,
+    },
+    /// Edit an entry
+    #[command(
+        about = h("help_hd_edit_about"),
+        long_about = h("help_hd_edit_long"),
+    )]
+    Edit {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_short"),
+            long_help = h("help_hd_arg_hanja_long"),
+        )]
+        hanja: String,
+        #[arg(
+            long = "hangul",
+            help = h("help_hd_arg_new_hangul_short"),
+            long_help = h("help_hd_arg_new_hangul_long"),
+        )]
+        new_hangul: Option<String>,
+        #[arg(
+            long = "hanja",
+            help = h("help_hd_arg_new_hanja_short"),
+            long_help = h("help_hd_arg_new_hanja_long"),
+        )]
+        new_hanja: Option<String>,
+        #[arg(
+            long,
+            help = h("help_hd_arg_meaning_short"),
+            long_help = h("help_hd_arg_meaning_edit_long"),
+        )]
+        meaning: Option<String>,
+    },
+    /// Remove one entry, or every entry of a Hangul reading
+    #[command(
+        about = h("help_hd_remove_about"),
+        long_about = h("help_hd_remove_long"),
+    )]
+    Remove {
+        #[arg(
+            help = h("help_hd_arg_hangul_short"),
+            long_help = h("help_hd_arg_hangul_long"),
+        )]
+        hangul: String,
+        #[arg(
+            help = h("help_hd_arg_hanja_opt_short"),
+            long_help = h("help_hd_arg_hanja_opt_long"),
+        )]
+        hanja: Option<String>,
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_dict_yes_short"),
+            long_help = h("help_dict_yes_long"),
+        )]
+        yes: bool,
+    },
+    /// Delete all entries (or set aside an unreadable file)
+    #[command(
+        about = h("help_hd_clear_about"),
+        long_about = h("help_hd_clear_long"),
+    )]
+    Clear {
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_hd_clear_yes_short"),
+            long_help = h("help_hd_clear_yes_long"),
+        )]
+        yes: bool,
+    },
+    /// Show the dictionary file path
+    #[command(
+        about = h("help_hd_path_about"),
+        long_about = h("help_hd_path_long"),
+    )]
+    Path,
+}
+
+/// 역방향 자동 교정 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
 #[derive(Subcommand, Debug)]
 enum UserDictCommand {
     /// List dictionary words (placeholder)
@@ -567,7 +707,7 @@ enum ConfigKey {
         help = h("help_ck_auto_typefix_observation_timeout_secs")
     )]
     AutoTypeFixObservationTimeoutSecs,
-    /// 자동 오타 교정: 역방향 사용자 사전 활성화 (true, false)
+    /// 자동 오타 교정: 역방향 자동 교정 사전 활성화 (true, false)
     #[value(
         name = "auto-typefix-user-dict",
         help = h("help_ck_auto_typefix_user_dict")
@@ -615,10 +755,16 @@ enum ConfigKey {
     /// 조합 확정 단위 (syllable, word, smart). 단어 단위는 터미널·XIM 비대상, 스마트는 word-mode-apps 목록 앱만 단어 조합.
     #[value(name = "commit-unit", help = h("help_ck_commit_unit"))]
     CommitUnit,
+    /// 한자 출력 형식 (hanja, hangul-hanja, hanja-hangul). 단음절·단어 변환 공통.
+    #[value(
+        name = "hanja-output-format",
+        help = h("help_ck_hanja_output_format")
+    )]
+    HanjaOutputFormat,
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
     #[value(name = "word-mode-apps", help = h("help_ck_word_mode_apps"))]
     WordModeApps,
-    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음).
+    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음 2번, 영문=낮은 음 1번).
     #[value(
         name = "toggle-announce-beep",
         help = h("help_ck_toggle_announce_beep")
@@ -627,6 +773,24 @@ enum ConfigKey {
     /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows·Linux 공통 집행.
     #[value(name = "ignore-key-repeat", help = h("help_ck_ignore_key_repeat"))]
     IgnoreKeyRepeat,
+    /// 상황 알림(토스트) 전체 켜기/끄기 (true, false)
+    #[value(name = "notify-enabled", help = h("help_ck_notify_enabled"))]
+    NotifyEnabled,
+    /// 상황 알림 표시 시간 (ms, 500~5000). GNOME 알림 배너에는 적용되지 않음.
+    #[value(name = "notify-duration-ms", help = h("help_ck_notify_duration_ms"))]
+    NotifyDurationMs,
+    /// 상황 알림 문구 언어 (auto, ko, en)
+    #[value(name = "notify-language", help = h("help_ck_notify_language"))]
+    NotifyLanguage,
+    /// 알림에 교정 전후 텍스트·단어 표시 (true, false). 기본 false(가림).
+    #[value(name = "notify-show-text", help = h("help_ck_notify_show_text"))]
+    NotifyShowText,
+    /// 알림 표시 모서리 (auto, top_right, bottom_right, top_left, bottom_left). Windows 전용.
+    #[value(name = "notify-corner", help = h("help_ck_notify_corner"))]
+    NotifyCorner,
+    /// 켤 알림 이벤트 목록 (쉼표 구분)
+    #[value(name = "notify-events", help = h("help_ck_notify_events"))]
+    NotifyEvents,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -890,6 +1054,12 @@ fn config_show() {
         t!("commit_unit_note")
     );
     println!(
+        "{}: {} {}",
+        t!("hanja_output_format_label"),
+        hanja_output_format_display_name_localized(config.engine.korean.hanja_output_format),
+        t!("hanja_output_format_note")
+    );
+    println!(
         "{}: {}",
         t!("word_mode_apps_label"),
         config.engine.korean.word_mode_apps.join(", ")
@@ -991,6 +1161,37 @@ fn config_show() {
         t!("ignore_key_repeat_label"),
         ignore_repeat_status
     );
+    {
+        let n = &config.engine.notify;
+        println!(
+            "{}: {}",
+            t!("notify_label"),
+            if n.enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            }
+        );
+        if n.enabled {
+            println!(
+                "{}",
+                t!(
+                    "config_notify_line",
+                    ms = n.duration_ms.to_string(),
+                    lang = n.language.as_str(),
+                    show = if n.show_text { "ON" } else { "OFF" },
+                    corner = n.corner.as_str()
+                )
+            );
+            println!(
+                "{}",
+                t!(
+                    "config_notify_events_line",
+                    events = display_keys(&n.events)
+                )
+            );
+        }
+    }
     println!(
         "{}: {}",
         t!("app_rules_label"),
@@ -1182,6 +1383,15 @@ fn auto_english_key_warnings(keys: &[String]) -> (Vec<String>, bool) {
 /// ATF 토글 3종은 빈 목록이 정상 옵트아웃이므로 이 검사를 적용하지 않는다.
 fn all_keys_invalid(keys: &[String], is_valid: impl Fn(&str) -> bool) -> bool {
     !keys.is_empty() && keys.iter().all(|k| !is_valid(k))
+}
+
+/// `true|on|1|yes` / `false|off|0|no` 를 bool 로 해석한다.
+fn parse_bool_value(value: &str) -> Result<bool, String> {
+    match value.to_lowercase().as_str() {
+        "true" | "on" | "1" | "yes" => Ok(true),
+        "false" | "off" | "0" | "no" => Ok(false),
+        _ => Err(format!("Invalid bool: {}", value)),
+    }
 }
 
 fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
@@ -1722,6 +1932,29 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 )
             );
         }
+        ConfigKey::HanjaOutputFormat => {
+            let fmt = match value.to_lowercase().as_str() {
+                "hanja" | "한자" => HanjaOutputFormat::Hanja,
+                "hangul-hanja" | "한글한자" => HanjaOutputFormat::HangulHanja,
+                "hanja-hangul" | "한자한글" => HanjaOutputFormat::HanjaHangul,
+                _ => {
+                    return Err(t!(
+                        "error_invalid_hanja_output_format",
+                        value = value,
+                        allowed = "hanja, hangul-hanja, hanja-hangul"
+                    )
+                    .to_string());
+                }
+            };
+            config.engine.korean.hanja_output_format = fmt;
+            println!(
+                "{}",
+                t!(
+                    "hanja_output_format_changed",
+                    fmt = hanja_output_format_display_name_localized(fmt)
+                )
+            );
+        }
         ConfigKey::WordModeApps => {
             // 실행 파일명 정확일치 목록. 빈 문자열/빈 목록도 유효(= Smart 게이트가 어떤
             // 앱도 단어 모드로 켜지 않음). toggle-keys 와 달리 최소 1개 강제 없음.
@@ -1763,9 +1996,99 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 if enabled { t!("enabled") } else { t!("disabled") }
             );
         }
+        ConfigKey::NotifyEnabled => {
+            let enabled = parse_bool_value(value)?;
+            config.engine.notify.enabled = enabled;
+            println!(
+                "{}: {}",
+                t!("notify_label"),
+                if enabled {
+                    t!("enabled")
+                } else {
+                    t!("disabled")
+                }
+            );
+        }
+        ConfigKey::NotifyDurationMs => {
+            let v: u32 = value
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", value))?;
+            if !(NOTIFY_DURATION_MIN..=NOTIFY_DURATION_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    NOTIFY_DURATION_MIN, NOTIFY_DURATION_MAX, v
+                ));
+            }
+            config.engine.notify.duration_ms = v;
+            println!("{}: {}ms", t!("notify_duration_label"), v);
+        }
+        ConfigKey::NotifyLanguage => {
+            let lang = NotifyLanguage::parse(value).ok_or_else(|| {
+                t!(
+                    "error_invalid_notify_value",
+                    value = value,
+                    allowed = "auto, ko, en"
+                )
+                .to_string()
+            })?;
+            config.engine.notify.language = lang;
+            println!("{}: {}", t!("notify_language_label"), lang.as_str());
+        }
+        ConfigKey::NotifyShowText => {
+            let enabled = parse_bool_value(value)?;
+            config.engine.notify.show_text = enabled;
+            println!(
+                "{}: {}",
+                t!("notify_show_text_label"),
+                if enabled {
+                    t!("enabled")
+                } else {
+                    t!("disabled")
+                }
+            );
+            if enabled {
+                println!("{}", t!("notify_show_text_warning"));
+            }
+        }
+        ConfigKey::NotifyCorner => {
+            let corner = NotifyCorner::parse(value).ok_or_else(|| {
+                t!(
+                    "error_invalid_notify_value",
+                    value = value,
+                    allowed = "auto, top_right, bottom_right, top_left, bottom_left"
+                )
+                .to_string()
+            })?;
+            config.engine.notify.corner = corner;
+            println!("{}: {}", t!("notify_corner_label"), corner.as_str());
+        }
+        ConfigKey::NotifyEvents => {
+            // 빈 문자열은 유효(= 모든 이벤트 끔). 알 수 없는 이름은 거부(오타 방지).
+            let mut events: Vec<String> = Vec::new();
+            for name in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !NOTIFY_EVENT_NAMES.contains(&name) {
+                    return Err(t!(
+                        "error_invalid_notify_value",
+                        value = name,
+                        allowed = NOTIFY_EVENT_NAMES.join(", ")
+                    )
+                    .to_string());
+                }
+                if !events.iter().any(|e| e == name) {
+                    events.push(name.to_string());
+                }
+            }
+            config.engine.notify.events = events;
+            println!(
+                "{}: {}",
+                t!("notify_events_label"),
+                display_keys(&config.engine.notify.events)
+            );
+        }
     }
 
     config.engine.auto_typefix.clamp_ranges();
+    config.engine.notify.clamp_ranges();
 
     config
         .save_to_default_path()
@@ -2018,9 +2341,33 @@ fn handle_dict(command: Option<DictCommands>) {
     match command {
         Some(DictCommands::UserDict { action }) => dispatch_user_dict(action),
         Some(DictCommands::Blacklist { action }) => handle_blacklist(action),
+        Some(DictCommands::Hanja { action }) => dispatch_hanja_dict(action),
         None => {
             println!("{}", t!("dict_no_subcommand_hint"));
         }
+    }
+}
+
+fn dispatch_hanja_dict(action: HanjaDictCommand) {
+    match action {
+        HanjaDictCommand::List { hangul } => hanja_dict::run_list(hangul),
+        HanjaDictCommand::Add {
+            hangul,
+            hanja,
+            meaning,
+        } => hanja_dict::run_add(hangul, hanja, meaning),
+        HanjaDictCommand::Edit {
+            hangul,
+            hanja,
+            new_hangul,
+            new_hanja,
+            meaning,
+        } => hanja_dict::run_edit(hangul, hanja, new_hangul, new_hanja, meaning),
+        HanjaDictCommand::Remove { hangul, hanja, yes } => {
+            hanja_dict::run_remove(hangul, hanja, yes)
+        }
+        HanjaDictCommand::Clear { yes } => hanja_dict::run_clear(yes),
+        HanjaDictCommand::Path => hanja_dict::run_path(),
     }
 }
 
@@ -2094,12 +2441,45 @@ fn confirm_multi_removal(targets: &[impl std::fmt::Display], yes: bool) -> Multi
     }
 }
 
+/// 읽을 수 없는(깨진·더 새 버전) 단어 목록 파일 안내. 저장은 코어가 막으므로 파일은 그대로다.
+fn dict_file_unreadable_notice(path: Option<std::path::PathBuf>) {
+    let p = path.map(|p| p.display().to_string()).unwrap_or_default();
+    eprintln!("{}: {}", t!("error_label"), t!("dict_file_unreadable", path = p));
+}
+
+/// 깨진 파일을 확인 후 `.broken-날짜` 로 보관하고 빈 목록으로 시작한다(`dict hanja clear` 와 같은 방식).
+fn dict_file_quarantine(path: Option<std::path::PathBuf>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Err(t!("error_path_not_found").to_string());
+    };
+    let ok = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(t!("dict_file_broken_confirm").to_string())
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if !ok {
+        println!("{}", t!("exit_canceled"));
+        return Ok(());
+    }
+    let kept = unim::atomic_io::quarantine(&path)
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!(
+        "{}",
+        t!("dict_file_quarantined", path = kept.display().to_string())
+    );
+    Ok(())
+}
+
 // ============================================================================
 // User Dictionary 서브커맨드 (PR #6)
 // ============================================================================
 
 fn user_dict_list() {
     let ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        process::exit(1);
+    }
     if ud.is_empty() {
         println!("{}", t!("user_dict_empty"));
         if let Some(path) = UserDictionary::default_path() {
@@ -2124,6 +2504,10 @@ fn user_dict_list() {
 /// (하나라도 실패 — 형식 오류·중복 — 하면 false, 호출부는 이때 비영 종료).
 fn user_dict_add_many(words: &[String], note: Option<String>) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        return false;
+    }
     let mut changed = false;
     let mut all_ok = true;
     for word in words {
@@ -2160,6 +2544,10 @@ fn user_dict_add_many(words: &[String], note: Option<String>) -> bool {
 /// 하나라도 성공했을 때 한 번만 수행한다. 반환값은 전부 성공했는지 여부.
 fn user_dict_remove_many(words: &[String]) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        dict_file_unreadable_notice(UserDictionary::default_path());
+        return false;
+    }
     let mut changed = false;
     let mut all_ok = true;
     for word in words {
@@ -2186,6 +2574,9 @@ fn user_dict_remove_many(words: &[String]) -> bool {
 
 fn user_dict_clear() -> Result<(), String> {
     let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_unreadable() {
+        return dict_file_quarantine(UserDictionary::default_path());
+    }
     if ud.is_empty() {
         println!("{}", t!("user_dict_empty"));
         return Ok(());
@@ -2254,6 +2645,10 @@ fn handle_blacklist(action: BlacklistCommand) {
 
 fn blacklist_list() {
     let bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        dict_file_unreadable_notice(Blacklist::default_path());
+        process::exit(1);
+    }
     if bl.entries.is_empty() {
         println!("{}", t!("blacklist_empty"));
         if let Some(path) = Blacklist::default_path() {
@@ -2283,6 +2678,10 @@ fn blacklist_list() {
 /// 반환값은 전부 성공했는지 여부.
 fn blacklist_remove_many(indices: &[usize]) -> bool {
     let mut bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        dict_file_unreadable_notice(Blacklist::default_path());
+        return false;
+    }
     let original_len = bl.entries.len();
     let mut all_ok = true;
     let mut to_remove: Vec<usize> = Vec::new();
@@ -2336,6 +2735,9 @@ fn blacklist_remove_many(indices: &[usize]) -> bool {
 
 fn blacklist_clear() -> Result<(), String> {
     let mut bl = Blacklist::load_from_default_path();
+    if bl.is_unreadable() {
+        return dict_file_quarantine(Blacklist::default_path());
+    }
     if bl.entries.is_empty() {
         println!("{}", t!("blacklist_empty"));
         return Ok(());

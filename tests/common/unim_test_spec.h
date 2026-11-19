@@ -99,7 +99,7 @@ static const UnimSpecField UNIM_SPEC_CORE_FIELDS[UNIM_SPEC_N_CORE_FIELDS] = {
     { "core.numeric",   "숫자",      UNIM_HINT_NUMBER,
       "숫자 힌트에서의 IM 동작" },
     { "core.password",  "비밀번호",  UNIM_HINT_PASSWORD,
-      "AutoTypeFix·한자 팝업 억제" },
+      "영문 강제·AutoTypeFix·한자 팝업 억제 (IM 에 purpose=Password 전달)" },
     { "core.search",    "검색",      UNIM_HINT_SEARCH,
       "검색 힌트 경로" },
     { "core.multiline", "여러 줄",   UNIM_HINT_MULTILINE,

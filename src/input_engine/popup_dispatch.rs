@@ -5,7 +5,7 @@
 //! 담당한다.
 
 use super::engine::InputEngine;
-use super::types::{InputResult, PageDirection, PopupAction};
+use super::types::{HanjaSource, InputResult, PageDirection, PopupAction};
 use crate::config::Config;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::popup::{EmojiCatMeta, PopupKey, PopupKeyResult, PopupKind, PopupState};
@@ -180,8 +180,10 @@ impl InputEngine {
             PopupKeyResult::NotHandled => {
                 unim_log!("ENGINE", "팝업 미지원 키 {:?} → 팝업 닫고 재처리", keycode);
                 self.popup_cancel();
-                // 키를 다시 처리 (재귀 방지: popup 모드가 이미 해제됨)
-                self.press_key(keycode, modifier, config)
+                self.popup_reprocessed = true;
+                // 키를 다시 처리 (재귀 방지: popup 모드가 이미 해제됨). 외곽 래퍼
+                // (`press_key` — 최근 확정 음절 버퍼 추적)는 1회만 돌도록 inner 를 부른다.
+                self.press_key_inner(keycode, modifier, config)
             }
         }
     }
@@ -189,15 +191,38 @@ impl InputEngine {
     /// 팝업에서 항목 선택 처리
     pub(super) fn popup_select(&mut self, abs_index: usize) -> InputResult {
         if self.hanja_mode {
-            if let Some(hanja) = self.select_hanja(abs_index) {
-                unim_log!("ENGINE", "팝업 한자 선택: [{}] '{}'", abs_index, hanja);
-                self.commit_buffer.push_str(&hanja);
+            if let Some(text) = self.select_hanja(abs_index) {
+                // 대상①(확정 접두 있음)은 교체 페이로드로 나간다 — commit_buffer 에 넣으면
+                // 접두 삭제 없이 이중 삽입된다. 응답은 preedit ""(조합 음절 선삭제).
+                let replaced = self.pending_hanja_replacement.is_some();
+                // 대상③ 은 응답 preedit "" 와 같은 효과의 consumed — idle 에서 preedit-end 가
+                // 헛발사되지 않는다(I5). 대상① 은 종전대로 preedit_updated.
+                let surrounding_word = self
+                    .pending_hanja_replacement
+                    .as_ref()
+                    .is_some_and(|p| p.source == HanjaSource::SurroundingWord);
+                unim_log!(
+                    "ENGINE",
+                    "팝업 한자 선택: [{}] {}자 (교체={})",
+                    abs_index,
+                    text.chars().count(),
+                    replaced
+                );
+                if !replaced {
+                    self.commit_buffer.push_str(&text);
+                }
                 self.popup_pending_action = Some(PopupAction::HidePopup);
-                return InputResult::committed();
+                return if surrounding_word {
+                    InputResult::consumed()
+                } else if replaced {
+                    InputResult::preedit_updated()
+                } else {
+                    InputResult::committed()
+                };
             }
         } else if self.special_char_mode {
             if let Some(ch) = self.select_special_char(abs_index) {
-                unim_log!("ENGINE", "팝업 특수문자 선택: [{}] '{}'", abs_index, ch);
+                unim_log!("ENGINE", "팝업 특수문자 선택: [{}]", abs_index);
                 self.commit_buffer.push(ch);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
@@ -207,9 +232,8 @@ impl InputEngine {
             if let Some(emoji) = self.emoji_at_global_index(abs_index) {
                 unim_log!(
                     "ENGINE",
-                    "팝업 이모지 선택: [{}] '{}'",
-                    abs_index,
-                    emoji
+                    "팝업 이모지 선택: [{}]",
+                    abs_index
                 );
                 self.commit_buffer.push_str(&emoji);
                 let _ = crate::emoji::touch_recent(&emoji);
@@ -224,8 +248,11 @@ impl InputEngine {
     /// 팝업 취소 처리 — 원래 한글/초성을 그대로 커밋
     pub(super) fn popup_cancel(&mut self) {
         if self.hanja_mode {
-            if !self.hanja_target.is_empty() {
-                self.commit_buffer.push_str(&self.hanja_target);
+            // 진입 당시 preedit 전체(대상② 는 없음)를 되돌린다 — 이미 앱에 확정된 접두와
+            // 선택 영역은 건드리지 않는다(HANJA_WORD_SPEC §2.7).
+            let text = self.hanja_cancel_text();
+            if !text.is_empty() {
+                self.commit_buffer.push_str(&text);
             }
             self.cancel_hanja();
         } else if self.special_char_mode {
@@ -379,6 +406,8 @@ impl InputEngine {
     /// 클릭 commit 경로에서 호출 — 키보드 엔터(`commit_at_index`) 와 동일한 state
     /// cleanup 보장.
     pub fn cancel_emoji_popup(&mut self) {
+        // 팝업 확정/취소는 최근 확정 음절 버퍼 리셋 조건(래퍼 밖 RPC 경로 포함).
+        self.recent_clear();
         self.popup_state = None;
     }
 

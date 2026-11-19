@@ -4,6 +4,7 @@
 //!   - GTK4/libadwaita 설정 다이얼로그를 띄우고 종료한다.
 //!   - 트레이는 `unim-indicator`, popup은 `unim-popup-service` 별도 프로세스.
 
+mod hanja_dict_page;
 mod settings_dialog;
 
 use gtk4::prelude::*;

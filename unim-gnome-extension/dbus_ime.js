@@ -10,6 +10,7 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import { unimLog, unimError } from './logging.js';
+import { computeClientCapabilities } from './capabilities.js';
 
 /** DBus 서비스 상수 */
 const UNIM_BUS_NAME = 'org.atit.unim.InputMethod';
@@ -102,6 +103,16 @@ export class UnimDbusIME {
         this._onHanjaCandidatesReordered = null;
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
+        /**
+         * 대상③ 확정 스위치(GSettings `surrounding-word-replace`, 0.4.5 부터 기본 켬) 현재 값. 설정을 읽기
+         * 전에는 false(보수) — extension.js 가 설정에서 읽어 `setSurroundingWordReplace` 로 주입한다.
+         * @type {boolean}
+         */
+        this._surroundingWordReplace = false;
+        /** @type {Function|null} ReplaceSurroundingText 시그널 콜백 (대상③ 확정) */
+        this._onReplaceSurrounding = null;
+        /** @type {number} ReplaceSurroundingText 글로벌 구독 ID */
+        this._replaceSignalId = 0;
         /** @type {Function|null} CommitText 시그널 콜백 (chord idle flush 등 비동기 commit 경로) */
         this._onCommitText = null;
         /** @type {Function|null} UpdatePreeditText 시그널 콜백 (chord idle flush preedit 갱신 등) */
@@ -110,6 +121,31 @@ export class UnimDbusIME {
         this._onConfigChanged = null;
         /** @type {object|null} 캐시된 Config (GetConfigJson / ConfigChangedJson payload) */
         this._configCache = null;
+        /** @type {Function|null} Notify 시그널 콜백 (kind, title, body, durationMs, flags) — 알림 브리지 */
+        this._onNotify = null;
+    }
+
+    /**
+     * 상황 알림 `Notify` 시그널 콜백 등록 (NOTIFY_SPEC §3.3).
+     *
+     * 콜백 인자의 title/body 는 입력 텍스트를 담을 수 있으니 로그에 남기지 말 것.
+     * 구독은 g-signal 핸들러가 콜백을 매번 읽는 방식이라 데몬 재연결(프록시 재생성)에도 유지된다.
+     *
+     * @param {Function|null} cb - (kind, title, body, durationMs, flags) => void
+     */
+    setOnNotify(cb) {
+        this._onNotify = cb || null;
+    }
+
+    /**
+     * `Notify` 시그널을 실제로 받을 수 있는 상태인가.
+     * 콜백이 등록돼 있고 InputMethod 프록시의 시그널 핸들러가 걸려 있어야 한다 —
+     * 이 조건이 거짓이면 `gnome-shell-notify` 를 등록하지 말 것(fdo 폴백 유지).
+     *
+     * @returns {boolean}
+     */
+    hasNotifySubscription() {
+        return !!this._onNotify && !!this._imProxy && this._imSignalId > 0;
     }
 
     /**
@@ -189,6 +225,17 @@ export class UnimDbusIME {
                     if (signalName === 'GlobalModeChanged' && this._onModeChanged) {
                         const [isKorean] = parameters.deep_unpack();
                         this._onModeChanged(isKorean);
+                    } else if (signalName === 'Notify') {
+                        if (this._onNotify) {
+                            try {
+                                const [kind, title, body, durationMs, flags] =
+                                    parameters.deep_unpack();
+                                this._onNotify(kind, title, body, durationMs, flags);
+                            } catch (e) {
+                                // title/body 는 로그에 남기지 않는다(§2.3)
+                                unimError('DBUS_IME', `Notify 처리 실패: ${e.message}`);
+                            }
+                        }
                     } else if (signalName === 'ConfigChangedJson') {
                         const [jsonStr] = parameters.deep_unpack();
                         try {
@@ -363,6 +410,16 @@ export class UnimDbusIME {
             }
             this._popupSignalId = 0;
         }
+        // 재구독 때 중복 dispatch 가 되지 않도록 ReplaceSurroundingText 구독도 함께 끊는다.
+        if (this._replaceSignalId > 0) {
+            try {
+                const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
+                bus.signal_unsubscribe(this._replaceSignalId);
+            } catch (_e) {
+                // 버스 접근 실패 무시
+            }
+            this._replaceSignalId = 0;
+        }
 
         if (this._icProxy) {
             if (this._icSignalId > 0) {
@@ -409,6 +466,7 @@ export class UnimDbusIME {
      *     의존을 모두 제거.
      * @param {Function} [callbacks.onHidePopup] - ()
      * @param {Function} [callbacks.onPopupNavigate] - (page, totalPages, selected, rows, cols, selRow, selCol)
+     * @param {Function} [callbacks.onReplaceSurrounding] - (deleteBefore, deleteAfter, commitText, expectText)
      */
     setPopupCallbacks(callbacks) {
         this._onShowHanja = callbacks.onShowHanja || null;
@@ -417,6 +475,7 @@ export class UnimDbusIME {
         this._onHidePopup = callbacks.onHidePopup || null;
         this._onPopupNavigate = callbacks.onPopupNavigate || null;
         this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
+        this._onReplaceSurrounding = callbacks.onReplaceSurrounding || null;
         this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
         this._onHanjaCandidatesReordered = callbacks.onHanjaCandidatesReordered || null;
         this._onPopupRender = callbacks.onPopupRender || null;
@@ -492,10 +551,10 @@ export class UnimDbusIME {
         }
 
         // InputContext 시그널 구독 (자기 context: 팝업 등)
-        // AutoTypefixApply는 글로벌 구독에서만 처리 (중복 방지)
+        // AutoTypefixApply·ReplaceSurroundingText 는 글로벌 구독에서만 처리 (중복 방지)
         this._icSignalId = this._icProxy.connect('g-signal',
             (_proxy, _senderName, signalName, parameters) => {
-                if (signalName === 'AutoTypefixApply') return;
+                if (signalName === 'AutoTypefixApply' || signalName === 'ReplaceSurroundingText') return;
                 this._handleContextSignal(signalName, parameters, true);
             }
         );
@@ -518,10 +577,24 @@ export class UnimDbusIME {
             }
         );
 
-        // popup-service Popup interface signal 구독 — ShowEmojiPopupV2 / HidePopup 만
-        // 활용 (Wayland text-input v3 IM 세션 engage 용 ZWSP preedit 트릭). 한자/특수
-        // popup signal 은 popup-service 가 자체 GTK4 popup 으로 표시하므로 GNOME ext
-        // 는 처리 불요.
+        // ReplaceSurroundingText 글로벌 구독 — AutoTypefixApply 와 같은 이유(proxy 누락 가능성).
+        // 자기 context 에서 온 것만 dispatch 한다.
+        this._replaceSignalId = bus.signal_subscribe(
+            UNIM_BUS_NAME,
+            UNIM_IC_INTERFACE,
+            'ReplaceSurroundingText',
+            null,
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (_conn, _sender, path, _iface, signalName, parameters) => {
+                if (path === this._contextPath) {
+                    this._handleContextSignal(signalName, parameters, true);
+                }
+            }
+        );
+
+        // popup-service Popup interface signal 구독 — Show*/HidePopup 을 PopupView 로 중계
+        // (이모지 ZWSP preedit 트릭은 v3.5 에서 제거).
         this._popupServiceSignalId = this._popupServiceSignalId || bus.signal_subscribe(
             POPUP_SERVICE_BUS,
             POPUP_INTERFACE,
@@ -608,23 +681,30 @@ export class UnimDbusIME {
         // HidePopup / PopupNavigate / PopupRender / HanjaBookmarkChanged /
         // HanjaCandidatesReordered) 은 popup-service `org.atit.unim.Popup` interface
         // 가 단일 SoT. GNOME ext 는 popup-service 측 구독 핸들러
-        // _handlePopupServiceSignal 에서 ZWSP preedit 트릭만 처리.
+        // _handlePopupServiceSignal 에서 PopupView 중계만 처리.
         try {
             if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
-                unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                // 평문 금지(HANJA_WORD_SPEC §2.8) — 길이만 남긴다.
+                unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commitLen=${Array.from(commitText).length}, preeditLen=${Array.from(preeditText).length}`);
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
+            } else if (signalName === 'ReplaceSurroundingText' && isOwnContext && this._onReplaceSurrounding) {
+                // 대상③ 확정: (delete_before, delete_after, commit_text, expect_text) — 와이어 `uuss`.
+                // 실행 전 대조는 extension.js onReplaceSurrounding 이 마지막 surrounding 캐시로 한다(SPEC.md §2.8).
+                const [deleteBefore, deleteAfter, commitText, expectText] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `ReplaceSurroundingText: a=${deleteBefore}, b=${deleteAfter}, commitLen=${Array.from(commitText).length}, expectLen=${Array.from(expectText).length}`);
+                this._onReplaceSurrounding(deleteBefore, deleteAfter, commitText, expectText);
             } else if (signalName === 'CommitText' && isOwnContext && this._onCommitText) {
                 // 비동기 commit 경로 (예: chord idle flush). ProcessKeyEvent return 의 commit
                 // 필드와 별개로 daemon 이 InputContext path 로 emit 한 CommitText 시그널.
                 const [text] = parameters.deep_unpack();
-                unimLog('DBUS_IME', `CommitText: text='${text}'`);
+                unimLog('DBUS_IME', `CommitText: len=${Array.from(text).length}`);
                 this._onCommitText(text);
             } else if (signalName === 'UpdatePreeditText' && isOwnContext && this._onUpdatePreedit) {
                 // 비동기 preedit 갱신 (예: chord idle flush preedit 유지 모드).
                 // payload: (text, cursor_pos, visible).
                 const [text, cursorPos, visible] = parameters.deep_unpack();
-                unimLog('DBUS_IME', `UpdatePreeditText: text='${text}', cursor=${cursorPos}, visible=${visible}`);
+                unimLog('DBUS_IME', `UpdatePreeditText: len=${Array.from(text).length}, cursor=${cursorPos}, visible=${visible}`);
                 this._onUpdatePreedit(text, cursorPos, visible);
             }
         } catch (e) {
@@ -740,6 +820,9 @@ export class UnimDbusIME {
         } catch (e) {
             unimError('DBUS_IME', `FocusIn 실패: ${e.message}`);
         }
+        // FocusIn 직후마다 능력을 다시 알린다(멱등) — 데몬 재시작·컨텍스트 재생성 뒤에도 같은 값이 서도록.
+        // 비동기라 FocusIn 응답 뒤 이후 한자키보다 먼저 도착한다(InputContext 직렬 처리).
+        this.setClientCapabilitiesAsync(computeClientCapabilities(this._surroundingWordReplace));
     }
 
     /**
@@ -869,6 +952,73 @@ export class UnimDbusIME {
     }
 
     /**
+     * 대상③ 실측 스위치 값을 반영한다. 값이 바뀌면 현재 컨텍스트에 능력을 다시 선언한다
+     * (FocusIn 을 기다리지 않는다 — 켠 직후 다음 한자키부터 적용). 같은 값이면 아무것도 안 한다.
+     * @param {boolean} enabled
+     * @returns {boolean} 값이 바뀌었는지
+     */
+    setSurroundingWordReplace(enabled) {
+        const next = enabled === true;
+        if (next === this._surroundingWordReplace) return false;
+        this._surroundingWordReplace = next;
+        unimLog('DBUS_IME', `surrounding-word-replace=${next}`);
+        this.setClientCapabilitiesAsync(computeClientCapabilities(next));
+        return true;
+    }
+
+    /**
+     * 프런트 능력을 데몬에 알린다(fire-and-forget) — 대상③ 허용 조건에 쓰인다.
+     * 비트: 0x1 REPLACE_SURROUNDING · 0x2 SELECTION_RELIABLE · 0x4 POINTER_HINTS.
+     * GNOME 은 SELECTION_RELIABLE 을 선언하지 않는다(App-push 경로).
+     * @param {number} caps
+     */
+    setClientCapabilitiesAsync(caps) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'SetClientCapabilities',
+            new GLib.Variant('(u)', [caps >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `SetClientCapabilities 실패: ${e.message}`);
+                }
+            }
+        );
+        unimLog('DBUS_IME', `SetClientCapabilities: caps=0x${(caps >>> 0).toString(16)}`);
+    }
+
+    /**
+     * 대상③ 거부 신호 보고(fire-and-forget) — 엔진이 직접 볼 수 없는 사건만.
+     * kind: 1 KEY(keyval·state 동반) · 2 POINTER_PLAIN · 3 POINTER_SELECT · 4 PRIMARY_CHANGED ·
+     * 5 SELECTION_UNKNOWN · 6 FIELD_FOCUS(필드 포커스, 구버전 데몬은 무시). kind≠1 이면 keyval·state 는 0.
+     * D-Bus 가 연결 단위로 순서를 보존하므로 이후 ProcessKeyEvent 보다 먼저 반영된다.
+     * @param {number} kind
+     * @param {number} keyval
+     * @param {number} state
+     */
+    surroundingHintAsync(kind, keyval, state) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'SurroundingHint',
+            new GLib.Variant('(uuu)', [kind >>> 0, keyval >>> 0, state >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `SurroundingHint 실패: ${e.message}`);
+                }
+            }
+        );
+    }
+
+    /**
      * Surrounding text 전달 (TypeFIX 더블탭용)
      * @param {string} text - 주변 텍스트
      * @param {number} cursor - 커서 위치 (문자 단위)
@@ -888,6 +1038,32 @@ export class UnimDbusIME {
         } catch (e) {
             // surrounding text 실패는 조용히 무시 (성능 영향 최소화)
         }
+    }
+
+    /**
+     * Surrounding text 비동기 전달 — FocusIn 계열 직후 마지막 스냅샷 재송신용(fire-and-forget).
+     * 같은 연결이라 먼저 보낸 FocusIn·SurroundingHint 뒤, 이후 ProcessKeyEvent 앞에 도착한다.
+     * 로그는 길이만(문서 내용 금지).
+     * @param {string} text
+     * @param {number} cursor - 코드포인트
+     * @param {number} anchor - 코드포인트
+     */
+    setSurroundingTextAsync(text, cursor, anchor) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'SetSurroundingText',
+            new GLib.Variant('(suu)', [text, cursor >>> 0, anchor >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `SetSurroundingText(재송신) 실패: ${e.message}`);
+                }
+            }
+        );
     }
 
     // _adjustCursorRect 제거됨 (Phase 5): popup signal 핸들러 가 GNOME ext 에서
@@ -1129,6 +1305,7 @@ export class UnimDbusIME {
         this._cancelRetry();
         this._onDaemonReady = null;
         this._onDaemonLost = null;
+        this._onNotify = null;
 
         // AutoTypefixApply 글로벌 시그널 구독 해제
         if (this._popupSignalId > 0) {
@@ -1139,6 +1316,17 @@ export class UnimDbusIME {
                 // 버스 접근 실패 무시
             }
             this._popupSignalId = 0;
+        }
+
+        // ReplaceSurroundingText 글로벌 시그널 구독 해제
+        if (this._replaceSignalId > 0) {
+            try {
+                const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
+                bus.signal_unsubscribe(this._replaceSignalId);
+            } catch (_e) {
+                // 버스 접근 실패 무시
+            }
+            this._replaceSignalId = 0;
         }
 
         // popup-service Popup interface 시그널 구독 해제

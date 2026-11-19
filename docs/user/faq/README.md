@@ -1,12 +1,14 @@
 # UNIM FAQ (English)
 
-> The questions people actually ask about UNIM 0.4.4.
+> The questions people actually ask about UNIM 0.4.5.
 > Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.
 
 ---
 
+## Q1. How is UNIM different from other Korean IMEs?
+
 <!-- @platform:linux -->
-## Q1. How is UNIM different from ibus-hangul, fcitx-hangul, kime, nimf?
+**🐧 Linux** — compared with ibus-hangul, fcitx-hangul, kime, nimf
 
 | Item | UNIM | ibus-hangul | fcitx-hangul | kime | nimf |
 |------|------|-------------|--------------|------|------|
@@ -24,9 +26,32 @@
 | License | (see project license) | LGPL/GPL | GPL | GPLv3 | LGPL |
 
 **One-liner**: UNIM's design is "one Rust core plugged into every environment", and it differentiates further on user-experience features (AutoTypeFix, learned suppression dictionary) that other IMEs do not have.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows** — compared with Microsoft Korean IME, Nalgaeset, Saenaru
+
+| Item | UNIM | Microsoft Korean IME | Nalgaeset (날개셋) | Saenaru (새나루) |
+|------|------|----------------------|--------------------|------------------|
+| Distribution | MSI installer | Built into Windows | MSI installer | Installer |
+| Latest release | 0.4.5 (2026) | Updated with Windows | 11.01 (2026-10) | 1.1.0-p1 (2010) — none since |
+| Open source | ✅ MIT, Rust | ✗ | — | ✅ |
+| Input framework | TSF | — | TSF | — |
+| 64-bit / 32-bit apps | ✅ / ✅ (`unim_tsf32.dll`, Q30) | ✅ / ✅ (built in) | x64, x86, ARM64 installers | — |
+| Korean layouts | Dubeolsik, Sebeolsik 390 / 391 / Sunarae, Anmatae | Dubeolsik, Sebeolsik 390 / Final | Dubeolsik, Sebeolsik and more | Dubeolsik, Sebeolsik 390 / Final / Sunarae (+ optional legacy layouts) |
+| User layouts | ✅ JSON file (same format as Linux, Q7) | — | ✅ design your own | — |
+| Hanja word conversion | ✅ in TSF apps; legacy-input apps convert only the word just typed (Q37) | — | ✅ in TSF apps; other apps convert only the last character | ✅ word-unit editing mode |
+| Same engine and settings as Linux | ✅ | ✗ | ✗ | ✗ |
+
+`—` means we could not confirm it from public sources (checked 2026-11); it does not mean the feature is missing. The Hancom IME ships with Hancom Office and has no public spec we could find, so it is left out.
+
+- **UNIM-only features**: AutoTypeFix (automatic Korean↔English typo fix: forward, reverse, learning), the 9-cell / 81-cell Hanja grid, and the symbol and emoji popups. We found no equivalent in the other IMEs' public documentation.
+- **Hanja word-conversion limits come from the app's input framework, not the IME.** Nalgaeset also states that apps without TSF support convert only the last character. UNIM's version of this limit is in Q37.
+- **You don't need to remove your old IME.** Windows lets you register several and switch between them (Q2).
+- NavilIME (GPL-3.0) is another open-source TSF IME, but it has not been updated since 2020.
+<!-- @endplatform -->
 
 ---
-<!-- @endplatform -->
 
 ## Q2. Can UNIM coexist with another IME on the same desktop?
 
@@ -160,7 +185,7 @@ For mechanics see [user manual §4.2](../user-guide/README.md#42-hanja-conversio
 ~/.config/unim/
 ├── config.yaml              # General settings (source of truth)
 ├── typefix-blacklist.yaml   # Learned suppressions
-├── userdict.yaml            # Reverse user dict (new in 0.2.0)
+├── userdict.yaml            # Reverse auto-correction dict (new in 0.2.0)
 └── layouts/                 # Custom v1 layouts
     └── my_3bul_variant.json
 ```
@@ -191,7 +216,7 @@ systemctl --user start unim-daemon
 %APPDATA%\unim\
 ├── config.yaml                # General settings (source of truth)
 ├── typefix-blacklist.yaml     # Learned suppressions (Suppressed Words tab)
-├── typefix-userdict.yaml      # Reverse user dictionary (User Dictionary tab)
+├── typefix-userdict.yaml      # Reverse auto-correction dictionary (Auto-correction Dictionary tab)
 └── layouts\                   # Custom v1 layouts
     └── my_3bul_variant.json
 ```
@@ -413,7 +438,7 @@ Yes. All user data lives under `~/.config/unim/` and is independent of the packa
 - `~/.config/unim/config.yaml` — main settings
 - `~/.config/unim/layouts/*.json` — custom keyboard profiles
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix suppression dictionary
-- `~/.config/unim/typefix-userdict.yaml` — user dictionary
+- `~/.config/unim/typefix-userdict.yaml` — auto-correction dictionary
 
 Uninstalling one package format and installing the other leaves these files untouched. Note that the `unim-gui-qt` package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between `unim-desktop` (indicator + legacy settings dialog + `unim-popup-service`, bundled together) and `unim-settings` (the Slint settings app). For the current full list of 11 packages, check `debian/control` or `dpkg -l 'unim*'`.
 
@@ -609,7 +634,7 @@ If it is still missing after signing back in, work down this list.
 - Until then, verify integrity by **comparing the SHA256 hash** against `SHA256SUMS-msi`, which is published alongside the MSI in the release.
 
   ```powershell
-  Get-FileHash .\unim-0.4.4-x64.msi -Algorithm SHA256
+  Get-FileHash .\unim-0.4.5-x64.msi -Algorithm SHA256
   ```
 
 - If you install with `install.ps1`, the script does this comparison for you — twice (Q26).
@@ -629,7 +654,7 @@ If it is still missing after signing back in, work down this list.
    # Inspect first, then run
    powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
    # Pin a specific version
-   $env:UNIM_VERSION='v0.4.4'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+   $env:UNIM_VERSION='v0.4.5'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
    ```
 
 `-Check` (report installed vs latest version, change nothing), `-Update`, and `-Force` are available.
@@ -646,7 +671,7 @@ If it is still missing after signing back in, work down this list.
 2. **Settings → Apps → Installed apps** → remove `UNIM`. The Start menu shortcut **UNIM → Uninstall UNIM** does the same thing.
 3. When it finishes, **sign out and back in, or reboot**.
 
-Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input method registration, and the Start menu shortcuts. However, **your settings (`%APPDATA%\unim\`) stay** — reinstall and your config, suppression dictionary, and user dictionary carry over. Delete that folder by hand if you want a clean slate.
+Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input method registration, and the Start menu shortcuts. However, **your settings (`%APPDATA%\unim\`) stay** — reinstall and your config, suppression dictionary, and auto-correction dictionary carry over. Delete that folder by hand if you want a clean slate.
 
 > There is no separate "restore the system IME assignment" step like on Linux (Q23), because on Windows UNIM was only **added** to the input method list and never displaced anything. If Korean input behaves oddly after removal, check the remaining entries under **Settings → Time & language → Korean → Keyboards**.
 
@@ -656,10 +681,12 @@ Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input me
 
 **🪟 Windows** — On Windows the popup is drawn by a **separate program**, `unim-popup-win.exe`. If that is not running you get exactly this symptom: typing Korean works fine, only the popup is missing.
 
-1. **Check the key first** — the `Hanja` key (or `F9`) branches three ways depending on state:
-   - while composing a syllable → **Hanja** candidates
+1. **Check the key first** — the `Hanja` key (or `F9`) branches depending on state:
+   - while composing (the syllable or word just typed) → **Hanja** candidates
+   - with a Hangul word already typed and selected with the mouse or Shift+arrows, if it is in the dictionary → **Hanja** candidates for that word
+   - not composing and nothing selected, but the cursor is at the end of, inside, or at the start of a Hangul word → **Hanja** candidates for that word (longest first; press again for the next one)
    - after composing a single consonant (e.g. `ㅁ`) → **special characters**
-   - while not composing anything → **emoji**
+   - otherwise, not composing, nothing selected and the cursor not touching a Hangul word → **emoji** (see Q33 for the cases)
 2. **Check the program is running** — look for `unim-popup-win.exe` in Task Manager. If it is missing, run `unim-popup-win.exe` from the install folder (`C:\Program Files\UNIM\`) directly. Launching it twice by accident is harmless — the second copy exits on its own.
 3. **Sign out and back in once** — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.
 
@@ -690,11 +717,11 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 
 ## Q31. Does the Windows build have the same features as the Linux build?
 
-**🪟 Windows** — **The input core is identical; the surrounding tooling differs.** Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the user dictionary all run on the **same Rust core**. This table is the complete list of differences.
+**🪟 Windows** — **The input core is identical; the surrounding tooling differs.** Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the auto-correction dictionary all run on the **same Rust core**. This table is the complete list of differences.
 
 | Item | Linux | Windows |
 |------|-------|---------|
-| Settings window | settings app (`unim-settings`) | settings app (`unim-settings.exe`) — General / Typo Correction / Suppressed Words / User Dictionary, 4 tabs |
+| Settings window | settings app (`unim-settings`) | settings app (`unim-settings.exe`) — General / Typo Correction / Suppressed Words / Auto-correction Dictionary, 4 tabs |
 | Applying settings | daemon propagates immediately | immediate from the settings window; ~2 seconds when you edit the file directly |
 | `unim-cli` command-line tool | yes | **no** (not included in the installer) |
 | Keymap Studio · Typing Practice | yes | **no** |
@@ -706,6 +733,105 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 - To carry settings over from Linux, copy the files in `~/.config/unim/` to `%APPDATA%\unim\`. The file formats are identical on both platforms (Q6 · Q7).
 
 <!-- @endplatform -->
+
+---
+
+## Q32. Only one character changes instead of the whole word.
+
+It is usually one of these four. The popup header `「…」` shows the text about to be replaced, so check that first.
+
+1. **The word is not in the dictionary.** Words missing from the dictionary (proper nouns, new words) convert one character at a time. Convert them one character at a time.
+2. **You already typed a particle or a space.** Pressing `Hanja` while typing targets only the tail that is still composing. Press it right after the word, **before adding a particle**. If you already did, put the cursor at the end of the word (before the particle) and press it.
+3. **You kept pressing `Hanja` in the popup.** A popup opened while typing shrinks from the front on each press until one character is left (`대한민국` → `민국` → `국`). If you went past it, close with `Esc` and start over.
+4. **You stepped past the word in the word-at-the-cursor cycle.** The first popup is the longest word and each further press moves to a shorter candidate (Q36).
+
+Steps are in the "Step-by-step tutorial" of [user manual §4.2](../user-guide/README.md#42-hanja-conversion).
+
+---
+
+## Q33. I pressed `Hanja` and got the emoji popup instead of hanja.
+
+**This is not an error.** There was nothing to convert, or converting risked losing text, so UNIM skipped hanja on purpose. Find your case below.
+
+| Situation | What to do |
+|---|---|
+| Neither side of the cursor is Hangul (after a space, after punctuation, end of line) | Press `←` to the end of the word and press the key again |
+| The cursor is at the very start of the field or paragraph | Move the cursor to the end of the word |
+| The word is not in the dictionary | Convert one character at a time |
+| You just selected with `Shift`+arrows, `Ctrl`+`A`, dragging or double-click (apps going through the GNOME extension) | Press an arrow key without `Shift`, or click, to clear the selection |
+| You just switched windows or clicked (apps going through the GNOME extension) | Press an arrow key once, then press the key again |
+| Terminal, XIM app, Chromium on X11, etc. | These environments cannot see text you already wrote. It works only right after typing the word (while composing) (Q37) |
+| An old-input-method (IMM32) app on Windows (except Qt apps such as Telegram) | Same. It works only right after typing the word (while composing) (Q37) |
+| You pressed `Hanja` past the last candidate in the hanja popup | By design. After the last candidate it moves on to the emoji popup |
+
+If text was selected when the emoji popup opened, confirming an emoji replaces the selection with it. Press `Esc` to close the popup and keep the selection. The full table is in [user manual §4.2](../user-guide/README.md#when-the-emoji-popup-appears).
+
+---
+
+<!-- @platform:linux -->
+## Q34. In LibreOffice, converting does nothing after I drag-select.
+
+**LibreOffice drawn with GTK (the default build on most Linux distributions) does not tell the input method about the selection, so selection conversion does not work.** Converting while a selection may still exist could erase that selection too, so UNIM opens the emoji popup instead of hanja.
+
+1. Clear the selection: press an arrow key without `Shift`, or click once.
+2. Put the cursor anywhere on the word — **end, middle or start**.
+3. Press `Hanja`. The longest word comes up first; press again for the next candidate.
+
+- At the **very start** of the document or field this method does not work. Move the cursor to the end of the word.
+- The cursor method above is for **GNOME (Wayland)**, where input goes through the extension. In an **X11 session** the document window of GTK-drawn LibreOffice does not support the cursor method either, and the emoji popup opens. There, press `Hanja` right after typing the word (while composing).
+- LibreOffice drawn with Qt (the KDE build, for example) reports the selection accurately, so selection conversion works there.
+- If the emoji popup opens and you confirm, the selected text becomes the emoji. Press `Esc` to keep the selection.
+<!-- @endplatform -->
+
+---
+
+## Q35. How do I convert a word with a particle attached? (대한민국은)
+
+For now, **put the cursor before the particle** and press `Hanja`. For example, pressing it at `대한민국|은` usually offers 「대한민국」 first. While typing, the fastest way is to press the key before adding the particle.
+
+Automatic stripping of particles is **planned as a separate feature**. Until it arrives, use the method above.
+
+---
+
+## Q36. The word of the length I want is not the first candidate.
+
+The first popup is the **longest word** the cursor touches. For a shorter word, press `Hanja` again to move to the next candidate.
+
+- Order: longer words first → (at equal length) the word ending right at the cursor → the word starting right at the cursor → a word straddling the cursor.
+- Example: `국어|교육` goes 국어교육 → 국어 → 교육 → 어교 → 어 → 교 (built-in dictionary; less familiar words such as `어교` (魚膠) can appear in between). To convert only "국어": `Hanja` twice, then a digit.
+- After the last candidate the emoji popup opens. It does not loop back to the first one.
+- The candidate list does not change while the popup is open.
+
+The diagram and table are under "Pick the length you want in a compound word" in [user manual §4.2](../user-guide/README.md#42-hanja-conversion).
+
+---
+
+## Q37. Some apps cannot convert words I already typed.
+
+**It is a limit of the input method protocol the app uses.** In these apps, press `Hanja` right after typing the word, before adding a particle or a space. Pressing it with the cursor on, or a selection over, a word you already typed opens the emoji popup. No text is deleted or changed.
+
+Hanja word conversion comes in three forms, and they need different things.
+
+| Form | What the input method needs |
+|---|---|
+| The word just typed | The characters the input method itself remembers you just typed. From the app it only needs "delete N characters and insert the hanja" |
+| The word at the cursor, a selected range | The **text around the cursor and the selection** in the app's document. The app has to tell the input method |
+
+Modern input method protocols (Windows TSF, the Linux GTK/Qt input-method modules, Wayland text-input) report the surrounding text. Old ones do not.
+
+- **Windows IMM32**: the input method holds only the characters being composed and cannot see the document. It can look around the cursor only if the app answers a separate "reconversion" request; whether an app answers, and whether answering changes its selection, differs per app. UNIM uses this request only in **Qt apps (measured with Telegram)**, where that behaviour has been checked.
+- **Linux XIM**: the protocol has no way to exchange the surrounding text.
+- **Chromium/Electron apps on X11**: Chromium does not pass the surrounding text to the GTK input method.
+- **Terminals**: the screen is not an editable document, so there is no surrounding text.
+- **Pure Wayland (KDE, Sway, etc.)**: the surrounding text arrives, but the input method cannot see mouse selections, so the word-at-the-cursor method is still turned off.
+
+**What to do**
+
+1. Type the word and press `Hanja` **before adding a particle or a space**. It converts in one step.
+2. For a word you already typed, delete it, retype it and press the key right after.
+3. On Linux, check whether the app can be connected through a UNIM input-method module instead of XIM (GTK/Qt modules — [user manual §3](../user-guide/README.md#3-per-environment-setup)). With a module all three forms usually work (exceptions are in the §4.2 table).
+
+What works in which app is tabulated in [user manual §4.2 "Differences by app"](../user-guide/README.md#differences-by-app). If you can help push past these limits (measuring other request methods, upstream patches, etc.), see [README — Known limitations and help wanted](https://github.com/from104/unim#known-limitations-and-help-wanted).
 
 ---
 

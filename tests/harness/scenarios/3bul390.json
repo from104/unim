@@ -59,13 +59,23 @@
   },
   {
     "name": "password-compose",
-    "desc": "비밀번호 필드에서도 조합·확정이 정상인가 (억제 대상은 AutoTypeFix 지 조합이 아니다)",
+    "desc": "비밀번호 칸(시험 앱이 IM 에 purpose=Password 를 알림)에서는 한글 모드여도 영문이 강제되어 한글 키가 라틴 문자 그대로 확정되고 preedit 이 없는가, 일반 칸으로 돌아가면 한글 모드가 복구되는가 (press_key.rs Password/PIN 영문 강제·surrounding.rs set_content_purpose)",
     "layout": "ko_3bul390",
     "korean": true,
     "field": "core.password",
+    "known_fail": {
+      "xim": "XIM 프로토콜에는 입력 목적(purpose)을 IM 서버에 전달할 수단이 없다 — 비밀번호 칸이 일반 칸으로 보여 한글이 조합된다(프로토콜 한계, 수정 불가)"
+    },
     "steps": [
+      { "key": "m", "expect": { "preedit": "", "committed": "m" } },
+      { "keys": ["f", "s"], "expect": { "preedit": "", "committed": "mfs" } },
+      { "key": "space", "expect": { "preedit": "", "committed": "mfs ",
+                                    "rendered": "mfs " } },
+      { "click": "core.plain", "field": "core.plain",
+        "expect": { "rendered": "" } },
       { "keys": ["m", "f", "s"], "expect": { "preedit": "한" } },
-      { "key": "space", "expect": { "preedit": "", "committed": "한 " } }
+      { "wait": 300, "field": "core.password",
+        "expect": { "committed": "mfs ", "preedit": "" } }
     ]
   },
   {

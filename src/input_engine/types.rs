@@ -217,6 +217,109 @@ pub enum PopupAction {
     },
 }
 
+/// 한자 단어 교체 페이로드 (HANJA_WORD_SPEC §2.6·§4.1).
+///
+/// 대상①(`HanjaSource::RecentWord`) 확정에서 이미 앱에 확정된 접두를 지우고 한자를
+/// 넣어야 할 때, 그리고 대상③(`HanjaSource::SurroundingWord`) 확정에서만 엔진이 남긴다.
+/// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널이며(`pending_atf_toggle`
+/// 선례), 호스트가 `InputEngine::take_hanja_replacement()` 로 드레인해 `source` 에 맞는
+/// 교체 채널로 내보낸다 — 대상① 은 `AutoTypefixApply(delete_chars, text, "")`, 대상③ 은
+/// `ReplaceSurroundingText(delete_chars, delete_after_chars, text, expect_text)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HanjaReplacement {
+    /// 앱에서 지울 글자 수. 대상① 은 확정 접두(완성 음절 — UTF-8 3바이트 확정),
+    /// 대상③ 은 커서 **앞** a자.
+    pub delete_chars: u32,
+    /// 대상③ 만: 커서 **뒤** b자. 그 외 0.
+    pub delete_after_chars: u32,
+    /// 팝업 진입 당시 preedit 글자 수. 조합 텍스트가 문서 안에 있는 호스트(TSF)가
+    /// 교체 범위를 `delete_chars + preedit_chars` 로 잡을 때 쓴다. 대상③ 은 0.
+    pub preedit_chars: u32,
+    /// 넣을 텍스트 (출력 형식 적용 완료).
+    pub text: String,
+    /// 확정 대상의 출처 — 교체 채널 선택 기준(`SurroundingWord` → `ReplaceSurroundingText`).
+    pub source: HanjaSource,
+    /// 대상③ 만: 지울 한글 원문(= target). 프런트가 문서와 대조한다. 그 외 "".
+    pub expect_text: String,
+}
+
+/// 한자 변환 대상의 출처 (HANJA_WORD_SPEC §1.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HanjaSource {
+    /// preedit 마지막 음절 (종전 동작).
+    #[default]
+    Syllable,
+    /// 대상① 음절 확정 모드 — 최근 확정 음절 버퍼 + preedit 의 최장 사전 접미.
+    RecentWord,
+    /// 대상① 단어 확정 모드 / preedit 내부 일치 — 접미 앞 preedit 은 커밋 접두로 보존.
+    WordBuffer,
+    /// 대상② 앱 선택 영역.
+    Selection,
+    /// 대상③ 커서 주변 단어 — 확정된 한글을 커서 기준 앞 a자·뒤 b자로 교체(§2.4b).
+    SurroundingWord,
+}
+
+/// 클라이언트 능력 비트 — `SetClientCapabilities`(DBus) / `set_surrounding_word_caps`.
+/// 대상③ 허용 조건은 `REPLACE && (SELECTION_RELIABLE || POINTER_HINTS)`.
+pub const SURROUNDING_CAP_REPLACE: u32 = 0x1;
+pub const SURROUNDING_CAP_SELECTION_RELIABLE: u32 = 0x2;
+pub const SURROUNDING_CAP_POINTER_HINTS: u32 = 0x4;
+
+/// `SurroundingHint` kind — 프런트가 엔진 밖에서 관측한 사건.
+pub const SURROUNDING_HINT_KEY: u32 = 1;
+pub const SURROUNDING_HINT_POINTER_PLAIN: u32 = 2;
+pub const SURROUNDING_HINT_POINTER_SELECT: u32 = 3;
+pub const SURROUNDING_HINT_PRIMARY_CHANGED: u32 = 4;
+pub const SURROUNDING_HINT_SELECTION_UNKNOWN: u32 = 5;
+/// 입력란(필드) 포커스 — 창 FocusIn 이 오지 않는 push 프런트(GNOME)가 필드가 바뀔 때 보낸다.
+/// push 컨텍스트에서만 효력이 있다(FocusIn 과 같은 표시, 단 모드 복원·ATF 리셋은 없음).
+pub const SURROUNDING_HINT_FIELD_FOCUS: u32 = 6;
+/// PRIMARY 선택이 비어 있음 — push 프런트(GNOME)가 한자키 직전에 보낸다. 원인이 `PRIMARY_CHANGED` 단독인
+/// 선택 가능 표시만 풀어, 클릭으로 선택이 해제된 뒤의 한자키가 선택 거부(selpossible)로 막히지 않게 한다.
+/// push 컨텍스트에서만 효력이 있다.
+pub const SURROUNDING_HINT_PRIMARY_EMPTY: u32 = 7;
+/// 앱 표면 눌림 — push 프런트(GNOME)가 IM reset 시점에 본 눌림. 눌린 곳이 글 영역인지는 모른다(스크롤바·헤더바일 수
+/// 있음). 낡음 표시·보류 취소를 하고 포커스 원인(FocusIn·FieldFocus)의 선택 가능 표시만 푼다. push 컨텍스트에서만 효력이 있다.
+pub const SURROUNDING_HINT_POINTER_APP: u32 = 8;
+
+/// R6 — 키 없는 커서 이동 뒤 이 시간(ms)이 지나야 FocusIn·FieldFocus 원인 플래그를 푼다.
+pub const SURROUNDING_SETTLE_MS: u64 = 300;
+/// R7 — 낡음 거절을 이 시간(ms)만큼 미뤄 다음 보고를 기다린다.
+pub const SURROUNDING_DEFER_WAIT_MS: u64 = 150;
+/// 한자키 시점부터 판정 보류의 총 대기 상한(ms) = SETTLE + WAIT. 보고가 더 와도 이 시각을 넘기지 않는다.
+pub const SURROUNDING_DEFER_TOTAL_MAX_MS: u64 = SURROUNDING_SETTLE_MS + SURROUNDING_DEFER_WAIT_MS;
+
+/// 대상③ 신선도·선택 거부 상태 — 엔진 재생성(Reset·FocusOut)을 건너 이월하는 묶음.
+/// 필드는 크레이트 내부 전용이며 호출부는 `surrounding_word_carry` / `restore_*` 로만 옮긴다.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurroundingWordCarry {
+    pub(super) caps: u32,
+    /// 프런트 종류 꼬리표(로그 전용). `Default` 는 빈 문자열이라 복원 시 "" 이면 건너뛴다.
+    pub(super) client_tag: &'static str,
+    pub(super) stale: bool,
+    pub(super) selection_possible: bool,
+    pub(super) flag_cause: u8,
+    /// push 전용 — 선택 가능 표시를 세운 원인 비트의 누적(`SelFlagCause::bit`). 표시를 풀 때 0.
+    pub(super) sel_cause_bits: u8,
+    /// push 전용 — 마지막 surrounding 보고가 비어 있지 않은 문맥이었는가(1비트). 포커스 때 false.
+    pub(super) had_report: bool,
+    pub(super) exhausted: bool,
+    /// push 전용 — 마지막 "키 없는 커서 이동" 후보 시각(ms). 포커스 때 비워진다.
+    pub(super) move_at: Option<u64>,
+    /// push 전용 — 마지막 select 신호(PRIMARY_CHANGED·POINTER_SELECT) 시각(ms).
+    pub(super) last_select_ms: Option<u64>,
+    /// push 전용 — 마지막 포커스 표시(FocusIn·FIELD_FOCUS) 시각(ms). 포커스 직후 SETTLE 안에 앱이 스스로 옮긴
+    /// 커서를 클릭 후보로 세지 않는 기준(R5) — 엔진이 재생성돼도 보호가 끊기지 않게 이월한다.
+    pub(super) focus_at: Option<u64>,
+    /// 호스트가 마지막으로 넘긴 단조 ms.
+    pub(super) now_ms: u64,
+}
+
+/// 사전 최장 키 길이(글자) — 대상 탐색·선택 판정 상한.
+pub const HANJA_MAX_KEY_CHARS: usize = 18;
+/// 최근 확정 음절 버퍼 상한(글자) — 사전 최장 키 − preedit 1자.
+pub const RECENT_SYLLABLE_CAP: usize = 17;
+
 /// 입력 처리 결과
 ///
 /// 키 입력 처리 후의 상태 변화를 나타냅니다.

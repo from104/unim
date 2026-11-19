@@ -10,13 +10,17 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
+use crate::notify_task::{build_notify_outs, detect_auto_lang, NotifyOut};
+use crate::replace_verify::ReplaceVerifier;
 use crate::service::{
-    popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
+    popup_render_flags, DeferOutcome, DeferredPopup, EmojiShowPayload, EngineRequest, EngineResponse,
+    PopupRenderPayload,
 };
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, KoreanLayout};
-use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
+use unim::input_engine::{AtfToggleKind, DeferTrigger, InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState, UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
+use unim::notify::{Lang, NotifyEvent, NotifyGate};
 use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::typefix_userdict::UserDictionary;
@@ -604,12 +608,14 @@ fn try_autotypefix_undo(
     }
     unim_log!(
         "ENGINE_WORKER",
-        "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}' (delete={}, live_composition={})",
-        obs.corrected,
-        obs.original,
+        "[Engine Worker] AutoTypeFix 되돌리기: {}자 → {}자 (delete={}, live_composition={})",
+        obs.corrected.chars().count(),
+        obs.original.chars().count(),
         delete_chars,
         obs.corrected_is_live
     );
+    // R10 — 이 키는 `press_key` 를 거치지 않고 문서를 바꾸므로 판정 보류를 여기서 취소한다.
+    engine.cancel_deferred_hanja();
     Some(EngineResponse {
         consumed: true,
         preedit: None,
@@ -621,6 +627,8 @@ fn try_autotypefix_undo(
         chord_pending: None,
         atf_toggled: None,
         atf_config_json: None,
+        replace_surrounding: None,
+        deferred_hanja: None,
     })
 }
 
@@ -642,6 +650,15 @@ fn handle_focus_in(
     keystroke_buffers.remove(&context_id);
     undo_states.remove(&context_id);
     recent_corrections.remove(&context_id);
+
+    // 한자 단어: surrounding preedit 포함 관측 학습은 앱(포커스) 속성이라 포커스 이동 시 해제.
+    // (FocusOut·Reset 은 엔진 재생성이 이미 초기화한다.)
+    if let Some(engine) = contexts.get_mut(&context_id) {
+        engine.clear_learned_includes_preedit();
+        engine.set_now_ms(mono_ms());
+        // 대상③: 이전 앱의 신선도·선택 가능 표시를 믿지 않는다(능력 비트는 유지).
+        engine.surrounding_word_focus_in();
+    }
 
     // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 사용)
     context_windows.insert(context_id, window_id.to_string());
@@ -710,6 +727,382 @@ fn handle_focus_in(
         .unwrap_or(false)
 }
 
+/// 상황 알림 발송 허브 (NOTIFY_SPEC §3.2) — 워커 스레드가 단독 소유한다.
+///
+/// 게이트(`NotifyGate`)와 알림 채널 송신 측을 묶는다. 이벤트는 요청 처리 중 지역 `Vec` 에
+/// 모았다가 `dispatch` 로 **정확히 1회** 심사한다(규칙 6 — ATF 교정이 통과하면 같은 묶음의
+/// ATF 유발 `mode_changed` 제거). 채널은 `try_send` 라 키 경로를 막지 않는다.
+struct NotifyHub {
+    tx: mpsc::Sender<NotifyOut>,
+    gate: NotifyGate,
+    /// `notify.language=auto` 일 때 쓸 로케일 판정 (워커 시작 시 env 에서 1회)
+    auto_lang: Lang,
+}
+
+impl NotifyHub {
+    fn new(tx: mpsc::Sender<NotifyOut>) -> Self {
+        Self {
+            tx,
+            gate: NotifyGate::new(),
+            auto_lang: detect_auto_lang(),
+        }
+    }
+
+    /// 이벤트 묶음을 심사해 통과분을 알림 채널로 보낸다. 가득 차면 폐기(kind 만 로그).
+    fn dispatch(&mut self, evs: Vec<NotifyEvent>, purpose: ContentPurpose, config: &Config) {
+        if evs.is_empty() {
+            return;
+        }
+        let outs = build_notify_outs(
+            &mut self.gate,
+            evs,
+            purpose,
+            &config.engine.notify,
+            self.auto_lang,
+            Instant::now(),
+        );
+        for out in outs {
+            let kind = out.kind;
+            if self.tx.try_send(out).is_err() {
+                // title/body 는 남기지 않는다(§2.3).
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] 알림 채널 가득 참/닫힘 — 폐기: kind={}",
+                    kind
+                );
+            }
+        }
+    }
+
+    /// 포커스가 다른 컨텍스트로 옮겨 온 직후 호출: 비밀번호 진입/이탈 알림.
+    ///
+    /// GTK 처럼 위젯마다 IM 컨텍스트를 갖는 툴킷은 포커스 없는 위젯의 목적(예: 아직 포커스를
+    /// 못 받은 비밀번호 칸)도 `SetContentType` 으로 미리 보낸다 — 그 전이는 사용자가 그 칸에
+    /// 들어온 것이 아니므로 [`Self::on_content_type_unfocused`] 가 알림을 만들지 않고, 실제
+    /// 진입은 여기서 이전 포커스 컨텍스트와의 차단 상태 비교로 잡는다.
+    fn on_focus_change(
+        &mut self,
+        config: &Config,
+        prev: Option<(u32, ContentPurpose)>,
+        new_id: u32,
+        new: ContentPurpose,
+    ) {
+        if let Some(ev) =
+            focus_transition_event(prev, new_id, new, config.engine.auto_typefix.enabled)
+        {
+            self.dispatch(vec![ev], new, config);
+        }
+    }
+
+    /// 포커스가 없는 컨텍스트의 목적 변경: 규칙 2 리셋만 하고 알림은 만들지 않는다.
+    fn on_content_type_unfocused(
+        &mut self,
+        context_id: u32,
+        prev: Option<ContentPurpose>,
+        new: Option<ContentPurpose>,
+    ) {
+        if prev.is_some() && new.is_some() && prev != new {
+            self.gate.on_purpose_change(context_id);
+        }
+    }
+
+    /// 필드 목적이 바뀐 직후 호출: 규칙 2 리셋 + 비밀번호 진입/이탈 알림.
+    ///
+    /// `prev`/`new` 는 `apply_content_type` 호출 **전·후** 의 엔진 목적(컨텍스트 없으면 None).
+    /// 엔진 재생성 경로(`reset_engine_and_capture_commit`)는 이 함수를 거치지 않으므로
+    /// 전이를 만들지 않는다.
+    fn on_content_type(
+        &mut self,
+        config: &Config,
+        context_id: u32,
+        prev: Option<ContentPurpose>,
+        new: Option<ContentPurpose>,
+    ) {
+        let (Some(prev), Some(new)) = (prev, new) else {
+            return;
+        };
+        if prev != new {
+            self.gate.on_purpose_change(context_id);
+        }
+        if let Some(ev) = purpose_transition_event(
+            prev,
+            new,
+            context_id,
+            config.engine.auto_typefix.enabled,
+        ) {
+            self.dispatch(vec![ev], new, config);
+        }
+    }
+}
+
+/// 포커스 이동에 따른 비밀번호 진입/이탈 알림 이벤트 (NOTIFY_SPEC §2.1·§2.2-4).
+///
+/// 비차단→차단이면 새 컨텍스트의 `password_enter`, 차단→비차단이면 **떠난 컨텍스트**의
+/// `password_leave`(게이트의 진입 기록이 그 컨텍스트 키이므로). 이전 포커스가 없으면 비차단으로 본다.
+fn focus_transition_event(
+    prev: Option<(u32, ContentPurpose)>,
+    new_id: u32,
+    new: ContentPurpose,
+    atf_on: bool,
+) -> Option<NotifyEvent> {
+    let prev_block = prev.is_some_and(|(_, p)| p.should_block_hangul());
+    match (prev_block, new.should_block_hangul()) {
+        (false, true) => Some(NotifyEvent::password_enter(new_id, atf_on)),
+        (true, false) => prev.map(|(id, _)| NotifyEvent::password_leave(id)),
+        _ => None,
+    }
+}
+
+/// 필드 목적 전이 → 알림 이벤트 (`password_enter`: 비차단→차단, `password_leave`: 차단→비차단).
+/// 차단 상태(`should_block_hangul`)가 그대로면 None.
+fn purpose_transition_event(
+    prev: ContentPurpose,
+    new: ContentPurpose,
+    context_id: u32,
+    atf_on: bool,
+) -> Option<NotifyEvent> {
+    match (prev.should_block_hangul(), new.should_block_hangul()) {
+        (false, true) => Some(NotifyEvent::password_enter(context_id, atf_on)),
+        (true, false) => Some(NotifyEvent::password_leave(context_id)),
+        _ => None,
+    }
+}
+
+/// 입력 필드 목적 반영 (`SetContentType` / `SetContentTypeWithReply` 공용).
+///
+/// 반환값: 비밀번호/PIN 진입으로 열려 있던 팝업을 **재커밋 없이** 닫았으면 true
+/// (HANJA_WORD_SPEC §2.8). 워커에는 시그널 발행 수단이 없으므로 호출부가 응답으로
+/// 돌려주고 `service.rs` 가 `HidePopup` 을 발행한다.
+fn apply_content_type(
+    contexts: &mut HashMap<u32, InputEngine>,
+    keystroke_buffers: &mut HashMap<u32, KeystrokeBuffer>,
+    undo_states: &mut HashMap<u32, UndoState>,
+    recent_corrections: &mut HashMap<u32, Vec<RecentCorrection>>,
+    context_id: u32,
+    purpose: u32,
+) -> bool {
+    let Some(engine) = contexts.get_mut(&context_id) else {
+        return false;
+    };
+    let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
+    engine.set_content_purpose(content_purpose);
+    let mut popup_closed = false;
+    // 비밀번호/PIN 진입: 직전 타이핑이 남긴 per-context ATF 상태를 즉시
+    // 폐기한다(FocusIn 초기화 선례). 관찰 게이트와 함께 이중 방어 —
+    // 비번 진입 직전의 버퍼·되돌리기 원문·최근 교정이 잔류하지 않게 한다.
+    if content_purpose.should_block_hangul() {
+        keystroke_buffers.remove(&context_id);
+        undo_states.remove(&context_id);
+        recent_corrections.remove(&context_id);
+        // 엔진 차단 분기가 팝업(한자·특수문자·이모지)을 취소했으면 HidePopup 을
+        // 적재한다 — 여기서 드레인해 응답으로 돌려준다(다음 ProcessKeyEvent 로 새지 않게).
+        popup_closed = engine.take_popup_action().is_some();
+    }
+    unim_log!(
+        "ENGINE_WORKER",
+        "[Engine Worker] SetContentType: context_id={}, purpose={:?}, popup_closed={}",
+        context_id,
+        content_purpose,
+        popup_closed
+    );
+    popup_closed
+}
+
+/// `CancelHanja` RPC 의 엔진 쪽 처리 — 한자 모드일 때만 정리하고 취소 텍스트를 돌려준다.
+///
+/// cancel 전에 팝업 진입 당시 preedit 전체를 저장해 즉시 커밋할 수 있도록 반환한다
+/// (단어 모드·다음절 preedit 포함). 대상②(선택 영역)는 "" — 커밋 없이 팝업만 닫는다.
+/// 한자 모드였으면 빈 문자열이라도 Some 으로 돌려 HidePopup 을 보장한다.
+///
+/// 한자 모드가 아니면 아무것도 건드리지 않는다 — 팝업 서비스의 한자 창 hide 훅이 늦게
+/// 보내는 CancelHanja 가, 그 사이 열린 이모지 팝업 상태(popup_state)까지 지워 Escape 가
+/// 앱으로 새던 경합(L3 v1.6 qt5 cursor-exhaust)을 막는다. 이모지 팝업은
+/// `CancelEmojiPopup` RPC 가 따로 닫는다.
+fn cancel_hanja_if_active(engine: &mut InputEngine) -> Option<String> {
+    if !engine.is_hanja_mode() {
+        return None;
+    }
+    let t = engine.hanja_cancel_text();
+    engine.cancel_hanja();
+    if !t.is_empty() {
+        engine.mark_surrounding_stale(); // 원문 재커밋 — 문서가 바뀐다
+    }
+    Some(t)
+}
+
+/// 코어에 넘기는 단조 ms — 프로세스 시작 기준(`Instant`). 코어는 시계를 읽지 않는다.
+pub(crate) fn mono_ms() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// pull 경로(`GetHanjaCandidates`)의 한자 변환 시작. 열려 있던 한자 팝업이 이 호출로
+/// 닫혔으면(대상③ 후보 소진, I4) true — 서비스가 `HidePopup` 을 내 이어지는 `ProcessKey`
+/// 폴백이 팝업(후보 소진이면 이모지)을 열 수 있게 한다. 폴백 `ProcessKey` 가 반드시 이모지를 여는 것은
+/// 아니다 — push 컨텍스트면 폴백 쪽도 판정을 보류(`deferred_hanja`)할 수 있다.
+fn start_hanja_pull(engine: &mut InputEngine) -> bool {
+    let was_hanja_mode = engine.is_hanja_mode();
+    engine.set_now_ms(mono_ms());
+    engine.start_hanja_conversion();
+    // pull 경로(`GetHanjaCandidates`)는 응답이 곧 결과라 보류를 서비스에 넘길 수단이 없다. pull 프런트는
+    // S 비트를 선언해 Defer 가 나오지 않으므로(push 전용 규칙) 방어로만 두며, 나오면 보류를 취소해
+    // 팝업 없음(후보 비어 있음)으로 답한다 — 이어지는 ProcessKey 폴백이 이모지를 연다. (여기서
+    // `resume_deferred_hanja` 를 부르면 거절 때 이모지를 직접 열어 폴백과 두 번 열릴 수 있다.)
+    // 진짜 보류는 ProcessKey 경로(`deferred_hanja`)만 쓴다.
+    engine.cancel_deferred_hanja();
+    was_hanja_mode && !engine.is_hanja_mode()
+}
+
+/// 판정 보류(R7~R9)를 다시 판정한다 — F2 도착(`Report`)·기한(`Deadline`) 공통.
+///
+/// 판정이 끝나면 평소 `ProcessKey` 응답이 싣는 것과 같은 팝업 페이로드(`take_popup_action` +
+/// `build_render_state`)를 돌려준다. 서비스는 이를 기존 팝업 발행 경로로 내보낸다.
+fn defer_poll(engine: &mut InputEngine, trigger: DeferTrigger) -> DeferOutcome {
+    if engine.deferred_hanja_deadline().is_none() {
+        return DeferOutcome::Idle;
+    }
+    match engine.poll_deferred_hanja(mono_ms(), trigger) {
+        None => match engine.deferred_hanja_deadline() {
+            Some(deadline_ms) => DeferOutcome::Wait { deadline_ms },
+            None => DeferOutcome::Idle,
+        },
+        Some(_) => DeferOutcome::Resolved(Box::new(DeferredPopup {
+            popup_action: engine.take_popup_action(),
+            render_state: build_render_state(engine),
+        })),
+    }
+}
+
+/// 서비스 타이머가 깨웠다(`DeferDue`). 기한 전이면(타이머가 일찍 깼거나 보고로 기한이 늦춰짐) 새 기한으로
+/// 대기를 이어가라고 답한다. 보류가 없으면(키·포커스·Reset 으로 취소됨) `Idle`.
+fn defer_due(engine: &mut InputEngine) -> DeferOutcome {
+    match engine.deferred_hanja_deadline() {
+        None => DeferOutcome::Idle,
+        Some(deadline_ms) if deadline_ms > mono_ms() => DeferOutcome::Wait { deadline_ms },
+        Some(_) => defer_poll(engine, DeferTrigger::Deadline),
+    }
+}
+
+/// `SetSurroundingText` 공통 처리 — 교체 검증 관측 + 엔진 반영. 반환: 저장된 글자 수(컨텍스트 없으면 `None`).
+fn apply_surrounding_text(
+    contexts: &mut HashMap<u32, InputEngine>,
+    replace_verify: &mut ReplaceVerifier,
+    context_id: u32,
+    text: String,
+    cursor_pos: u32,
+    anchor_pos: u32,
+) -> Option<usize> {
+    // 교체 검증: 발행 뒤 첫 보고를 원래 surrounding 과 비교(관측 전용 — 엔진 저장과 무관).
+    if let Some(line) = replace_verify.on_surrounding(context_id, &text, cursor_pos, Instant::now()) {
+        unim_log!("ENGINE_WORKER", "{}", line);
+    }
+    let stored = if let Some(engine) = contexts.get_mut(&context_id) {
+        engine.set_now_ms(mono_ms());
+        engine.set_surrounding_text(text, cursor_pos, anchor_pos);
+        // 비밀번호 필드면 저장 후 0 이 된다. 평문은 남기지 않고 길이만 기록.
+        Some(engine.surrounding_text().0.chars().count())
+    } else {
+        None
+    };
+    unim_log!(
+        "ENGINE_WORKER",
+        "[Engine Worker] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}자, stored={}",
+        context_id,
+        cursor_pos,
+        anchor_pos,
+        stored.unwrap_or(0),
+        stored.is_some()
+    );
+    stored
+}
+
+/// `SelectHanja` 확정의 채널 결정. 반환 `(결과, 교체 채널 여부)`.
+///
+/// 교체 페이로드가 없으면 일반 커밋, 있으면 출처로 분기한다 — 대상③(`SurroundingWord`)은
+/// `ReplaceSurroundingText`, 대상①은 `AutoTypefixApply` 교체.
+fn select_hanja_outcome(
+    engine: &mut InputEngine,
+    index: usize,
+) -> (crate::service::SelectHanjaOutcome, bool) {
+    use crate::service::{ReplaceSurrounding, SelectHanjaOutcome};
+    match engine.select_hanja(index) {
+        Some(text) => match engine.take_hanja_replacement() {
+            Some(r) if r.source == unim::input_engine::HanjaSource::SurroundingWord => (
+                SelectHanjaOutcome::ReplaceSurrounding(ReplaceSurrounding {
+                    delete_before: r.delete_chars,
+                    delete_after: r.delete_after_chars,
+                    commit_text: r.text,
+                    expect_text: r.expect_text,
+                }),
+                true,
+            ),
+            Some(r) => (
+                SelectHanjaOutcome::Replace {
+                    delete_chars: r.delete_chars,
+                    text: r.text,
+                },
+                true,
+            ),
+            None => (SelectHanjaOutcome::Commit(text), false),
+        },
+        None => (SelectHanjaOutcome::None, false),
+    }
+}
+
+/// 이 엔진에 팝업(한자·특수문자·이모지)이 열려 있는가 — 컨텍스트 파괴 시 `HidePopup` 판정.
+fn popup_open(engine: &InputEngine) -> bool {
+    engine.is_hanja_mode() || engine.is_special_char_mode() || engine.popup_state().is_some()
+}
+
+/// 데몬용 엔진 생성 — `InputEngine::new` 의 유일한 진입점(테스트 제외).
+///
+/// 데몬은 한자 단어 교체 페이로드(`take_hanja_replacement`)를 `AutoTypefixApply` 로
+/// 내보내는 호스트라 `hanja_word_replace_capable` 을 켠다(HANJA_WORD_SPEC §2.2.2 4).
+/// 생성 경로 하나라도 이 헬퍼를 거치지 않으면 그 경로 뒤 컨텍스트에서 확정 접두 단어
+/// 변환이 조용히 꺼진다(단음절로 퇴화) — 새 생성 지점도 반드시 이 헬퍼를 쓴다.
+///
+/// 단, IBus 호환 컨텍스트(`ibus-` 접두 window_id)는 끈다. 그 응답 소비자
+/// (`ibus_compat::ibus_context::emit_engine_response`)는 commit·preedit 만 내보내고
+/// `auto_typefix` 를 버리므로, 켜 두면 교체 확정 시 preedit 만 지워지고 한자는 삽입되지
+/// 않는다(데이터 유실). 끄면 단음절 확정(`commit`)으로 퇴화한다 — `word_gate_verdict`
+/// 의 프런트 제외 접두와 같은 기준.
+fn new_daemon_engine(config: &Config, window_id: &str) -> InputEngine {
+    let mut engine = InputEngine::new(config);
+    engine.set_hanja_word_replace_capable(host_emits_hanja_replacement(window_id));
+    engine.set_client_tag(client_tag_from_window_id(window_id));
+    engine
+}
+
+/// 이 컨텍스트의 프런트가 한자 단어 교체 페이로드(`AutoTypefixApply`)를 소비하는가.
+fn host_emits_hanja_replacement(window_id: &str) -> bool {
+    !window_id.starts_with("ibus-")
+}
+
+/// 프런트 표시 이름(`detect_frontend_type` 결과)을 판정 로그용 꼬리표로 바꾼다.
+/// 알 수 없으면 `unknown`. (코어 로그 전용 — 동작에 쓰지 않는다.)
+fn client_tag_from_frontend(frontend: &str) -> &'static str {
+    match frontend {
+        "GTK3" => "gtk3",
+        "GTK4" => "gtk4",
+        "Qt5" => "qt5",
+        "Qt6" => "qt6",
+        "GNOME" => "gnome",
+        "XIM" => "xim",
+        "Wayland" => "wayland",
+        _ => "unknown",
+    }
+}
+
+/// 컨텍스트 생성 시점에 알 수 있는 꼬리표 — IBus 호환 컨텍스트(`ibus-` 접두)만 확정되고
+/// 나머지는 `NoteFrontend` 가 도착해 정한다.
+fn client_tag_from_window_id(window_id: &str) -> &'static str {
+    if window_id.starts_with("ibus-") {
+        "ibus"
+    } else {
+        "unknown"
+    }
+}
+
 /// 포커스 아웃 / Reset 공통 처리: 팝업을 커밋 텍스트로 변환하고 엔진을 초기화한다.
 ///
 /// `preserve_mode=true` (FocusOut / Reset의 PerApp·Context-local 모드 유지) 시
@@ -719,14 +1112,19 @@ fn handle_focus_in(
 /// [`context_desired_word_mode`] 로 산출). `InputEngine::new` 는 commit_unit=Word/Smart 면
 /// accumulate_word 를 무조건 켜므로(engine.rs), 여기서 재판정하지 않으면 터미널·XIM·모아치기
 /// 강등이 다음 FocusIn 까지 무력화된다(마우스 클릭 유발 Reset 등).
+/// `window_id` 는 재생성 엔진의 교체 능력 판정용([`new_daemon_engine`]).
 /// 반환값: 커밋할 텍스트(preedit/팝업 타겟) 또는 None.
 fn reset_engine_and_capture_commit(
     engine: &mut InputEngine,
     config: &Config,
     preserve_mode: bool,
     desired_word: bool,
+    window_id: &str,
 ) -> Option<String> {
     let mut commit_text = String::new();
+
+    // R10 — 판정을 미룬 한자키가 있으면 조용히 취소한다(재생성되는 엔진은 보류를 이월하지 않는다).
+    engine.cancel_deferred_hanja();
 
     // chord buffer 선처리: FocusOut/Reset 시 대기 중인 chord 자모를 flush 후 커밋.
     // idle flush 타이머보다 먼저 도착하므로 여기서 처리해야 커밋이 누락되지 않는다.
@@ -735,7 +1133,9 @@ fn reset_engine_and_capture_commit(
     }
 
     if engine.is_hanja_mode() {
-        let t = engine.get_hanja_target().to_string();
+        // 팝업 진입 당시 preedit 전체(단어 모드·다음절 preedit 포함, 대상② 는 "").
+        // 종전 `get_hanja_target()` 은 target 만 돌려줘 preedit 2자 이상에서 앞부분이 빠졌다.
+        let t = engine.hanja_cancel_text();
         engine.cancel_hanja();
         if !t.is_empty() {
             commit_text.push_str(&t);
@@ -754,10 +1154,23 @@ fn reset_engine_and_capture_commit(
     }
 
     let current_mode = engine.input_category();
-    *engine = InputEngine::new(config);
-    if preserve_mode {
-        engine.set_input_category(current_mode);
+    // 필드 목적은 조합 상태가 아니라 포커스 컨텍스트다(`InputEngine::reset` 과 같은 계약).
+    // 프런트는 리셋 뒤 목적을 다시 보내지 않으므로(캐시 dedupe), 재생성이 Normal 로
+    // 되돌리면 비밀번호 칸 클릭 한 번에 ATF·한영 차단이 풀리고 키가 ATF 버퍼에 남는다.
+    let purpose = engine.content_purpose();
+    let pre_password_mode = engine.saved_category();
+    // 대상③ 능력·신선도·선택 거부 상태는 앱·포커스 속성 — 재생성을 건너 이월한다.
+    let sw_carry = engine.surrounding_word_carry();
+    *engine = new_daemon_engine(config, window_id);
+    engine.restore_surrounding_word_carry(sw_carry);
+    if !commit_text.is_empty() {
+        engine.mark_surrounding_stale(); // 조합·원문 재커밋이 문서에 들어간다
     }
+    if preserve_mode {
+        // 비밀번호 칸이면 영문 강제 이전 모드로 되돌린 뒤 아래에서 다시 저장·강제한다.
+        engine.set_input_category(pre_password_mode.unwrap_or(current_mode));
+    }
+    engine.set_content_purpose(purpose);
     // 엔진 재생성 직후 word 모드 게이트 재적용 (컨텍스트별 터미널/XIM/Smart·모아치기 강등).
     apply_word_gate(engine, desired_word);
 
@@ -889,21 +1302,30 @@ fn should_suppress_repeat(
 
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
 ///
+/// `notify_tx` 는 상황 알림 채널(NOTIFY_SPEC §3.2)의 송신 측이다 — 워커는 `try_send` 만 한다.
+///
 /// # Returns
 ///
 /// 엔진 워커에게 요청을 보낼 수 있는 `mpsc::Sender`
-pub fn spawn_engine_worker(config: Config) -> mpsc::Sender<EngineRequest> {
+pub fn spawn_engine_worker(
+    config: Config,
+    notify_tx: mpsc::Sender<NotifyOut>,
+) -> mpsc::Sender<EngineRequest> {
     let (tx, rx) = mpsc::channel::<EngineRequest>(256);
 
     thread::spawn(move || {
-        run_engine_worker(rx, config);
+        run_engine_worker(rx, config, notify_tx);
     });
 
     tx
 }
 
 /// 엔진 워커 메인 루프 (블로킹)
-fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) {
+fn run_engine_worker(
+    mut rx: mpsc::Receiver<EngineRequest>,
+    mut config: Config,
+    notify_tx: mpsc::Sender<NotifyOut>,
+) {
     let mut contexts: HashMap<u32, InputEngine> = HashMap::new();
     // 앱별 모드 저장: app_id -> InputCategory (PerApp 모드용)
     let mut app_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
@@ -930,11 +1352,22 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     // 조합 중이라 재구성을 미뤄둔 컨텍스트. 조합이 끝나는 즉시(다음 요청 진입 시)
     // 적용한다 — 자세한 근거는 리로드 블록 주석 참조.
     let mut pending_korean_rebuild: HashSet<u32> = HashSet::new();
+    // 상황 알림: 게이트 + 알림 채널 (NOTIFY_SPEC §3.2). `notify.*` 설정은 `config` 를 그대로 따른다.
+    let mut notify = NotifyHub::new(notify_tx);
+    // 대상③ 교체 검증(관측 전용, `replace_verify.rs`): 컨텍스트별 발행 직전 surrounding(메모리만)과
+    // 프런트 이름. 평문은 로그에 남기지 않는다(HANJA_WORD_SPEC §2.8).
+    let mut replace_verify = ReplaceVerifier::new();
+    let mut context_frontends: HashMap<u32, String> = HashMap::new();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
+        // 교체 검증: 3초 안에 다음 SetSurroundingText 가 오지 않은 대기를 timeout 으로 확정한다.
+        // (워커에는 타이머가 없어 다음 요청 진입 시 청산한다.)
+        for line in replace_verify.sweep(Instant::now()) {
+            unim_log!("ENGINE_WORKER", "{}", line);
+        }
         // ===== 설정 파일 변경 감지·리로드 (2초 throttling) =====
         //
         // ⚠️ 이 블록은 **조합 중인 글자를 죽일 수 있는 자리**다. 리로드 자체는
@@ -986,6 +1419,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 전까지 옛 키가 살아있는 live-reload 갭이 있었다(F4). set_switch_keys 로
                 // ATF 핫키와 동일하게 즉시 재적용해 갭을 해소한다.
                 engine.set_switch_keys(&config);
+                // 한자 출력 형식 재적용(비파괴 — 캐시 필드만 바꾼다, 조합 유지).
+                engine.set_hanja_output_format(&config);
 
                 if !korean_changed {
                     continue;
@@ -1056,7 +1491,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 window_id,
                 response,
             } => {
-                let mut engine = InputEngine::new(&config);
+                let mut engine = new_daemon_engine(&config, &window_id);
 
                 // PerApp 모드에서는 앱별 저장된 모드 적용
                 if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
@@ -1091,19 +1526,31 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(());
             }
 
-            EngineRequest::DestroyContext { id } => {
+            EngineRequest::DestroyContext { id, response } => {
                 // 컨텍스트 ID에 묶인 모든 per-context 상태를 함께 정리한다.
                 // (이관 누락 시 context_id가 단조 증가하는 IBus Portal 경로에서 HashMap이 무제한 누적됨)
-                contexts.remove(&id);
+                let had_popup = contexts.remove(&id).is_some_and(|e| popup_open(&e));
                 context_windows.remove(&id);
                 keystroke_buffers.remove(&id);
                 undo_states.remove(&id);
                 recent_corrections.remove(&id);
                 last_key_presses.remove(&id);
+                if let Some(line) = replace_verify.cancel(id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
+                context_frontends.remove(&id);
+                // 알림 게이트: 컨텍스트별 1회·비밀번호 칸 기록 정리 (규칙 4 맵은 여기서만 지운다).
+                notify.gate.on_destroy(id);
                 if last_focused_context_id == Some(id) {
                     last_focused_context_id = None;
                 }
-                unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 파괴: id={}", id);
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] 컨텍스트 파괴: id={}, popup={}",
+                    id,
+                    had_popup
+                );
+                let _ = response.send(had_popup);
             }
 
             EngineRequest::ProcessKey {
@@ -1147,6 +1594,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         chord_pending: None,
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: None,
+                        deferred_hanja: None,
                     });
                     continue;
                 }
@@ -1154,10 +1603,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // Global 모드 변경 시 다른 context 들에 전파할 새 mode (engine 빌림이
                 // 끝난 후 blocking 없이 iter_mut 으로 적용).
                 let mut global_mode_propagate: Option<unim::config::InputCategory> = None;
+                // 한자 단어 교체 프레임 여부 — engine 빌림 해제 후 ATF Global 동기화 게이트에
+                // 쓰므로 빌림 블록 밖에 둔다(HANJA_WORD_SPEC §4.1 상호배제).
+                let mut hanja_replaced = false;
                 // ATF 토글 단축키: press_key 가 매칭해 pending 에 적재한 대상 플래그를
                 // engine 빌림 안에서 드레인해 여기 보관하고, config.auto_typefix 불변 대여가
                 // 끝난 뒤(borrow 해제 후) 반전·persist·통지한다(Risk 4 — 대여 충돌 회피).
                 let mut atf_toggle_pending: Option<AtfToggleKind> = None;
+                // 상황 알림: 이 요청에서 생긴 이벤트를 모아 응답 직후 `dispatch` 로 1회 심사한다
+                // (규칙 6 — 요청 단위 우선순위. NOTIFY_SPEC §3.2).
+                let mut notify_events: Vec<NotifyEvent> = Vec::new();
 
                 let mut resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
@@ -1204,6 +1659,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 chord_pending: None,
                                 atf_toggled: None,
                                 atf_config_json: None,
+                                replace_surrounding: None,
+                                deferred_hanja: None,
                             });
                             continue;
                         }
@@ -1265,7 +1722,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     let prev_mode = engine.input_category();
 
                     // 키 처리
+                    engine.set_now_ms(mono_ms());
                     let result = engine.press_key(key, modifier, &config);
+                    // 한자키 판정 보류(push 전용, R7·R8): 키는 소비·팝업 없음으로 즉시 응답하고,
+                    // 응답의 `deferred_hanja`(기한)로 서비스가 타이머를 건다. 재판정은
+                    // SetSurroundingText(F2, `SetSurroundingTextDeferred`) 또는 기한(`DeferDue`)에 한다.
+
+                    // 비밀번호/PIN 칸이라 한/영 전환을 거부했는가 — 직후에 읽어야 한다
+                    // (아래 ATF replay 의 press_key 가 플래그를 다시 리셋한다).
+                    if engine.last_toggle_blocked() {
+                        notify_events.push(NotifyEvent::mode_toggle_suppressed(context_id));
+                    }
 
                     // ATF 토글 단축키 드레인: press_key 가 매칭 시 pending 에 적재한다.
                     // 매칭이 없으면 None. config 반전은 atf_config 불변 대여 종료 후 수행.
@@ -1332,6 +1799,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // 팝업 동작 감지
                     let popup_action = engine.take_popup_action();
+                    // 한자 단어 교체 페이로드(대상① 확정 접두 > 0 확정 프레임에서만 Some).
+                    // 소비 후 ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기한다(§4.1).
+                    let hanja_repl = engine.take_hanja_replacement();
+                    hanja_replaced = hanja_repl.is_some();
+                    if hanja_replaced {
+                        keystroke_buffers.remove(&context_id);
+                    }
 
                     // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
                     let mut fix_has_replay = false;
@@ -1341,6 +1815,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     )
                         && mode_changed.is_none()
                         && popup_action.is_none()
+                        && hanja_repl.is_none()
                     {
                         let buf = keystroke_buffers
                             .entry(context_id)
@@ -1391,9 +1866,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             buf.word_mode = engine.is_word_mode();
 
                             // 방향에 따라 감지 (blacklist 억제 게이트 포함)
-                            let (fix, direction) = match current_mode {
+                            let (outcome, direction) = match current_mode {
                                 unim::config::InputCategory::English => (
-                                    auto_typefix::check_forward(
+                                    auto_typefix::check_forward_outcome(
                                         buf,
                                         atf_config,
                                         &config.engine.korean.layout,
@@ -1403,7 +1878,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Direction::Forward,
                                 ),
                                 unim::config::InputCategory::Korean => (
-                                    auto_typefix::check_reverse(
+                                    auto_typefix::check_reverse_outcome(
                                         buf,
                                         atf_config,
                                         &config.engine.korean.layout,
@@ -1414,6 +1889,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Direction::Reverse,
                                 ),
                             };
+                            // 억제 사유가 있으면 알림 이벤트로 남긴다(블랙리스트 적중). 단어는
+                            // `show_text=true` 일 때만 문구에 쓰이고, 비밀번호 칸은 ATF 자체가
+                            // 꺼져 여기 도달하지 않는다(이중 방어는 게이트 §2.3).
+                            if outcome.suppressed().is_some() {
+                                notify_events.push(NotifyEvent::atf_suppressed(
+                                    context_id,
+                                    &buf.to_ascii_string(&config.engine.english.layout),
+                                ));
+                            }
+                            let fix = outcome.into_fix();
 
                             // 재트리거 감지: 관찰창 내에서 동일 ASCII의 AutoTypeFix가
                             // 이미 rollback 관찰(BS/모드전환) 된 적 있으면, 이번 트리거를
@@ -1434,6 +1919,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 };
                                 if let Some((kl, el)) = retrigger_layouts {
                                     blacklist.add_or_hit_tentative(&key, direction, &kl, &el);
+                                    // 재트리거 분기는 `fix` 를 None 으로 바꾸므로 같은 키에서
+                                    // `atf_corrected_*` 와 상호 배타다(§2.1).
+                                    notify_events.push(NotifyEvent::blacklist_learned(
+                                        context_id,
+                                        &key,
+                                        atf_config.tentative_expiry_hours,
+                                    ));
                                     if let Err(e) = blacklist.save_to_default_path() {
                                         unim_log!(
                                             "ENGINE_WORKER",
@@ -1453,9 +1945,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     }
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 재트리거 감지({:?}) → 억제 + blacklist tentative 추가: '{}'",
+                                        "[Engine Worker] 재트리거 감지({:?}) → 억제 + blacklist tentative 추가: {}자",
                                         direction,
-                                        key
+                                        key.chars().count()
                                     );
                                     // 버퍼는 초기화하여 같은 키스트로크가 또 감지되지 않도록 한다.
                                     buf.clear();
@@ -1507,9 +1999,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                 unim_log!(
                                     "ENGINE_WORKER",
-                                    "[Engine Worker] AutoTypeFix: delete={}, corrected='{}', clear_preedit={}",
+                                    "[Engine Worker] AutoTypeFix: delete={}, corrected={}자, clear_preedit={}",
                                     fix.delete_chars,
-                                    fix.corrected,
+                                    fix.corrected.chars().count(),
                                     fix.clear_preedit
                                 );
 
@@ -1537,6 +2029,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // 버퍼 초기화 전에 ascii 미리 캡처
                                 // (역방향의 delete_chars 계산에 사용)
                                 let buf_ascii = buf.to_ascii_string(&config.engine.english.layout);
+
+                                // 상황 알림: 자동 교정 발동. 역방향은 `fix.original` 이 비어 있어
+                                // before 를 버퍼 ASCII 의 한글 환산(화면 글자의 근사치)으로 만든다.
+                                let notify_before = match direction {
+                                    Direction::Forward => fix.original.clone(),
+                                    Direction::Reverse => unim::typefix::eng_to_kor(
+                                        &buf_ascii,
+                                        &config.engine.korean.layout,
+                                        &config.engine.english.layout,
+                                    ),
+                                };
+                                notify_events.push(NotifyEvent::atf_corrected(
+                                    direction,
+                                    context_id,
+                                    &notify_before,
+                                    &fix.corrected,
+                                ));
 
                                 // Phase A2(순방향 word 라이브 조합 유지): word 모드일 때 전체 단어를
                                 // 하나의 라이브 조합으로 재구성하려면 전체 키스트로크가 필요하다
@@ -1597,15 +2106,24 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                         let last_syllable = engine.preedit_str().to_string();
                                         // replay에서 발생한 commit은 무시 (시그널의 commit_text에 이미 포함)
                                         engine.clear_commit();
+                                        // 한자 단어 버퍼 시드(HANJA_WORD_SPEC §4.1): reset 으로 비워진
+                                        // 최근 확정 음절 버퍼를 교정된 접두("대한민")로 채워, 곧바로
+                                        // 한자키를 누르면 target 이 "대한민"+preedit"국" 이 되게 한다.
+                                        // 반드시 replay·clear_commit **뒤** — replay 중 commit 델타가
+                                        // 래퍼로 시드 위에 추가 push 되면 검증 없는 과다 삭제가 된다.
+                                        engine.recent_clear();
+                                        for c in fix.commit_text.chars() {
+                                            engine.recent_push_char(c);
+                                        }
                                         (fix.commit_text.clone(), last_syllable)
                                     };
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] AutoTypeFix replay(word={}): preedit='{}', commit_text='{}'",
+                                        "[Engine Worker] AutoTypeFix replay(word={}): preedit={}자, commit_text={}자",
                                         fix.replace_composition,
-                                        replay_preedit,
-                                        replay_commit
+                                        replay_preedit.chars().count(),
+                                        replay_commit.chars().count()
                                     );
 
                                     // preedit은 시그널 경유로 프론트엔드가 처리
@@ -1664,10 +2182,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 역방향 real_delete: ascii='{}', trigger='{}', kor_sim='{}', real_delete={}, word_guard={}, effective_delete={}, layout={:?}",
-                                        buf_ascii,
-                                        buf_ascii.chars().last().unwrap_or(' '),
-                                        kor_sim,
+                                        "[Engine Worker] 역방향 real_delete: ascii={}자, kor_sim={}자, real_delete={}, word_guard={}, effective_delete={}, layout={:?}",
+                                        buf_ascii.chars().count(),
+                                        kor_sim.chars().count(),
                                         real_delete,
                                         fix.replace_composition,
                                         effective_delete,
@@ -1700,6 +2217,62 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         }
                         None
                     };
+
+                    // 한자 단어 교체: 기존 교체 채널(`auto_typefix` → AutoTypefixApply)에
+                    // 실어 보낸다. 아래 역방향 분기(`!fix_has_replay`)가 응답을 preedit ""·
+                    // commit 없음으로 만들어 프런트가 조합 음절을 먼저 지운다(§2.6·§4.1).
+                    // 대상③(커서 주변 단어)은 AutoTypefixApply 가 아니라 전용 시그널
+                    // (`ReplaceSurroundingText`)로 내보낸다 — 응답은 preedit·commit 변경 없음
+                    // (엔진이 consumed 를 돌려준다, I5).
+                    let mut sw_repl: Option<crate::service::ReplaceSurrounding> = None;
+                    if let Some(r) = hanja_repl {
+                        if r.source == unim::input_engine::HanjaSource::SurroundingWord {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] 대상③ 교체: a={}, b={}, text={}자",
+                                r.delete_chars,
+                                r.delete_after_chars,
+                                r.text.chars().count()
+                            );
+                            // 교체 검증용 스냅샷(발행 직전 surrounding — 메모리 전용, 로그 평문 없음).
+                            let (st, sc, _) = engine.surrounding_text();
+                            if let Some(line) = replace_verify.issue(
+                                context_id,
+                                context_frontends
+                                    .get(&context_id)
+                                    .map(String::as_str)
+                                    .unwrap_or(""),
+                                st,
+                                sc,
+                                r.delete_chars,
+                                r.delete_after_chars,
+                                &r.text,
+                                Instant::now(),
+                            ) {
+                                unim_log!("ENGINE_WORKER", "{}", line);
+                            }
+                            sw_repl = Some(crate::service::ReplaceSurrounding {
+                                delete_before: r.delete_chars,
+                                delete_after: r.delete_after_chars,
+                                commit_text: r.text,
+                                expect_text: r.expect_text,
+                            });
+                        } else {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] 한자 단어 교체: delete={}, text={}자",
+                                r.delete_chars,
+                                r.text.chars().count()
+                            );
+                            auto_typefix_result = Some((r.delete_chars, r.text, String::new()));
+                            fix_has_replay = false;
+                        }
+                    }
+                    // ATF 교정 프레임은 문서를 바꿨다 — 대상③ 신선도를 낡음으로(한자 교체는 엔진이
+                    // 이미 표시했다).
+                    if auto_typefix_result.is_some() && !hanja_replaced {
+                        engine.mark_surrounding_stale();
+                    }
 
                     // AutoTypeFix 트리거 시:
                     // 순방향 (영→한, replay_keys 있음): commit 억제 + delete_chars-1
@@ -1739,6 +2312,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             crate::beep::announce_mode(is_korean);
                         }
                     }
+                    // 상황 알림 mode_changed — 같은 최종 소비 지점. ATF 유발 전환은 게이트
+                    // (`offer_batch`)가 교정 알림이 통과했을 때 제거한다(규칙 6).
+                    if let Some(is_korean) = mode_changed {
+                        notify_events.push(NotifyEvent::mode_changed(context_id, is_korean));
+                    }
 
                     EngineResponse {
                         consumed: result.consumed,
@@ -1752,6 +2330,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         // atf_config 불변 대여 종료 후 아래 블록에서 실측값으로 채운다.
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: sw_repl,
+                        // 응답을 만드는 이 시점의 보류(ATF 재생이 press_key 를 다시 불렀으면 이미 취소됨).
+                        deferred_hanja: engine.deferred_hanja_deadline(),
                     }
                 } else {
                     EngineResponse {
@@ -1765,6 +2346,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         chord_pending: None,
                         atf_toggled: None,
                         atf_config_json: None,
+                        replace_surrounding: None,
+                        deferred_hanja: None,
                     }
                 };
 
@@ -1826,12 +2409,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         new_value
                     );
                     resp.atf_toggled = Some((kind, new_value));
+                    notify_events.push(NotifyEvent::feature_toggled(context_id, kind, new_value));
                     // 전체 config JSON 동반 — service 가 config_changed_json 으로 방출해
                     // GNOME 확장(ConfigChangedJson 구독)까지 토글 피드백을 전달한다.
                     // 여기서 소유·persist 한 config 를 직렬화하므로 stale 위험이 없다.
                     resp.atf_config_json = serde_json::to_string(&config).ok();
 
-                    // [ATF 토글 비프] 켜짐(상승음)/꺼짐(하강음)을 청각으로 통지한다(접근성).
+                    // [ATF 토글 비프] 켜짐(높은 음 2번)/꺼짐(낮은 음 1번)을 청각으로 통지한다(접근성).
                     if config.engine.toggle_announce_beep {
                         crate::beep::announce_atf_toggle(new_value);
                     }
@@ -1839,25 +2423,38 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                 // AutoTypeFix 모드 전환 시 Global 동기화 (contexts borrow 해제 후)
                 if resp.auto_typefix.is_some()
+                    && !hanja_replaced
                     && config.engine.mode_sharing == unim::config::ModeSharingMode::Global
                 {
                     let new_mode = config.engine.default_category;
+                    // 상태 파일은 위 ATF 모드 전환 블록의 자기 컨텍스트 set_input_category 가 이미 썼다(`sync_input_category` 문서 참조).
                     for (&cid, eng) in contexts.iter_mut() {
                         if cid != context_id {
-                            eng.set_input_category(new_mode);
+                            eng.sync_input_category(new_mode);
                         }
                     }
                 }
 
                 let _ = response.send(resp);
 
+                // 상황 알림: 응답을 먼저 돌려준 뒤 이 요청의 이벤트를 1회 심사·발송한다.
+                // (try_send 라 키 경로를 막지 않는다 — 가득 차면 폐기.)
+                if !notify_events.is_empty() {
+                    let purpose = contexts
+                        .get(&context_id)
+                        .map(|e| e.content_purpose())
+                        .unwrap_or_default();
+                    notify.dispatch(notify_events, purpose, &config);
+                }
+
                 // Global 모드에서 한/영 토글 발생 시 다른 활성 context 들에도 동일
                 // 모드 즉시 적용 — 같은 앱 안 여러 윈도우 / 다른 앱 무관하게 모드
                 // 일관성 보장 (Global 정책의 의도). 위 engine 빌림이 종료된 후 처리.
                 if let Some(new_mode) = global_mode_propagate {
+                    // 상태 파일은 토글한 자기 컨텍스트가 이미 썼다(`sync_input_category` 문서 참조).
                     for (cid, eng) in contexts.iter_mut() {
                         if *cid != context_id {
-                            eng.set_input_category(new_mode);
+                            eng.sync_input_category(new_mode);
                         }
                     }
                 }
@@ -1868,7 +2465,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 window_id,
                 response,
             } => {
+                if let Some(line) = replace_verify.cancel(context_id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
+                let refocus = last_focused_context_id == Some(context_id);
+                let prev_focus = last_focused_context_id
+                    .filter(|p| *p != context_id)
+                    .and_then(|p| contexts.get(&p).map(|e| (p, e.content_purpose())));
                 last_focused_context_id = Some(context_id);
 
                 let is_korean = handle_focus_in(
@@ -1882,6 +2486,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     context_id,
                     &window_id,
                 );
+                // 다른 컨텍스트에서 옮겨 왔으면 비밀번호 진입/이탈 알림(같은 컨텍스트 재포커스는 전이 없음)
+                if !refocus {
+                    if let Some(new_purpose) =
+                        contexts.get(&context_id).map(|e| e.content_purpose())
+                    {
+                        notify.on_focus_change(&config, prev_focus, context_id, new_purpose);
+                    }
+                }
                 unim_log!(
                     "ENGINE_WORKER",
                     "[Engine Worker] FocusIn: context_id={}, window_id={}, is_korean={}",
@@ -1896,10 +2508,15 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
+                if let Some(line) = replace_verify.cancel(context_id) {
+                    unim_log!("ENGINE_WORKER", "{}", line);
+                }
                 // AutoTypeFix: 포커스 아웃 시 word_buffer, undo 상태, 재트리거 기록 초기화
                 keystroke_buffers.remove(&context_id);
                 undo_states.remove(&context_id);
                 recent_corrections.remove(&context_id);
+                // 알림 규칙 2(컨텍스트당 1회) 리셋 — 규칙 4(비밀번호 칸 기록)는 건드리지 않는다.
+                notify.gate.on_focus_out(context_id);
 
                 // PerApp / Context-local 모드이면 엔진 초기화 후에도 이전 모드를 유지.
                 // Global 모드에서는 전역 default_category가 다시 적용되도록 preserve=false.
@@ -1908,14 +2525,24 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 재생성 후 재적용할 word 게이트 (engine 빌림 전에 산출 — 이중 빌림 회피).
                 let desired_word =
                     context_desired_word_mode(&config, &context_windows, context_id);
+                let window_id = context_windows
+                    .get(&context_id)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let commit = contexts.get_mut(&context_id).and_then(|engine| {
-                    reset_engine_and_capture_commit(engine, &config, preserve_mode, desired_word)
+                    reset_engine_and_capture_commit(
+                        engine,
+                        &config,
+                        preserve_mode,
+                        desired_word,
+                        window_id,
+                    )
                 });
                 unim_log!(
                     "ENGINE_WORKER",
-                    "[Engine Worker] FocusOut: context_id={}, commit={:?}",
+                    "[Engine Worker] FocusOut: context_id={}, commit={}자",
                     context_id,
-                    commit
+                    commit.as_ref().map_or(0, |c| c.chars().count())
                 );
                 let _ = response.send(commit);
             }
@@ -1929,8 +2556,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 모아치기 강등이 무력화되지 않도록 — engine 빌림 전에 desired 산출).
                 let desired_word =
                     context_desired_word_mode(&config, &context_windows, context_id);
+                let window_id = context_windows
+                    .get(&context_id)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let commit = contexts.get_mut(&context_id).and_then(|engine| {
-                    reset_engine_and_capture_commit(engine, &config, true, desired_word)
+                    reset_engine_and_capture_commit(engine, &config, true, desired_word, window_id)
                 });
                 let _ = response.send(commit);
             }
@@ -1947,8 +2578,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                 // Global 모드에서만 모든 컨텍스트의 입력 카테고리 변경
                 if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+                    // 상태 파일은 컨텍스트마다가 아니라 한 번만 쓴다(`sync_input_category` 문서 참조).
+                    let mut changed = false;
                     for engine in contexts.values_mut() {
-                        engine.set_input_category(category);
+                        changed |= engine.sync_input_category(category);
+                    }
+                    if changed {
+                        let _ = unim::status::set_status(if is_korean {
+                            unim::status::InputCategory::Korean
+                        } else {
+                            unim::status::InputCategory::English
+                        });
                     }
                     unim_log!(
                         "ENGINE_WORKER",
@@ -1961,6 +2601,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     if config.engine.toggle_announce_beep {
                         crate::beep::announce_mode(is_korean);
                     }
+                    // 상황 알림 mode_changed: 응답 채널·context_id 가 없는 단방향 요청이라
+                    // `context_id=0`(전역 표지)으로 만들되, 게이트(규칙 1·5)를 거친다.
+                    notify.dispatch(
+                        vec![NotifyEvent::mode_changed(0, is_korean)],
+                        ContentPurpose::Normal,
+                        &config,
+                    );
                 } else {
                     // [비프 ②SetGlobalMode — PerApp 분기 무음] PerApp 에서는 default_category
                     // 만 갱신되고 현재 포커스 컨텍스트의 입력 모드는 불변이다. 여기서 비프를
@@ -1985,29 +2632,35 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let top_row =
                     unim::config::english_layout_top_row_labels(&config.engine.english.layout)
                         .to_string();
-                let resp = if let Some(engine) = contexts.get_mut(&context_id) {
+                let (resp, closed_popup) = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 먼저 한자 변환을 시작하여 후보를 생성
-                    engine.start_hanja_conversion();
+                    let closed = start_hanja_pull(engine);
                     // Pull 방식 요청이므로 Push용 popup_pending_action 소비하여 제거
                     // (이후 ProcessKeyEvent에서 stale 시그널이 발행되지 않도록)
                     engine.take_popup_action();
 
                     let render_state = build_render_state(engine);
-                    crate::service::HanjaCandidateResponse {
-                        target: engine.get_hanja_target().to_string(),
-                        candidates: engine.get_hanja_candidates(),
-                        top_row,
-                        render_state,
-                    }
+                    (
+                        crate::service::HanjaCandidateResponse {
+                            target: engine.get_hanja_target().to_string(),
+                            candidates: engine.get_hanja_candidates(),
+                            top_row,
+                            render_state,
+                        },
+                        closed,
+                    )
                 } else {
-                    crate::service::HanjaCandidateResponse {
-                        target: String::new(),
-                        candidates: Vec::new(),
-                        top_row,
-                        render_state: None,
-                    }
+                    (
+                        crate::service::HanjaCandidateResponse {
+                            target: String::new(),
+                            candidates: Vec::new(),
+                            top_row,
+                            render_state: None,
+                        },
+                        false,
+                    )
                 };
-                let _ = response.send(resp);
+                let _ = response.send((resp, closed_popup));
             }
 
             EngineRequest::SelectHanja {
@@ -2019,12 +2672,36 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // GNOME extension 자체 context 로 들어와도 popup 은 GTK4_IM 등 다른
                 // context 에 살아있을 수 있다).
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let result = if let Some(engine) = contexts.get_mut(&target_id) {
-                    engine.select_hanja(index)
+                let outcome = if let Some(engine) = contexts.get_mut(&target_id) {
+                    let (outcome, replaced) = select_hanja_outcome(engine, index);
+                    // 대상③ 마우스 확정 — 교체 검증 스냅샷(시그널은 popup-owner path 로 나간다).
+                    if let crate::service::SelectHanjaOutcome::ReplaceSurrounding(rs) = &outcome {
+                        let (st, sc, _) = engine.surrounding_text();
+                        if let Some(line) = replace_verify.issue(
+                            target_id,
+                            context_frontends
+                                .get(&target_id)
+                                .map(String::as_str)
+                                .unwrap_or(""),
+                            st,
+                            sc,
+                            rs.delete_before,
+                            rs.delete_after,
+                            &rs.commit_text,
+                            Instant::now(),
+                        ) {
+                            unim_log!("ENGINE_WORKER", "{}", line);
+                        }
+                    }
+                    if replaced {
+                        // 교체 채널 확정 후 ATF 키스트로크 버퍼는 문서와 어긋나므로 폐기(§4.1).
+                        keystroke_buffers.remove(&target_id);
+                    }
+                    outcome
                 } else {
-                    None
+                    crate::service::SelectHanjaOutcome::None
                 };
-                let _ = response.send(result);
+                let _ = response.send(outcome);
             }
 
             EngineRequest::CancelHanja {
@@ -2032,14 +2709,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let target = if let Some(engine) = contexts.get_mut(&target_id) {
-                    // cancel 전에 hanja_target(원래 한글)을 저장하여 즉시 커밋할 수 있도록 반환
-                    let t = engine.get_hanja_target().to_string();
-                    let result = if !t.is_empty() { Some(t) } else { None };
-                    engine.cancel_hanja();
-                    result
-                } else {
-                    None
+                let target = match contexts.get_mut(&target_id) {
+                    // cancel 전에 팝업 진입 당시 preedit 전체를 저장해 즉시 커밋할 수 있도록
+                    // 반환한다(단어 모드·다음절 preedit 포함 — 종전 `get_hanja_target()` 은
+                    // 앞 preedit 을 흘렸다). 대상②(선택 영역)는 "" — 커밋 없이 팝업만 닫는다.
+                    // 한자 모드였으면 빈 문자열이라도 Some 으로 돌려 HidePopup 을 보장한다.
+                    Some(engine) => cancel_hanja_if_active(engine),
+                    None => None,
                 };
                 let _ = response.send(target);
             }
@@ -2143,6 +2819,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
             EngineRequest::CancelEmojiPopup {
                 context_id,
+                committed,
                 response,
             } => {
                 // popup-owner 로 라우팅 — popup_state 가 살아있는 context 를 찾아
@@ -2153,6 +2830,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let cleaned = if let Some(engine) = contexts.get_mut(&target_id) {
                     if engine.popup_state().is_some() {
                         engine.cancel_emoji_popup();
+                        if committed {
+                            engine.note_surrounding_commit(); // 이모지가 문서에 들어갔다
+                        }
                         Some(target_id)
                     } else {
                         None
@@ -2247,23 +2927,78 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 purpose,
             } => {
+                let prev = contexts.get(&context_id).map(|e| e.content_purpose());
+                apply_content_type(
+                    &mut contexts,
+                    &mut keystroke_buffers,
+                    &mut undo_states,
+                    &mut recent_corrections,
+                    context_id,
+                    purpose,
+                );
+                let new = contexts.get(&context_id).map(|e| e.content_purpose());
+                if last_focused_context_id == Some(context_id) {
+                    notify.on_content_type(&config, context_id, prev, new);
+                } else {
+                    notify.on_content_type_unfocused(context_id, prev, new);
+                }
+            }
+
+            EngineRequest::SetContentTypeWithReply {
+                context_id,
+                purpose,
+                response,
+            } => {
+                let prev = contexts.get(&context_id).map(|e| e.content_purpose());
+                let popup_closed = apply_content_type(
+                    &mut contexts,
+                    &mut keystroke_buffers,
+                    &mut undo_states,
+                    &mut recent_corrections,
+                    context_id,
+                    purpose,
+                );
+                let _ = response.send(popup_closed);
+                let new = contexts.get(&context_id).map(|e| e.content_purpose());
+                if last_focused_context_id == Some(context_id) {
+                    notify.on_content_type(&config, context_id, prev, new);
+                } else {
+                    notify.on_content_type_unfocused(context_id, prev, new);
+                }
+            }
+
+            EngineRequest::NoteFrontend { context_id, name } => {
                 if let Some(engine) = contexts.get_mut(&context_id) {
-                    let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
-                    engine.set_content_purpose(content_purpose);
-                    // 비밀번호/PIN 진입: 직전 타이핑이 남긴 per-context ATF 상태를 즉시
-                    // 폐기한다(FocusIn 초기화 선례). 관찰 게이트와 함께 이중 방어 —
-                    // 비번 진입 직전의 버퍼·되돌리기 원문·최근 교정이 잔류하지 않게 한다.
-                    if content_purpose.should_block_hangul() {
-                        keystroke_buffers.remove(&context_id);
-                        undo_states.remove(&context_id);
-                        recent_corrections.remove(&context_id);
+                    // IBus 호환 컨텍스트는 생성 시 "ibus" 로 확정 — 덮어쓰지 않는다.
+                    if engine.client_tag() != "ibus" {
+                        engine.set_client_tag(client_tag_from_frontend(&name));
                     }
-                    unim_log!(
-                        "ENGINE_WORKER",
-                        "[Engine Worker] SetContentType: context_id={}, purpose={:?}",
-                        context_id,
-                        content_purpose
-                    );
+                }
+                context_frontends.insert(context_id, name);
+            }
+
+            EngineRequest::SetClientCapabilities { context_id, caps } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_surrounding_word_caps(caps);
+                }
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] SetClientCapabilities: context_id={}, caps=0x{:x}",
+                    context_id,
+                    caps
+                );
+            }
+
+            EngineRequest::SurroundingHint {
+                context_id,
+                kind,
+                keyval,
+                state,
+            } => {
+                // 로그는 엔진이 남긴다(키 이름만, 글자 평문 금지).
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_now_ms(mono_ms());
+                    engine.surrounding_hint(kind, keyval, state);
                 }
             }
 
@@ -2273,9 +3008,46 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 cursor_pos,
                 anchor_pos,
             } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
-                    engine.set_surrounding_text(text, cursor_pos, anchor_pos);
-                }
+                apply_surrounding_text(
+                    &mut contexts,
+                    &mut replace_verify,
+                    context_id,
+                    text,
+                    cursor_pos,
+                    anchor_pos,
+                );
+            }
+
+            // 판정 보류 중인 컨텍스트의 F2 — 반영 직후 재판정한다(R9). 서비스는 보류가 있다고 아는
+            // 컨텍스트에서만 이 변형을 쓴다(그 밖에는 응답 없는 `SetSurroundingText`).
+            EngineRequest::SetSurroundingTextDeferred {
+                context_id,
+                text,
+                cursor_pos,
+                anchor_pos,
+                response,
+            } => {
+                apply_surrounding_text(
+                    &mut contexts,
+                    &mut replace_verify,
+                    context_id,
+                    text,
+                    cursor_pos,
+                    anchor_pos,
+                );
+                let outcome = contexts
+                    .get_mut(&context_id)
+                    .map_or(DeferOutcome::Idle, |e| defer_poll(e, DeferTrigger::Report));
+                let _ = response.send(outcome);
+            }
+
+            // 서비스 타이머가 보류 기한에 깨웠다(R9).
+            EngineRequest::DeferDue {
+                context_id,
+                response,
+            } => {
+                let outcome = contexts.get_mut(&context_id).map_or(DeferOutcome::Idle, defer_due);
+                let _ = response.send(outcome);
             }
 
             EngineRequest::GlobalTypeFix {
@@ -2290,7 +3062,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             ctx_id,
                             direction
                         );
-                        engine.typefix_convert(direction)
+                        let r = engine.typefix_convert(direction);
+                        if r.is_some() {
+                            engine.mark_surrounding_stale(); // 교정이 문서를 바꿨다
+                        }
+                        r
                     } else {
                         None
                     }
@@ -2337,8 +3113,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     } else {
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] user-dict 추가: '{}' (총 {}개)",
-                            word,
+                            "[Engine Worker] user-dict 추가: {}자 (총 {}개)",
+                            word.chars().count(),
                             user_dict.len()
                         );
                     }
@@ -2358,8 +3134,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     } else {
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] user-dict 제거: '{}' (총 {}개)",
-                            word,
+                            "[Engine Worker] user-dict 제거: {}자 (총 {}개)",
+                            word.chars().count(),
                             user_dict.len()
                         );
                     }
@@ -2445,25 +3221,25 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     } else {
                                         unim_log!(
                                             "ENGINE_WORKER",
-                                            "[Engine Worker] user-dict 단축키 등록: '{}' (원본: '{}')",
-                                            trimmed,
-                                            selection
+                                            "[Engine Worker] user-dict 단축키 등록: {}자 (원본: {}자)",
+                                            trimmed.chars().count(),
+                                            selection.chars().count()
                                         );
                                         trimmed.to_string()
                                     }
                                 } else {
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] user-dict 단축키 등록 실패(중복/비유효): '{}'",
-                                        trimmed
+                                        "[Engine Worker] user-dict 단축키 등록 실패(중복/비유효): {}자",
+                                        trimmed.chars().count()
                                     );
                                     String::new()
                                 }
                             } else {
                                 unim_log!(
                                     "ENGINE_WORKER",
-                                    "[Engine Worker] user-dict 단축키: 변환 결과 비유효 '{}'",
-                                    candidate
+                                    "[Engine Worker] user-dict 단축키: 변환 결과 비유효 {}자",
+                                    candidate.chars().count()
                                 );
                                 String::new()
                             }
@@ -2568,12 +3344,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     .to_string();
                     unim_log!(
                         "ENGINE_WORKER",
-                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}, home='{}'",
+                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}, home={}자",
                         idx,
                         target_cat_id,
                         items.len(),
                         cats.len(),
-                        home_row
+                        home_row.chars().count()
                     );
                     Some(EmojiShowPayload {
                         target_cat_id,
@@ -3208,4 +3984,564 @@ mod tests {
     // `~/.config/unim/typefix-blacklist.yaml`을 덮어써 기존 엔트리를 파괴하기 때문이다.
     // 로직은 `rollback_threshold_met` + `find_retrigger_layouts` + `observe_rollback_event`의
     // 순수 함수 검증으로 충분히 커버된다.
+
+    // === 한자 단어 배선 (HANJA_WORD_SPEC §2.7·§2.8·§4.1) ===
+
+    /// 두벌식 "대한민국" 11키 (e o g k s a l s r n r).
+    const DAEHANMINGUK: [KeyCode; 11] = [
+        KeyCode::E,
+        KeyCode::O,
+        KeyCode::G,
+        KeyCode::K,
+        KeyCode::S,
+        KeyCode::A,
+        KeyCode::L,
+        KeyCode::S,
+        KeyCode::R,
+        KeyCode::N,
+        KeyCode::R,
+    ];
+
+    /// 음절 모드로 "대한민국" 을 치고 확정분("대한민")을 데몬처럼 배출한 뒤 한자키(F9).
+    fn daemon_engine_in_word_popup(config: &Config) -> InputEngine {
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(config, "gtk4-test");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, config);
+        }
+        assert_eq!(drain_commit(&mut e).as_deref(), Some("대한민"));
+        assert_eq!(e.preedit_str(), "국");
+        e.press_key(KeyCode::F9, m, config);
+        e.take_popup_action();
+        e
+    }
+
+    /// 컨텍스트 파괴 시 HidePopup 판정 — 한자 팝업이 열려 있으면 true, 평소 타이핑은 false
+    /// (열려 있지 않은데 내면 경로 무관 구독자가 다른 앱의 팝업까지 닫는다).
+    #[test]
+    fn popup_open_tracks_hanja_popup() {
+        let config = Config::default();
+        let mut idle = new_daemon_engine(&config, "gtk4-test");
+        idle.set_input_category(unim::config::InputCategory::Korean);
+        idle.press_key(KeyCode::R, ModifierState::default(), &config);
+        assert!(!popup_open(&idle), "조합 중이라도 팝업이 없으면 false");
+        let e = daemon_engine_in_word_popup(&config);
+        assert!(popup_open(&e));
+    }
+
+    #[test]
+    fn client_tag_mapping_and_reset_carry() {
+        assert_eq!(client_tag_from_frontend("GTK3"), "gtk3");
+        assert_eq!(client_tag_from_frontend("GTK4"), "gtk4");
+        assert_eq!(client_tag_from_frontend("Qt5"), "qt5");
+        assert_eq!(client_tag_from_frontend("Qt6"), "qt6");
+        assert_eq!(client_tag_from_frontend("GNOME"), "gnome");
+        assert_eq!(client_tag_from_frontend("XIM"), "xim");
+        assert_eq!(client_tag_from_frontend("Wayland"), "wayland");
+        assert_eq!(client_tag_from_frontend("Unknown"), "unknown");
+        assert_eq!(client_tag_from_window_id("ibus-firefox-3"), "ibus");
+        assert_eq!(client_tag_from_window_id("gtk4-test"), "unknown");
+
+        // Reset/FocusOut 재생성 경로(reset_engine_and_capture_commit)가 꼬리표를 잃지 않는다.
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_client_tag("qt6");
+        let _ = reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(e.client_tag(), "qt6");
+        let ibus = new_daemon_engine(&config, "ibus-firefox-3");
+        assert_eq!(ibus.client_tag(), "ibus");
+    }
+
+    /// R10 — FocusOut/Reset 재생성 전에 판정 보류가 취소된다. 보류가 사라지면 타이머가 깨워도 `Idle`.
+    #[test]
+    fn reset_cancels_deferred_hanja_and_due_is_idle() {
+        use unim::input_engine::{
+            SURROUNDING_CAP_POINTER_HINTS, SURROUNDING_CAP_REPLACE, SURROUNDING_HINT_POINTER_PLAIN,
+        };
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "w");
+        e.set_surrounding_word_caps(SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_POINTER_HINTS);
+        e.set_now_ms(mono_ms());
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        e.surrounding_hint(SURROUNDING_HINT_POINTER_PLAIN, 0, 0); // 낡음
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(e.deferred_hanja_deadline().is_some(), "낡음 → 보류");
+        // 기한 전이면 타이머는 같은 기한으로 계속 대기를 요청한다.
+        assert!(matches!(defer_due(&mut e), DeferOutcome::Wait { .. }));
+        let _ = reset_engine_and_capture_commit(&mut e, &config, true, false, "w");
+        assert!(e.deferred_hanja_deadline().is_none());
+        assert!(matches!(defer_due(&mut e), DeferOutcome::Idle));
+    }
+
+    /// 데몬 생성 헬퍼는 교체 능력을 켠다 — 확정 접두 "대한민" 을 포함한 다음절 target 과
+    /// 마우스 확정(`select_hanja`) 교체 페이로드(delete=3)가 나온다.
+    #[test]
+    fn new_daemon_engine_enables_hanja_word_replacement() {
+        let config = Config::default();
+        let mut e = daemon_engine_in_word_popup(&config);
+        assert!(e.is_hanja_mode());
+        assert_eq!(e.get_hanja_target(), "대한민국");
+        assert_eq!(e.hanja_committed_chars(), 3);
+
+        let text = e.select_hanja(0).expect("후보 0 확정");
+        let r = e.take_hanja_replacement().expect("대상① 교체 페이로드");
+        assert_eq!(r.delete_chars, 3);
+        assert_eq!(r.text, text);
+        // 교체 채널로 나가므로 commit_buffer 에는 싣지 않는다(이중 삽입 방지).
+        assert_eq!(drain_commit(&mut e), None);
+    }
+
+    /// FocusOut/Reset 재생성 전 캡처는 팝업 진입 당시 preedit("국")만 되돌린다 —
+    /// target("대한민국")을 재커밋하면 이미 앱에 있는 "대한민" 이 중복된다(§2.7 원칙).
+    #[test]
+    fn reset_capture_recommits_only_preedit_for_word_target() {
+        let config = Config::default();
+        let mut e = daemon_engine_in_word_popup(&config);
+        let captured = reset_engine_and_capture_commit(&mut e, &config, false, false, "gtk4-test");
+        assert_eq!(captured.as_deref(), Some("국"));
+        assert!(!e.is_hanja_mode());
+    }
+
+    /// 재생성(Reset/FocusOut) 뒤에도 비밀번호 칸 판정이 유지된다 — 프런트는 리셋 뒤
+    /// 목적을 재전송하지 않으므로, 잃으면 클릭 한 번에 ATF 게이트·영문 강제가 풀린다.
+    /// 칸을 벗어나면 영문 강제 이전 모드(한국어)로 복구돼야 한다.
+    #[test]
+    fn reset_engine_keeps_password_purpose_and_saved_mode() {
+        use unim::config::{ContentPurpose, InputCategory};
+        let config = Config::default();
+        for preserve_mode in [true, false] {
+            let mut e = new_daemon_engine(&config, "gtk4-test");
+            e.set_input_category(InputCategory::Korean);
+            e.set_content_purpose(ContentPurpose::Password);
+            assert_eq!(e.input_category(), InputCategory::English);
+            let _ = reset_engine_and_capture_commit(&mut e, &config, preserve_mode, false, "gtk4-test");
+            assert_eq!(e.content_purpose(), ContentPurpose::Password, "preserve={preserve_mode}");
+            assert_eq!(e.input_category(), InputCategory::English, "preserve={preserve_mode}");
+            if preserve_mode {
+                e.set_content_purpose(ContentPurpose::Normal);
+                assert_eq!(e.input_category(), InputCategory::Korean);
+            }
+        }
+    }
+
+    /// 재생성 경로 뒤에도 교체 능력이 유지된다(헬퍼 누락 회귀 방지).
+    #[test]
+    fn reset_engine_keeps_word_replace_capability() {
+        let config = Config::default();
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        let _ = reset_engine_and_capture_commit(&mut e, &config, false, false, "gtk4-test");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        let _ = drain_commit(&mut e);
+        e.press_key(KeyCode::F9, m, &config);
+        assert_eq!(e.get_hanja_target(), "대한민국");
+    }
+
+    /// IBus 호환 컨텍스트는 교체 채널(auto_typefix)을 소비하지 않으므로 능력을 끈다 —
+    /// target 은 preedit("국")만, 교체 페이로드 없음(단음절 commit 으로 확정).
+    #[test]
+    fn ibus_context_engine_disables_hanja_word_replacement() {
+        let config = Config::default();
+        let m = ModifierState::default();
+        let mut e = new_daemon_engine(&config, "ibus-firefox-3");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        assert_eq!(drain_commit(&mut e).as_deref(), Some("대한민"));
+        e.press_key(KeyCode::F9, m, &config);
+        assert!(e.is_hanja_mode());
+        assert_eq!(e.get_hanja_target(), "국");
+        assert!(e.take_hanja_replacement().is_none());
+        // 재생성 경로(FocusOut/Reset)도 같은 판정을 따른다.
+        let _ = reset_engine_and_capture_commit(&mut e, &config, false, false, "ibus-ctx-3");
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in DAEHANMINGUK {
+            e.press_key(k, m, &config);
+        }
+        let _ = drain_commit(&mut e);
+        e.press_key(KeyCode::F9, m, &config);
+        assert_eq!(e.get_hanja_target(), "국");
+    }
+
+    /// 팝업 중 비밀번호 목적 도착 → 팝업을 재커밋 없이 닫고 true(서비스가 HidePopup 발행).
+    /// 이미 비번이면 멱등(false), 없는 컨텍스트도 false.
+    #[test]
+    fn apply_content_type_password_closes_popup_without_recommit() {
+        let config = Config::default();
+        let mut contexts = HashMap::new();
+        contexts.insert(7, daemon_engine_in_word_popup(&config));
+        let mut kb = HashMap::new();
+        let mut undo = HashMap::new();
+        let mut recent = HashMap::new();
+        let pw = ContentPurpose::Password as u32;
+
+        assert!(apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 7, pw));
+        let e = contexts.get_mut(&7).unwrap();
+        assert!(!e.is_hanja_mode());
+        assert_eq!(drain_commit(e), None, "비번 필드에 원문 재커밋 금지");
+        assert_eq!(e.preedit_str(), "");
+        assert!(e.take_popup_action().is_none(), "HidePopup 은 응답으로 이미 드레인");
+
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 7, pw));
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 99, pw));
+    }
+
+    /// 팝업이 없을 때 비번 진입은 false — HidePopup 을 공연히 보내지 않는다.
+    #[test]
+    fn apply_content_type_without_popup_returns_false() {
+        let config = Config::default();
+        let mut contexts = HashMap::new();
+        contexts.insert(1, new_daemon_engine(&config, "gtk4-test"));
+        let mut kb = HashMap::new();
+        let mut undo = HashMap::new();
+        let mut recent = HashMap::new();
+        let pw = ContentPurpose::Password as u32;
+        assert!(!apply_content_type(&mut contexts, &mut kb, &mut undo, &mut recent, 1, pw));
+    }
+
+    // ───────────── 상황 알림 허브 (NOTIFY_SPEC §2.2·§3.2) ─────────────
+
+    fn hub_with(cap: usize) -> (NotifyHub, mpsc::Receiver<NotifyOut>) {
+        let (tx, rx) = mpsc::channel(cap);
+        let hub = NotifyHub {
+            tx,
+            gate: NotifyGate::new(),
+            auto_lang: Lang::Ko,
+        };
+        (hub, rx)
+    }
+
+    fn cfg_with_events(events: &[&str]) -> Config {
+        let mut c = Config::default();
+        c.engine.notify.events = events.iter().map(|e| e.to_string()).collect();
+        c
+    }
+
+    fn kinds(rx: &mut mpsc::Receiver<NotifyOut>) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        while let Ok(o) = rx.try_recv() {
+            v.push(o.kind);
+        }
+        v
+    }
+
+    #[test]
+    fn purpose_transition_event_only_on_block_state_change() {
+        use ContentPurpose::*;
+        let kind = |p, n| purpose_transition_event(p, n, 1, true).map(|e| e.kind.as_str());
+        assert_eq!(kind(Normal, Password), Some("password_enter"));
+        assert_eq!(kind(Normal, Pin), Some("password_enter"));
+        assert_eq!(kind(Password, Normal), Some("password_leave"));
+        assert_eq!(kind(Pin, Normal), Some("password_leave"));
+        // 차단 상태 불변: 같은 목적 재설정·차단↔차단·비차단↔비차단은 전이가 아니다
+        assert_eq!(kind(Password, Password), None);
+        assert_eq!(kind(Password, Pin), None);
+        assert_eq!(kind(Normal, Normal), None);
+    }
+
+    #[test]
+    fn focus_transition_event_enter_on_new_leave_on_previous_context() {
+        use ContentPurpose::*;
+        let k = |prev, id, new| {
+            focus_transition_event(prev, id, new, true).map(|e| (e.kind.as_str(), e.context_id))
+        };
+        // 첫 포커스·일반 칸 → 비밀번호 칸: 새 컨텍스트의 enter
+        assert_eq!(k(None, 7, Password), Some(("password_enter", 7)));
+        assert_eq!(k(Some((3, Normal)), 7, Pin), Some(("password_enter", 7)));
+        // 비밀번호 칸 → 일반 칸: **떠난** 컨텍스트(3)의 leave
+        assert_eq!(k(Some((3, Password)), 7, Normal), Some(("password_leave", 3)));
+        // 차단 상태 불변이면 전이 없음
+        assert_eq!(k(Some((3, Password)), 7, Pin), None);
+        assert_eq!(k(Some((3, Normal)), 7, Normal), None);
+        assert_eq!(k(None, 7, Normal), None);
+    }
+
+    #[test]
+    fn hub_unfocused_content_type_never_notifies_but_focus_in_does() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        // GTK: 포커스 없는 비밀번호 위젯이 미리 목적을 보냄 → 알림 없음
+        hub.on_content_type_unfocused(9, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty());
+        // 실제로 그 칸에 포커스가 오면 진입 알림 1회
+        hub.on_focus_change(&cfg, Some((3, Normal)), 9, Password);
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 일반 칸으로 옮기면 떠난 칸(9)의 leave — 진입 기록이 9 번 키라 나간다
+        hub.on_focus_change(&cfg, Some((9, Password)), 3, Normal);
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+        // 같은 칸 재진입은 10분 안엔 침묵
+        hub.on_focus_change(&cfg, Some((3, Normal)), 9, Password);
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    #[test]
+    fn hub_password_enter_once_then_leave_after_filtered_record() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 같은 칸에서 다시 전이해도(10분 안) 진입 알림은 1회뿐
+        hub.on_content_type(&cfg, 5, Some(Password), Some(Normal));
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty(), "같은 칸 재진입은 10분 안엔 침묵");
+    }
+
+    #[test]
+    fn hub_password_transition_recorded_even_when_enter_filtered_out() {
+        // events 에 password_enter 가 없어도 진입 시각은 기록돼 leave 가 나간다(규칙 4·5)
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 5, Some(Normal), Some(Password));
+        assert!(kinds(&mut rx).is_empty());
+        hub.on_content_type(&cfg, 5, Some(Password), Some(Normal));
+        assert_eq!(kinds(&mut rx), vec!["password_leave"]);
+    }
+
+    #[test]
+    fn hub_destroy_context_clears_password_record() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["password_enter", "password_leave"]);
+        use ContentPurpose::*;
+        hub.on_content_type(&cfg, 9, Some(Normal), Some(Password));
+        assert_eq!(kinds(&mut rx), vec!["password_enter"]);
+        // 컨텍스트 파괴 → 진입 기록이 사라져 이후 leave 는 "들어온 적 없는 칸" 이라 침묵
+        hub.gate.on_destroy(9);
+        hub.on_content_type(&cfg, 9, Some(Password), Some(Normal));
+        assert!(kinds(&mut rx).is_empty(), "파괴 뒤엔 진입 기록이 없어 leave 미발화");
+    }
+
+    #[test]
+    fn hub_content_type_ignores_missing_context() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = Config::default();
+        hub.on_content_type(&cfg, 1, None, None);
+        hub.on_content_type(&cfg, 1, Some(ContentPurpose::Normal), None);
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    #[test]
+    fn hub_dispatch_applies_rule6_atf_corrected_drops_mode_changed() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["atf_corrected", "mode_changed"]);
+        let evs = vec![
+            NotifyEvent::atf_corrected(Direction::Forward, 1, "rkskek", "가나다"),
+            NotifyEvent::mode_changed(1, true),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["atf_corrected_forward"]);
+    }
+
+    #[test]
+    fn hub_dispatch_atf_corrected_filtered_lets_mode_changed_through() {
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        let evs = vec![
+            NotifyEvent::atf_corrected(Direction::Forward, 1, "rkskek", "가나다"),
+            NotifyEvent::mode_changed(1, true),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["mode_changed"]);
+    }
+
+    #[test]
+    fn hub_dispatch_global_mode_goes_through_gate_dedupe() {
+        // SetGlobalMode 경로: context_id=0, 게이트(규칙 1·5)를 우회하지 않는다
+        let (mut hub, mut rx) = hub_with(8);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        hub.dispatch(vec![NotifyEvent::mode_changed(0, true)], ContentPurpose::Normal, &cfg);
+        hub.dispatch(vec![NotifyEvent::mode_changed(0, true)], ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx), vec!["mode_changed"], "3초 안 동일 키는 폐기");
+        // 기본 events 에는 mode_changed 가 없다 → 발송 0
+        hub.dispatch(
+            vec![NotifyEvent::mode_changed(0, false)],
+            ContentPurpose::Normal,
+            &Config::default(),
+        );
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    #[test]
+    fn hub_dispatch_never_blocks_when_channel_full() {
+        // 용량 1 채널에 2건 — 두 번째는 폐기되고 워커는 멈추지 않는다(try_send)
+        let (mut hub, mut rx) = hub_with(1);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        let evs = vec![
+            NotifyEvent::mode_changed(1, true),
+            NotifyEvent::mode_changed(1, false),
+        ];
+        hub.dispatch(evs, ContentPurpose::Normal, &cfg);
+        assert_eq!(kinds(&mut rx).len(), 1);
+    }
+
+    #[test]
+    fn hub_dispatch_closed_channel_is_harmless() {
+        let (mut hub, rx) = hub_with(1);
+        drop(rx);
+        let cfg = cfg_with_events(&["mode_changed"]);
+        hub.dispatch(vec![NotifyEvent::mode_changed(1, true)], ContentPurpose::Normal, &cfg);
+    }
+
+    #[test]
+    fn hub_dispatch_disabled_sends_nothing_and_password_discards_text() {
+        let (mut hub, mut rx) = hub_with(8);
+        let mut cfg = cfg_with_events(&["atf_corrected", "atf_suppressed"]);
+        // 비밀번호 상태에서는 텍스트 종류 폐기(§2.3 대책 3)
+        hub.dispatch(
+            vec![NotifyEvent::atf_suppressed(1, "secret")],
+            ContentPurpose::Password,
+            &cfg,
+        );
+        assert!(kinds(&mut rx).is_empty());
+        cfg.engine.notify.enabled = false;
+        hub.dispatch(
+            vec![NotifyEvent::atf_suppressed(2, "word")],
+            ContentPurpose::Normal,
+            &cfg,
+        );
+        assert!(kinds(&mut rx).is_empty());
+    }
+
+    /// 한/영 전환 차단은 엔진 getter 로 읽는다 — 워커가 `press_key` 직후 읽는 계약 확인.
+    #[test]
+    fn last_toggle_blocked_read_right_after_press_key_in_password_field() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_content_purpose(ContentPurpose::Password);
+        let m = ModifierState::default();
+        let toggle = KeyCode::from_evdev_keycode(100); // 오른쪽 Alt (한/영 기본 키)
+        assert!(e.is_toggle_key(toggle), "기본 설정에서 이 키가 한/영 토글이어야 한다");
+        e.press_key(toggle, m, &config);
+        assert!(e.last_toggle_blocked());
+        e.press_key(KeyCode::A, m, &config);
+        assert!(!e.last_toggle_blocked(), "다음 키에서 false 로 리셋");
+    }
+
+    // === 대상③ 커서 주변 단어 배선 (HANJA_WORD_SPEC v1.6 §2.4b·§4.6) ===
+
+    /// 엔진 재생성(FocusOut/Reset)은 대상③ 능력·낡음·선택 표시를 이월한다 — 능력을 잃으면
+    /// 대상③ 이 조용히 꺼지고, 낡음을 잃으면 문서가 바뀐 뒤에도 대상③ 이 열린다.
+    #[test]
+    fn reset_engine_carries_surrounding_word_state() {
+        use unim::input_engine::{
+            SURROUNDING_CAP_REPLACE, SURROUNDING_CAP_SELECTION_RELIABLE,
+            SURROUNDING_HINT_POINTER_SELECT,
+        };
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        let caps = SURROUNDING_CAP_REPLACE | SURROUNDING_CAP_SELECTION_RELIABLE;
+        e.set_surrounding_word_caps(caps);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!e.surrounding_stale());
+        e.surrounding_hint(SURROUNDING_HINT_POINTER_SELECT, 0, 0);
+        assert!(e.surrounding_stale() && e.selection_possible());
+
+        reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(e.surrounding_word_caps(), caps);
+        assert!(e.surrounding_stale());
+        assert!(e.selection_possible());
+
+        // 재커밋 텍스트가 있으면(조합 중 Reset) 낡음으로 표시한다.
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(caps);
+        e.set_input_category(unim::config::InputCategory::Korean);
+        for k in [KeyCode::R, KeyCode::N, KeyCode::R] {
+            e.press_key(k, ModifierState::default(), &config);
+        }
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!e.surrounding_stale());
+        let captured = reset_engine_and_capture_commit(&mut e, &config, true, false, "gtk4-test");
+        assert_eq!(captured.as_deref(), Some("국"));
+        assert!(e.surrounding_stale());
+    }
+
+    /// 대상③ 마우스 확정(`SelectHanja`)은 `ReplaceSurrounding` 결과(앞 a·뒤 b·expect)로 나가고
+    /// 교체 채널로 취급된다(키스트로크 버퍼 폐기 대상).
+    #[test]
+    fn select_hanja_surrounding_word_outcome_is_replace_surrounding() {
+        use crate::service::{ReplaceSurrounding, SelectHanjaOutcome};
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 2, 2);
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        e.take_popup_action();
+        assert_eq!(e.surrounding_word_span(), Some((2, 2)));
+
+        let (outcome, replaced) = select_hanja_outcome(&mut e, 0);
+        assert!(replaced);
+        assert_eq!(
+            outcome,
+            SelectHanjaOutcome::ReplaceSurrounding(ReplaceSurrounding {
+                delete_before: 2,
+                delete_after: 2,
+                commit_text: "國語敎育".to_string(),
+                expect_text: "국어교육".to_string(),
+            })
+        );
+        assert_eq!(drain_commit(&mut e), None, "CommitText 로는 나가지 않는다");
+    }
+
+    /// pull 경로에서 대상③ 후보가 소진되면 `closed_popup` — 서비스가 HidePopup 을 낸다.
+    #[test]
+    fn get_hanja_candidates_reports_closed_popup_on_exhaust() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        // 후보 3건(국어교육·교육·육) — 열기와 순환은 닫힘이 아니다.
+        for _ in 0..3 {
+            assert!(!start_hanja_pull(&mut e));
+            assert!(e.is_hanja_mode());
+        }
+        assert!(start_hanja_pull(&mut e), "소진 호출이 팝업을 닫았다");
+        assert!(!e.is_hanja_mode());
+        // 대상 없음 호출(이미 닫힘)은 닫힘이 아니다.
+        assert!(!start_hanja_pull(&mut e));
+    }
+
+    /// 한자 모드가 아닐 때 늦게 도착한 CancelHanja 는 이모지 팝업 상태를 지우지 않는다.
+    #[test]
+    fn late_cancel_hanja_keeps_emoji_popup() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "ibus-test");
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(!e.is_hanja_mode());
+        assert!(e.is_emoji_popup_active());
+        assert_eq!(cancel_hanja_if_active(&mut e), None);
+        assert!(e.is_emoji_popup_active(), "이모지 팝업 상태가 보존된다");
+    }
+
+    /// 한자 모드였다면 종전처럼 정리하고 Some 을 돌려준다.
+    #[test]
+    fn cancel_hanja_if_active_cleans_hanja_mode() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "gtk4-test");
+        e.set_surrounding_word_caps(0x3);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        assert!(!start_hanja_pull(&mut e));
+        assert!(e.is_hanja_mode());
+        assert!(cancel_hanja_if_active(&mut e).is_some());
+        assert!(!e.is_hanja_mode());
+    }
+
+    /// IBus 호환 컨텍스트는 능력을 선언하지 않는다 → 대상③ 은 꺼져 있다(종전 동작).
+    #[test]
+    fn ibus_context_has_no_caps() {
+        let config = Config::default();
+        let mut e = new_daemon_engine(&config, "ibus-test");
+        assert_eq!(e.surrounding_word_caps(), 0);
+        e.set_surrounding_text("국어교육".to_string(), 4, 4);
+        e.press_key(KeyCode::F9, ModifierState::default(), &config);
+        assert!(!e.is_hanja_mode());
+        assert!(e.is_emoji_popup_active());
+    }
 }

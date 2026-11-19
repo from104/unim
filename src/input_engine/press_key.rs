@@ -46,6 +46,10 @@ impl InputEngine {
 
     /// KeyCode를 처리합니다.
     ///
+    /// 본 처리는 `press_key_inner` 가 하고, 이 래퍼는 그 결과로 최근 확정 음절 버퍼
+    /// (한자 단어 대상①)를 갱신하는 단일 초크포인트다(HANJA_WORD_SPEC §2.2.1 —
+    /// `recent_track_after_key`). `InputResult` 는 inner 결과 그대로.
+    ///
     /// # Arguments
     ///
     /// * `keycode` - 변환된 키코드
@@ -56,6 +60,34 @@ impl InputEngine {
     ///
     /// 입력 처리 결과
     pub fn press_key(
+        &mut self,
+        keycode: KeyCode,
+        modifier: ModifierState,
+        config: &Config,
+    ) -> InputResult {
+        self.last_toggle_blocked = false;
+        self.popup_reprocessed = false;
+        // R10 — 판정을 미룬 한자키가 있는데 다른 키가 왔다: 조용히 취소하고 이 키는 정상 처리.
+        if self.sw_pending_defer.is_some() && !keycode.is_modifier() {
+            self.sw_cancel_defer("key");
+        }
+        let before_len = self.commit_buffer.len();
+        // 한자키 분기가 같은 키 안의 chord 확정 델타를 중간 흡수하는 기준점.
+        self.recent_mark = before_len;
+        let was_popup = self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active();
+        let cat_before = self.input_category;
+        // pull 경로의 대상③ 소진 표시는 "다음 키 처리"에서 내린다 — 이번 키의 한자 idle
+        // 분기만 값을 본다(HANJA_WORD_SPEC §2.4b.3).
+        self.sw_exhausted_key = std::mem::take(&mut self.surrounding_word_exhausted);
+        let r = self.press_key_inner(keycode, modifier, config);
+        self.sw_exhausted_key = false;
+        self.recent_track_after_key(keycode, modifier, &r, before_len, was_popup, cat_before);
+        self.surrounding_track_after_key(keycode, modifier, &r, before_len, was_popup);
+        r
+    }
+
+    /// `press_key` 의 본 처리 (래퍼 없이). 팝업 미지원 키 재처리 재귀가 이것을 부른다.
+    pub(super) fn press_key_inner(
         &mut self,
         keycode: KeyCode,
         modifier: ModifierState,
@@ -86,6 +118,20 @@ impl InputEngine {
         // (팝업 중에는 토글키도 다른 키와 동일하게 팝업이 우선 처리한다 —
         //  기존 한/영 키 동작과 동일.)
         if self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active() {
+            // 한자 팝업 중 한자키 재타 = 대상① target 접미 축소(HANJA_WORD_SPEC Q7(a)).
+            // 축소할 수 없으면(길이 1·대상②·단축키 조합) 현행 경로(미지원 키 재처리).
+            if self.hanja_mode
+                && self.hanja_keys.contains(&keycode)
+                && !(modifier.control || modifier.alt || modifier.super_key)
+            {
+                // 대상③ 은 다음 후보로 순환(소진 시 이모지), 그 외는 접미 축소.
+                if let Some(r) = self.cycle_surrounding_word(false) {
+                    return r;
+                }
+                if let Some(r) = self.shrink_hanja_target() {
+                    return r;
+                }
+            }
             return self.process_popup_key(keycode, modifier, _config);
         }
 
@@ -114,6 +160,7 @@ impl InputEngine {
                         "한/영 전환 차단: content_purpose={:?}",
                         self.content_purpose
                     );
+                    self.last_toggle_blocked = true;
                     return InputResult::consumed();
                 }
 
@@ -217,8 +264,10 @@ impl InputEngine {
         }
 
         // Hanja 키는 언어 모드 무관 dispatch — preedit/조합 상태에 따라 분기.
-        //   * 조합 중 (Korean only): 한자 변환
-        //   * idle (조합 없음): 이모지 팝업 트리거 (항상 ON)
+        //   * 조합 중 (Korean only): 한자 변환 — 대상①(최근 확정 음절+preedit 최장 사전
+        //     접미) 또는 종전(마지막 음절) (HANJA_WORD_SPEC §2.2·§2.3)
+        //   * idle + 앱 선택 영역이 사전 정확 일치 한글: 대상② 한자 팝업 (§2.4)
+        //   * 그 외 idle (선택 없음·불일치 선택): 이모지 팝업 트리거 (항상 ON, Q8(a))
         //
         // English 모드에서도 idle Hanja → 이모지가 동작해야 함. 종전엔 분기가
         // process_korean_key 안에 있어 영문 모드에서 Hanja 키가 not_consumed 로
@@ -228,9 +277,31 @@ impl InputEngine {
             // chord 진행 중 한자 키 입력 시 현재 chord 를 음절로 확정한 뒤 한자 변환 진입.
             // (preview inject 된 경우 finalize_chord_buffer 가 중복 처리 회피)
             self.finalize_chord_buffer();
+            // chord finalize 가 방금 확정한 음절("민")을 target 풀에 흡수 — 안 하면 풀이
+            // "대한"+"국" 이 되어 "한국"·확정 접두 1 로 '민' 을 오삭제한다(§2.2.1).
+            self.recent_absorb_commit_delta();
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {
+                if self.sw_exhausted_key {
+                    // pull 경로에서 대상③ 후보가 소진된 뒤의 폴백 키 — 이모지.
+                    unim_log!(
+                        "ENGINE",
+                        "대상③: reason=exhausted client={} → 이모지",
+                        self.client_tag
+                    );
+                } else {
+                    // 대상②(선택)·대상③(커서 주변 단어) 판정은 resolve_idle 이 한다.
+                    // 대상이 없거나 불일치면 종전 idle 동작(이모지)으로 폴백(Q8(a)).
+                    let r = self.start_hanja_conversion();
+                    if self.hanja_mode {
+                        return r;
+                    }
+                    if self.sw_pending_defer.is_some() {
+                        // 판정 보류(R7·R8) — 이모지도 열지 않는다. 재판정이 열거나 취소한다.
+                        return InputResult::consumed();
+                    }
+                }
                 self.start_emoji_popup();
                 return InputResult::consumed();
             }
@@ -291,9 +362,8 @@ impl InputEngine {
                 self.commit_buffer.push(c);
                 unim_log!(
                     "ENGINE",
-                    "auto-english: '{:?}' -> 영문 전환 + commit '{}'",
-                    keycode,
-                    c
+                    "auto-english: '{:?}' -> 영문 전환 + commit",
+                    keycode
                 );
                 return InputResult::committed();
             }
@@ -318,7 +388,7 @@ impl InputEngine {
             if self.korean_context.is_composing() {
                 self.korean_context.backspace();
                 self.update_preedit_cache();
-                unim_log!("ENGINE", "Backspace -> preedit='{}'", self.preedit_cache);
+                unim_log!("ENGINE", "Backspace -> preedit={}자", self.preedit_cache.chars().count());
                 return InputResult::preedit_updated();
             }
             return InputResult::not_consumed();
@@ -374,7 +444,7 @@ impl InputEngine {
         let ch = self.english_keymap.get_char(keycode, modifier.shift);
 
         if let Some(c) = ch {
-            unim_log!("ENGINE", "문자 키: '{}'", c);
+            unim_log!("ENGINE", "문자 키");
 
             // 룰 B (schema v2 `key_meta.context_alt`) — 한글 모드 + 팝업 비활성에서만.
             // 조건이 맞으면 정상 jamo 흐름으로 진입하고, 불충족이면 fallback 리터럴 commit.
@@ -400,8 +470,7 @@ impl InputEngine {
                         if !cond_ok {
                             unim_log!(
                                 "ENGINE",
-                                "key_meta.context_alt 불충족 → fallback '{}' commit",
-                                alt.fallback
+                                "key_meta.context_alt 불충족 → fallback commit"
                             );
                             self.flush_preedit();
                             self.commit_buffer.push_str(&alt.fallback);
@@ -414,13 +483,13 @@ impl InputEngine {
             // 키보드 맵에서 자모 찾기
             if let Some(ref keyboard_map) = self.keyboard_map {
                 if let Some(jamo) = keyboard_map.get(&c) {
-                    unim_log!("ENGINE", "자모 매핑: {:?}", jamo);
+                    unim_log!("ENGINE", "자모 매핑");
 
                     // Special 자모는 비-한국어 문자이므로 별도 처리.
                     // chord 버퍼가 활성 중이면 먼저 finalize 한다.
                     if let JamoEnum::Special(special_char) = jamo {
                         let ch_to_commit = *special_char;
-                        unim_log!("ENGINE", "Special 자모 처리: '{}'", ch_to_commit);
+                        unim_log!("ENGINE", "Special 자모 처리");
                         self.finalize_chord_buffer();
                         self.flush_preedit();
                         self.commit_buffer.push(ch_to_commit);
@@ -437,7 +506,7 @@ impl InputEngine {
 
                     if self.chord_buffer.is_active() {
                         // chord 모드: 버퍼에 push → flush 여부 결정
-                        unim_log!("ENGINE", "chord push: {:?}", jamo_copy);
+                        unim_log!("ENGINE", "chord push");
                         // push 직전 preview 상태 capture (chord_buffer 내부에서 만료/MAX flush 시 리셋되므로)
                         let prev_preview_active = self.chord_buffer.was_preview_injected();
                         let prev_was_atomic = self.chord_buffer.was_preview_atomic();
@@ -447,8 +516,8 @@ impl InputEngine {
                                 self.update_chord_preview();
                                 unim_log!(
                                     "ENGINE",
-                                    "chord 진행 중 (preview) -> preedit='{}'",
-                                    self.preedit_cache
+                                    "chord 진행 중 (preview) -> preedit={}자",
+                                    self.preedit_cache.chars().count()
                                 );
                                 return if !self.commit_buffer.is_empty() {
                                     InputResult::committed()
@@ -501,9 +570,9 @@ impl InputEngine {
                         let committed = self.korean_context.get_committed();
                         unim_log!(
                             "ENGINE",
-                            "context.committed='{}', context.preedit='{}'",
-                            committed,
-                            self.korean_context.get_preedit()
+                            "context.committed={}자, context.preedit={}자",
+                            committed.chars().count(),
+                            self.korean_context.get_preedit().chars().count()
                         );
 
                         if !committed.is_empty() {
@@ -511,16 +580,16 @@ impl InputEngine {
                             self.korean_context.clear_committed();
                             unim_log!(
                                 "ENGINE",
-                                "commit_buffer에 추가 후: '{}'",
-                                self.commit_buffer
+                                "commit_buffer에 추가 후: {}자",
+                                self.commit_buffer.chars().count()
                             );
                         }
 
                         self.update_preedit_cache();
                         unim_log!(
                             "ENGINE",
-                            "preedit_cache 업데이트 후: '{}'",
-                            self.preedit_cache
+                            "preedit_cache 업데이트 후: {}자",
+                            self.preedit_cache.chars().count()
                         );
 
                         if !self.commit_buffer.is_empty() {
@@ -536,7 +605,7 @@ impl InputEngine {
             // 자모가 아닌 문자 (기호 등)
             if self.chord_buffer.is_active() {
                 // chord 모드: 비자모도 윈도우에 합류
-                unim_log!("ENGINE", "chord push_non_jamo: '{}'", c);
+                unim_log!("ENGINE", "chord push_non_jamo");
                 let prev_preview_active = self.chord_buffer.was_preview_injected();
                 let prev_was_atomic = self.chord_buffer.was_preview_atomic();
                 match self.chord_buffer.push_non_jamo(c) {

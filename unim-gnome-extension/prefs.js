@@ -126,11 +126,11 @@ export default class UnimPreferences extends ExtensionPreferences {
             _('한글 → 영어'), _('ㅗ디ㅣㅐ → hello'));
 
         // ============================================
-        // 사용자 사전 등록 단축키
+        // 자동 교정 사전 등록 단축키
         // ============================================
         const userDictGroup = new Adw.PreferencesGroup({
-            title: _('사용자 사전 등록'),
-            description: _('선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다.')
+            title: _('자동 교정 사전 등록'),
+            description: _('선택한 한글을 영문으로 변환해 역방향 자동 교정 사전에 추가합니다.')
         });
         page.add(userDictGroup);
 

@@ -470,8 +470,7 @@ impl BaseHangulComposer {
     {
         unim_log!(
             "COMPOSER",
-            "BaseComposer.add_jamo_with_meta: {:?} meta={:?}",
-            jamo,
+            "BaseComposer.add_jamo_with_meta: meta={:?}",
             meta
         );
 
@@ -484,8 +483,7 @@ impl BaseHangulComposer {
         if compose_fn(self) {
             unim_log!(
                 "COMPOSER",
-                "  -> 조합 계속: current_korean={:?}",
-                self.current_korean_char
+                "  -> 조합 계속: current_korean"
             );
             None
         } else {
@@ -497,7 +495,7 @@ impl BaseHangulComposer {
                 .get_syllable()
                 .ok()
                 .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
-            unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
+            unim_log!("COMPOSER", "  -> 음절 분리: complete_some={}", complete_korean.is_some());
 
             // 큐 상태 백업 및 초기화 (jamo_queue + meta_queue 동시)
             self.backup_to_last_synced();
@@ -509,8 +507,7 @@ impl BaseHangulComposer {
 
             unim_log!(
                 "COMPOSER",
-                "  -> 새 current_korean: {:?}",
-                self.current_korean_char
+                "  -> 새 current_korean"
             );
 
             complete_korean
@@ -561,8 +558,7 @@ impl HangulComposer for BaseHangulComposer {
     fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
         unim_log!(
             "COMPOSER",
-            "BaseComposer.add_jamo_with_meta: {:?} meta={:?}",
-            jamo,
+            "BaseComposer.add_jamo_with_meta: meta={:?}",
             meta
         );
         self.push_back_synced(jamo, meta);
@@ -574,22 +570,20 @@ impl HangulComposer for BaseHangulComposer {
                 .get_syllable()
                 .ok()
                 .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
-            unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
+            unim_log!("COMPOSER", "  -> 음절 분리: complete_some={}", complete_korean.is_some());
             self.backup_to_last_synced();
             self.push_back_synced(jamo, meta);
             self.clear();
             self.compose_korean();
             unim_log!(
                 "COMPOSER",
-                "  -> 새 current_korean: {:?}",
-                self.current_korean_char
+                "  -> 새 current_korean"
             );
             complete_korean
         } else {
             unim_log!(
                 "COMPOSER",
-                "  -> 조합 계속: current_korean={:?}",
-                self.current_korean_char
+                "  -> 조합 계속: current_korean"
             );
             None
         }
@@ -623,8 +617,8 @@ impl HangulComposer for BaseHangulComposer {
     fn compose_korean(&mut self) -> bool {
         unim_log!(
             "COMPOSER",
-            "BaseComposer.compose_korean: queue={:?}",
-            self.jamo_queue
+            "BaseComposer.compose_korean: queue_len={}",
+            self.jamo_queue.len()
         );
         if self.jamo_queue.is_empty() {
             self.clear();
@@ -644,8 +638,7 @@ impl HangulComposer for BaseHangulComposer {
         );
         unim_log!(
             "COMPOSER",
-            "  -> current_korean: {:?}",
-            self.current_korean_char
+            "  -> current_korean"
         );
 
         if !cho_ok || !jung_ok || !jong_ok {

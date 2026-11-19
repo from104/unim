@@ -27,6 +27,7 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_int, c_void};
+use std::io::Write;
 
 use calloop::EventLoop;
 use calloop_wayland_source::WaylandSource;
@@ -58,9 +59,16 @@ use smithay_client_toolkit::{
 use unim_test_common as tc;
 use unim_test_common::daemon::Daemon;
 use wayland_client::{
+    event_created_child,
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, Dispatch, Proxy, QueueHandle,
+};
+use wayland_protocols::wp::primary_selection::zv1::client::{
+    zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1,
+    zwp_primary_selection_device_v1::{self, ZwpPrimarySelectionDeviceV1},
+    zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1,
+    zwp_primary_selection_source_v1::{self, ZwpPrimarySelectionSourceV1},
 };
 use wayland_protocols::wp::text_input::zv3::client::{
     zwp_text_input_manager_v3::ZwpTextInputManagerV3,
@@ -138,6 +146,12 @@ impl Canvas<'_> {
     fn rect(&mut self, rgb: u32, x: i32, y: i32, w: i32, h: i32) {
         let s = self.scale;
         self.blend_dev(rgb, 0xff, x * s, y * s, w * s, h * s);
+    }
+
+    /// 반투명 사각형 (논리 좌표) — 선택 하이라이트용.
+    fn rect_alpha(&mut self, rgb: u32, alpha: u8, x: i32, y: i32, w: i32, h: i32) {
+        let s = self.scale;
+        self.blend_dev(rgb, alpha, x * s, y * s, w * s, h * s);
     }
 
     /// 테두리 — Xlib 의 `XDrawRectangle` + 선 두께와 같은 자리에 그린다.
@@ -309,6 +323,24 @@ struct App {
     ti_serial: u32,
     ti_enabled: bool,
     pending: Pending,
+
+    /// PRIMARY 선택(zwp_primary_selection_v1). 컴포지터에 없으면 None — 그땐 내보내지 않는다.
+    ps_manager: Option<ZwpPrimarySelectionDeviceManagerV1>,
+    ps_device: Option<ZwpPrimarySelectionDeviceV1>,
+    ps_source: Option<ZwpPrimarySelectionSourceV1>,
+    /// 지금 내보낸 PRIMARY 의 출처 필드 index 와 텍스트.
+    ps_owner: Option<usize>,
+    ps_text: String,
+    /// `set_selection` 에 쓸 가장 최근 입력 이벤트(키·버튼)의 serial.
+    input_serial: u32,
+
+    /// 마우스 드래그 선택 중 (누름~뗌).
+    drag: bool,
+    /// 다중 클릭 판정: 연속 횟수·시각(ms)·위치·필드.
+    click_n: u32,
+    click_time: u32,
+    click_pos: (i32, i32),
+    click_field: usize,
 
     seat: Option<wl_seat::WlSeat>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -519,7 +551,72 @@ impl App {
 
     /* ── text-input-v3 ── */
 
+    /// seat 가 생기면 PRIMARY 선택 장치를 만든다.
+    fn ensure_primary(&mut self, qh: &QueueHandle<Self>) {
+        if self.ps_device.is_some() {
+            return;
+        }
+        let (Some(mgr), Some(seat)) = (&self.ps_manager, &self.seat) else {
+            return;
+        };
+        self.ps_device = Some(mgr.get_device(seat, qh, ()));
+        tc::log_note("zwp_primary_selection_device_v1 생성");
+    }
+
+    /// 활성 필드의 선택을 PRIMARY 로 맞춘다 (GTK 위젯 관례).
+    ///
+    /// 선택이 생기거나 바뀌면 소유하고, 이 필드가 소유한 선택이 풀리면 놓는다.
+    /// 비밀번호 필드는 `primary_text()` 가 None 이라 내보내지 않는다. 다른
+    /// 필드의 PRIMARY 는 포커스만 옮겨서는 건드리지 않는다.
+    fn update_primary(&mut self) {
+        let want = self.cur().primary_text().filter(|t| !t.is_empty());
+        let me = Some(self.active);
+        match want {
+            Some(t) => {
+                if self.ps_owner == me && self.ps_text == t {
+                    return;
+                }
+                let (Some(mgr), Some(dev)) = (&self.ps_manager, &self.ps_device) else {
+                    return; // 컴포지터에 PRIMARY 프로토콜이 없다 — main 에서 이미 알렸다.
+                };
+                let src = mgr.create_source(&self.qh, ());
+                for mt in ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"] {
+                    src.offer(mt.to_string());
+                }
+                dev.set_selection(Some(&src), self.input_serial);
+                if let Some(old) = self.ps_source.replace(src) {
+                    old.destroy();
+                }
+                tc::log_raw(
+                    "primary.set",
+                    &format!(
+                        "\"field\":\"{}\",\"text\":\"{}\"",
+                        self.cur().id(),
+                        tc::json_esc(&t)
+                    ),
+                );
+                self.ps_owner = me;
+                self.ps_text = t;
+            }
+            None => {
+                if self.ps_owner != me {
+                    return;
+                }
+                if let Some(src) = self.ps_source.take() {
+                    if let Some(dev) = &self.ps_device {
+                        dev.set_selection(None, self.input_serial);
+                    }
+                    src.destroy();
+                }
+                tc::log_raw("primary.clear", &format!("\"field\":\"{}\"", self.cur().id()));
+                self.ps_owner = None;
+                self.ps_text.clear();
+            }
+        }
+    }
+
     fn ensure_text_input(&mut self, qh: &QueueHandle<Self>) {
+        self.ensure_primary(qh);
         if self.text_input.is_some() {
             return;
         }
@@ -568,10 +665,22 @@ impl App {
         } else {
             let s = self.cur().committed_str();
             let caret = self.cur().caret;
+            // 선택이 있으면 anchor 가 caret 과 다르다 — IM 이 선택 텍스트를 안다.
+            // (preedit 은 포함하지 않는다: 확정 텍스트 기준.)
+            let anchor = self.cur().anchor();
             // 프로토콜 상한 4000 바이트. 넘으면 캐럿 주변만 보낸다.
-            let (s, caret) = clamp_surrounding(&s, caret);
-            ti.set_surrounding_text(s.clone(), caret, caret);
+            let (s, caret, anchor) = clamp_surrounding(&s, caret, anchor);
+            ti.set_surrounding_text(s.clone(), caret, anchor);
             tc::log_surrounding("retrieve", &s, caret, 0, s.chars().count() as i32);
+            if anchor != caret {
+                tc::log_raw(
+                    "ti.surrounding",
+                    &format!(
+                        "\"field\":\"{}\",\"cursor\":{caret},\"anchor\":{anchor}",
+                        self.cur().id()
+                    ),
+                );
+            }
         }
 
         ti.set_text_change_cause(ChangeCause::InputMethod);
@@ -614,7 +723,8 @@ impl App {
                 if !old_preedit.is_empty() {
                     self.cur_mut().set_preedit("", 0);
                 }
-                delete_surrounding(self.cur_mut(), before, after);
+                // 선택과 무관하게 캐럿 기준으로 지우고, 끝나면 anchor 를 caret 으로 접는다.
+                self.cur_mut().delete_surrounding_bytes(before, after);
                 changed = true;
             }
         }
@@ -658,6 +768,7 @@ impl App {
         // 때마다 조건 없이 commit 하면 둘이 끝없이 주고받는다 — 2026-08-09
         // 첫 실행에서 6초에 6000번을 돌았다.
         if changed {
+            self.update_primary();
             self.send_state(true);
         }
         self.dirty = true;
@@ -715,14 +826,25 @@ impl App {
             return;
         }
 
+        // Ctrl+A — 전체 선택.
+        if self.mods.ctrl && (ks == Keysym::a || ks == Keysym::A) {
+            self.cur_mut().select_all();
+            self.update_primary();
+            self.send_state(true);
+            self.dirty = true;
+            return;
+        }
+
         let n = self.fields.len();
+        // Shift 와 함께면 선택 확장, 아니면 선택을 접는다.
+        let ext = self.mods.shift;
         match ks {
             Keysym::BackSpace => self.cur_mut().backspace(),
             Keysym::Delete => self.cur_mut().delete(),
-            Keysym::Left => self.cur_mut().move_caret(-1),
-            Keysym::Right => self.cur_mut().move_caret(1),
-            Keysym::Home => self.cur_mut().caret_home(),
-            Keysym::End => self.cur_mut().caret_end(),
+            Keysym::Left => self.cur_mut().move_caret_ex(-1, ext),
+            Keysym::Right => self.cur_mut().move_caret_ex(1, ext),
+            Keysym::Home => self.cur_mut().caret_home_ex(ext),
+            Keysym::End => self.cur_mut().caret_end_ex(ext),
             Keysym::Escape => self.cur_mut().clear(),
             Keysym::Return | Keysym::KP_Enter => {
                 if self.cur().hint() == tc::Hint::Multiline {
@@ -743,11 +865,21 @@ impl App {
                 }
             }
         }
+        self.update_primary();
         self.send_state(true);
         self.dirty = true;
     }
 
-    fn on_click(&mut self, x: i32, y: i32) {
+    /// 클릭 x → 활성 필드의 caret 바이트 오프셋.
+    fn offset_at(&mut self, x: i32) -> i32 {
+        let tp: *mut Text = &mut self.text;
+        // `tp` 는 바로 아래에서만 쓰이고 `measure_cb` 는 필드 엔진을 다시
+        // 부르지 않으므로 재진입이 없다.
+        unsafe { tc::caret_from_x(self.cur(), x, measure_cb, tp as *mut c_void) }
+    }
+
+    /// 왼쪽 버튼 누름. `time` 은 컴포지터가 준 ms 시각(다중 클릭 판정용).
+    fn on_click(&mut self, x: i32, y: i32, time: u32) {
         let Some(hit) = tc::hit(&self.fields, x, y) else {
             tc::log_click(x, y, "(빈 곳)", -1, -1);
             return;
@@ -763,16 +895,60 @@ impl App {
         }
 
         let before = self.cur().caret;
-        let tp: *mut Text = &mut self.text;
-        // `tp` 는 바로 아래에서만 쓰이고 `measure_cb` 는 필드 엔진을 다시
-        // 부르지 않으므로 재진입이 없다.
-        let caret = unsafe { tc::caret_from_x(self.cur(), x, measure_cb, tp as *mut c_void) };
-        self.cur_mut().caret = caret;
+        let off = self.offset_at(x);
+
+        // 다중 클릭: 같은 필드·가까운 자리·400ms 안이면 횟수를 올린다(3 에서 멈춤).
+        let same = self.click_n > 0
+            && hit == self.click_field
+            && (x - self.click_pos.0).abs() <= 4
+            && (y - self.click_pos.1).abs() <= 4
+            && time.wrapping_sub(self.click_time) <= 400;
+        self.click_n = if same && self.click_n < 3 { self.click_n + 1 } else { 1 };
+        self.click_time = time;
+        self.click_pos = (x, y);
+        self.click_field = hit;
+
+        self.drag = false;
+        if self.mods.shift {
+            // Shift+클릭: 기존 anchor 에서 클릭 지점까지 확장 (이어서 드래그도 가능).
+            self.cur_mut().extend_to(off);
+            self.drag = true;
+        } else {
+            match self.click_n {
+                1 => {
+                    self.cur_mut().set_anchor(off);
+                    self.drag = true;
+                }
+                // 더블클릭 뒤 드래그의 단어 단위 확장은 없다 — drag 를 켜지 않는다.
+                2 => self.cur_mut().select_word_at(off),
+                _ => self.cur_mut().select_all(),
+            }
+        }
+        let caret = self.cur().caret;
         let id = self.cur().id().to_string();
         tc::log_click(x, y, &id, before, caret);
-        self.cur().log_render();
+        // field.render 는 선택·캐럿 연산이 이미 낸다 — 또 내지 않는다.
+        self.update_primary();
         self.send_state(true);
         self.dirty = true;
+    }
+
+    /// 누른 채 움직임 — anchor 는 두고 caret 만 옮긴다. PRIMARY 는 뗄 때 갱신한다.
+    fn on_drag(&mut self, x: i32) {
+        let off = self.offset_at(x);
+        let before = self.cur().caret;
+        self.cur_mut().extend_to(off);
+        if self.cur().caret != before {
+            self.send_state(true);
+            self.dirty = true;
+        }
+    }
+
+    fn on_release(&mut self) {
+        if self.drag {
+            self.drag = false;
+            self.update_primary();
+        }
     }
 }
 
@@ -804,6 +980,17 @@ fn draw_field(c: &mut Canvas, text: &mut Text, f: &tc::Field, focused: bool, asc
     let shown = f.display();
     let tx = f.x + m.field_pad_x;
     let ty = f.y + ascent + 8;
+
+    // 선택 하이라이트 — 글자 아래에 깐다. 범위는 display 문자열 기준 바이트
+    // (비밀번호는 • 기준)라 접두 폭을 재서 x 를 구한다.
+    if let Some((s, e)) = f.selection_display_range() {
+        let a = shown.get(..s as usize).unwrap_or("");
+        let b = shown.get(..e as usize).unwrap_or("");
+        let x0 = tx + text.width(Fnt::Field, a);
+        let x1 = tx + text.width(Fnt::Field, b);
+        let (rgb, alpha) = if focused { (0x2F6FDB, 0x80) } else { (0x808080, 0x70) };
+        c.rect_alpha(rgb, alpha, x0, f.y + 4, x1 - x0, f.h - 8);
+    }
 
     // 비밀번호 필드는 한 글자가 `•`(3바이트)로 바뀌므로 바이트 경계가 달라진다.
     let (head_bytes, pre_bytes) = if f.hint() == tc::Hint::Password {
@@ -879,10 +1066,11 @@ fn content_type(hint: tc::Hint) -> (ContentHint, ContentPurpose) {
 }
 
 /// `set_surrounding_text` 는 4000 바이트 상한이 있다. 넘으면 캐럿 주변만.
-fn clamp_surrounding(s: &str, caret: i32) -> (String, i32) {
+/// 반환은 (텍스트, cursor, anchor) — anchor 는 잘린 구간 안으로 맞춘다.
+fn clamp_surrounding(s: &str, caret: i32, anchor: i32) -> (String, i32, i32) {
     const MAX: usize = 4000;
     if s.len() <= MAX {
-        return (s.to_string(), caret);
+        return (s.to_string(), caret, anchor);
     }
     let c = caret.clamp(0, s.len() as i32) as usize;
     let mut start = c.saturating_sub(MAX / 2);
@@ -893,32 +1081,8 @@ fn clamp_surrounding(s: &str, caret: i32) -> (String, i32) {
     while end > start && !s.is_char_boundary(end) {
         end -= 1;
     }
-    (s[start..end].to_string(), (c - start) as i32)
-}
-
-/// `delete_surrounding_text` 는 바이트 수로 온다. 필드 엔진은 글자 단위로
-/// 지우므로 요청한 바이트를 다 지울 때까지 반복한다.
-fn delete_surrounding(f: &mut tc::Field, before: u32, after: u32) {
-    let mut n = before as i32;
-    while n > 0 {
-        let c0 = f.caret;
-        f.backspace();
-        let d = c0 - f.caret;
-        if d <= 0 {
-            break;
-        }
-        n -= d;
-    }
-    let mut n = after as i32;
-    while n > 0 {
-        let l0 = f.committed_str().len() as i32;
-        f.delete();
-        let d = l0 - f.committed_str().len() as i32;
-        if d <= 0 {
-            break;
-        }
-        n -= d;
-    }
+    let a = (anchor.clamp(0, s.len() as i32) as usize).clamp(start, end);
+    (s[start..end].to_string(), (c - start) as i32, (a - start) as i32)
 }
 
 /* ─── Wayland 핸들러 ──────────────────────────────────────────────────── */
@@ -1124,9 +1288,10 @@ impl KeyboardHandler for App {
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
-        _serial: u32,
+        serial: u32,
         event: KeyEvent,
     ) {
+        self.input_serial = serial;
         self.on_key(event);
     }
 
@@ -1166,11 +1331,19 @@ impl PointerHandler for App {
             if e.surface != *self.window.wl_surface() {
                 continue;
             }
-            if let PointerEventKind::Press { button, .. } = e.kind {
-                // BTN_LEFT
-                if button == 0x110 {
-                    self.on_click(e.position.0 as i32, e.position.1 as i32);
+            let (x, y) = (e.position.0 as i32, e.position.1 as i32);
+            // BTN_LEFT = 0x110
+            match e.kind {
+                PointerEventKind::Press { button, serial, time } if button == 0x110 => {
+                    self.input_serial = serial;
+                    self.on_click(x, y, time);
                 }
+                PointerEventKind::Motion { .. } if self.drag => self.on_drag(x),
+                PointerEventKind::Release { button, serial, .. } if button == 0x110 => {
+                    self.input_serial = serial;
+                    self.on_release();
+                }
+                _ => {}
             }
         }
     }
@@ -1219,6 +1392,93 @@ impl Dispatch<ZwpTextInputManagerV3, ()> for App {
     }
 }
 
+impl Dispatch<ZwpPrimarySelectionDeviceManagerV1, ()> for App {
+    fn event(
+        _s: &mut Self,
+        _p: &ZwpPrimarySelectionDeviceManagerV1,
+        _e: <ZwpPrimarySelectionDeviceManagerV1 as Proxy>::Event,
+        _d: &(),
+        _c: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ZwpPrimarySelectionDeviceV1, ()> for App {
+    fn event(
+        _s: &mut Self,
+        _p: &ZwpPrimarySelectionDeviceV1,
+        event: <ZwpPrimarySelectionDeviceV1 as Proxy>::Event,
+        _d: &(),
+        _c: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // 다른 클라이언트의 PRIMARY 는 읽지 않는다 — 제안(offer)만 정리한다.
+        if let zwp_primary_selection_device_v1::Event::Selection { id: Some(offer) } = event {
+            offer.destroy();
+        }
+    }
+
+    // data_offer 이벤트가 새 객체(offer)를 만든다 — 등록하지 않으면 라이브러리가 죽는다.
+    event_created_child!(App, ZwpPrimarySelectionDeviceV1, [
+        zwp_primary_selection_device_v1::EVT_DATA_OFFER_OPCODE => (ZwpPrimarySelectionOfferV1, ()),
+    ]);
+}
+
+impl Dispatch<ZwpPrimarySelectionOfferV1, ()> for App {
+    fn event(
+        _s: &mut Self,
+        _p: &ZwpPrimarySelectionOfferV1,
+        _e: <ZwpPrimarySelectionOfferV1 as Proxy>::Event,
+        _d: &(),
+        _c: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ZwpPrimarySelectionSourceV1, ()> for App {
+    fn event(
+        app: &mut Self,
+        source: &ZwpPrimarySelectionSourceV1,
+        event: <ZwpPrimarySelectionSourceV1 as Proxy>::Event,
+        _d: &(),
+        _c: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        let current = app.ps_source.as_ref() == Some(source);
+        match event {
+            zwp_primary_selection_source_v1::Event::Send { mime_type, fd } => {
+                // 붙여넣는 쪽이 파이프로 읽는다. 현재 소스가 아니면 닫기만 한다.
+                if current {
+                    let mut f = std::fs::File::from(fd);
+                    match f.write_all(app.ps_text.as_bytes()) {
+                        Ok(()) => tc::log_raw(
+                            "primary.send",
+                            &format!(
+                                "\"mime\":\"{}\",\"bytes\":{}",
+                                tc::json_esc(&mime_type),
+                                app.ps_text.len()
+                            ),
+                        ),
+                        Err(e) => tc::log_warn(&format!("PRIMARY 전송 실패: {e}")),
+                    }
+                }
+            }
+            zwp_primary_selection_source_v1::Event::Cancelled => {
+                // 다른 클라이언트가 PRIMARY 를 가져갔다. 같은 선택이 그대로면 다시
+                // 뺏지 않도록 ps_owner·ps_text 는 둔다.
+                if current {
+                    app.ps_source = None;
+                }
+                source.destroy();
+                tc::log_raw("primary.cancelled", "\"by\":\"other\"");
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<ZwpTextInputV3, ()> for App {
     fn event(
         app: &mut Self,
@@ -1248,7 +1508,7 @@ impl Dispatch<ZwpTextInputV3, ()> for App {
                     "ti.preedit_string",
                     &format!(
                         "\"text\":\"{}\",\"cursor_begin\":{},\"cursor_end\":{}",
-                        t.escape_debug(),
+                        tc::json_esc(&t),
                         cursor_begin,
                         cursor_end
                     ),
@@ -1257,7 +1517,7 @@ impl Dispatch<ZwpTextInputV3, ()> for App {
             }
             zwp_text_input_v3::Event::CommitString { text } => {
                 let t = text.unwrap_or_default();
-                tc::log_raw("ti.commit_string", &format!("\"text\":\"{}\"", t.escape_debug()));
+                tc::log_raw("ti.commit_string", &format!("\"text\":\"{}\"", tc::json_esc(&t)));
                 app.pending.commit = Some(t);
             }
             zwp_text_input_v3::Event::DeleteSurroundingText {
@@ -1334,6 +1594,20 @@ fn main() {
         }
     };
 
+    // PRIMARY 선택 — 없으면 선택은 되지만 내보내지 못한다.
+    let ps_manager = match globals.bind::<ZwpPrimarySelectionDeviceManagerV1, _, _>(&qh, 1..=1, ()) {
+        Ok(m) => {
+            tc::log_note("zwp_primary_selection_device_manager_v1 바인딩");
+            Some(m)
+        }
+        Err(e) => {
+            tc::log_warn(&format!(
+                "zwp_primary_selection_device_manager_v1 없음: {e} — 선택을 PRIMARY 로 내보내지 않는다"
+            ));
+            None
+        }
+    };
+
     let m = tc::metrics();
     let surface = compositor.create_surface(&qh);
     let window = xdg_shell.create_window(surface, WindowDecorations::ServerDefault, &qh);
@@ -1362,6 +1636,17 @@ fn main() {
         ti_serial: 0,
         ti_enabled: false,
         pending: Pending::default(),
+        ps_manager,
+        ps_device: None,
+        ps_source: None,
+        ps_owner: None,
+        ps_text: String::new(),
+        input_serial: 0,
+        drag: false,
+        click_n: 0,
+        click_time: 0,
+        click_pos: (0, 0),
+        click_field: 0,
         seat: None,
         keyboard: None,
         pointer: None,

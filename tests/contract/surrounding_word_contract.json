@@ -1,0 +1,3882 @@
+{
+ "version": 1,
+ "doc": "대상③ 적합성 픽스처 — 사건열 -> 기대 결과. 러너: src/input_engine/tests_surrounding_contract.rs. caps 5=push(R|P), 3=S(R|S). 시각 t 는 ms. 사건 poll(trigger=report|deadline)은 호스트의 재판정 시도 — 기대의 poll 이 wait(계속 대기)/done(판정 끝).",
+ "cases": [
+  {
+   "name": "push_texteditor_focus_click_hanja",
+   "note": "TextEditor: 창 전환 -> 같은 창 클릭(포인터 힌트 없음, 커서만 이동) -> 한자키 = 300ms 대기 뒤 한자(R5·R6·R8)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1100,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 1300
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 1300,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_texteditor_late_hanja_no_defer",
+   "note": "같은 흐름이되 클릭 300ms 뒤에 한자키 = 대기 없이 한자(R6)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_gedit_alt_tab_no_click",
+   "note": "gedit: 보고가 FocusIn 보다 먼저 + 재송신, 클릭 없음 = 낡음은 R7 로 풀리나 FocusIn 플래그는 남아 이모지(fail-closed)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "focus_in",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 60,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "resume",
+     "t": 60,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_gedit_click_focus_stale_defer",
+   "note": "gedit: 창을 클릭해 전환(POINTER_PLAIN 이 플래그를 풀고 낡음 표시) -> 한자키 -> R7 대기 -> 재송신 도착 -> 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "focus_in",
+     "t": 10
+    },
+    {
+     "ev": "hint",
+     "t": 15,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 60,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "resume",
+     "t": 60,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_gtk3_tab_select_all_emoji",
+   "note": "GTK3 Tab 이동(전체 선택, anchor=cursor 보고) = 필드 포커스 직후 한자키는 이모지(선택 가능성, 내용 유실 방지)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "field_focus",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_gtk3_tab_then_right_arrow_hanja",
+   "note": "같은 상황에서 방향키(KEY 힌트)가 플래그를 풀면 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 30,
+     "kind": 1,
+     "key": 65361
+    },
+    {
+     "ev": "surrounding",
+     "t": 40,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 50,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_first_report_after_focus_in_is_baseline",
+   "note": "직전 필드의 보고(cursor 0) 뒤 FocusIn -> 새 필드 첫 보고(cursor 4)는 기준점일 뿐 이동이 아니다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "focus_in",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_first_report_after_field_focus_is_baseline",
+   "note": "FIELD_FOCUS 도 같다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "field_focus",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_same_cursor_resend_is_not_a_move",
+   "note": "FocusIn 직후 첫 보고 + 같은 값 재송신은 커서 이동이 아니다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "surrounding",
+     "t": 70,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_resend_after_field_focus_is_not_a_move",
+   "note": "FIELD_FOCUS 뒤 같은 값 재송신도 같다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "surrounding",
+     "t": 70,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_reset_clears_baseline",
+   "note": "Reset 이 기준점을 비운다: 보고(0) -> reset -> 보고(4) 는 이동이 아니다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "reset",
+     "t": 6
+    },
+    {
+     "ev": "surrounding",
+     "t": 7,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_recreate_clears_baseline",
+   "note": "엔진 재생성(FocusOut/Reset, carry 이월)도 기준점은 이월하지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 6
+    },
+    {
+     "ev": "surrounding",
+     "t": 7,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_recreate_app_move_not_counted",
+   "note": "W1: FIELD_FOCUS -> 엔진 재생성(carry) -> 기준 보고 -> SETTLE 안 앱 자체 이동은 클릭이 아니다(포커스 시각 이월) -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_focus_in_recreate_app_move_not_counted",
+   "note": "W1: FocusIn 변형 — 재생성 뒤에도 포커스 보호 유지 -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_reset_app_move_not_counted",
+   "note": "W1: reset 변형 — reset() 은 포커스 시각을 지우지 않는다(포커스 보호는 Reset 과 무관) -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "reset",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_recreate_move_after_settle_counted",
+   "note": "W1 대조: 재생성 뒤라도 포커스 300ms 이후 이동은 클릭으로 센다 -> 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "surrounding",
+     "t": 20,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "hanja"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_move_after_baseline_counts",
+   "note": "포커스 직후(7ms) 앱이 스스로 옮긴 커서(select-on-focus·선택 복원)는 클릭으로 세지 않는다 -> 플래그가 남아 이모지(fail-closed, R5)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 7,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_carry_keeps_move_candidate",
+   "note": "엔진 재생성은 이동 후보를 이월한다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "recreate",
+     "t": 410
+    },
+    {
+     "ev": "surrounding",
+     "t": 420,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 900,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_key_invalidates_move_candidate",
+   "note": "이동 뒤 키(선택 효과 Keep)가 오면 후보가 무효: 플래그가 남아 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 100,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "key",
+     "t": 120,
+     "k": "F1"
+    },
+    {
+     "ev": "surrounding",
+     "t": 130,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_primary_changed_not_released",
+   "note": "PRIMARY_CHANGED 로 선 플래그는 R6 이 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "hint",
+     "t": 900,
+     "kind": 4,
+     "key": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_pointer_select_not_released",
+   "note": "POINTER_SELECT 로 선 플래그도 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "hint",
+     "t": 900,
+     "kind": 3,
+     "key": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_shift_nav_not_released",
+   "note": "Shift 이동으로 선 플래그도 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "key",
+     "t": 900,
+     "k": "ShiftLeft"
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_ctrl_a_not_released",
+   "note": "Ctrl+A 로 선 플래그도 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "key",
+     "t": 900,
+     "k": "CtrlA"
+    },
+    {
+     "ev": "surrounding",
+     "t": 1000,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_select_signal_in_settle_window_vetoes",
+   "note": "FocusIn 원인이더라도 이동 at 으로부터 SETTLE 창 안(sig = at-300)에 select 신호가 있으면 풀지 않는다(경계 포함)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "hint",
+     "t": 100,
+     "kind": 4,
+     "key": 0
+    },
+    {
+     "ev": "focus_in",
+     "t": 100
+    },
+    {
+     "ev": "surrounding",
+     "t": 105,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 800,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_select_signal_before_window_does_not_veto",
+   "note": "창 밖(sig = at-301)의 select 신호는 막지 않는다 -> 한자(경계 바로 바깥)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "hint",
+     "t": 100,
+     "kind": 4,
+     "key": 0
+    },
+    {
+     "ev": "focus_in",
+     "t": 100
+    },
+    {
+     "ev": "surrounding",
+     "t": 105,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 401,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 800,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_stale_defer_resolved_by_report",
+   "note": "낡음 -> 대기 -> 보고 도착 -> 한자(R7·R9)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 50,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "resume",
+     "t": 50,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_stale_defer_timeout_emoji",
+   "note": "보고가 안 오면 기한에 이모지(두 번째 Defer 없음)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 160,
+     "expect": {
+      "result": "emoji",
+      "reason": "stale"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_settle_defer_early_resume_no_second_defer",
+   "note": "R8 대기 중 기한 전에 재판정하면 두 번째 Defer 없이 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 600,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_resume_without_pending_is_noop",
+   "note": "보류가 없으면 resume 은 무동작",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "resume",
+     "t": 10,
+     "expect": {
+      "result": "none",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_key",
+   "note": "R10: 다른 키 -> 조용히 취소",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "key",
+     "t": 50,
+     "k": "F1",
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 60,
+     "expect": {
+      "result": "none"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_hint_key",
+   "note": "R10: KEY 힌트(엔진 우회 키)도 취소",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "hint",
+     "t": 50,
+     "kind": 1,
+     "key": 65361,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_focus_in",
+   "note": "R10: FocusIn",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "focus_in",
+     "t": 50,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 60,
+     "expect": {
+      "result": "none"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_field_focus",
+   "note": "R10: FIELD_FOCUS",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "field_focus",
+     "t": 50,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_reset",
+   "note": "R10: Reset",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "reset",
+     "t": 50,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_password",
+   "note": "R10: 비밀번호 필드 진입",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "purpose",
+     "t": 50,
+     "v": "password",
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 60,
+     "expect": {
+      "result": "none"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_modifier_key_does_not_cancel",
+   "note": "수정자 단독 키는 취소하지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "key",
+     "t": 50,
+     "k": "Shift",
+     "expect": {
+      "pending": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_sensitive_no_defer",
+   "note": "비밀번호 칸은 낡음이어도 Defer 없음(resolve 이전 차단)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "purpose",
+     "t": 0,
+     "v": "password"
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_caps_without_replace_no_defer",
+   "note": "REPLACE 비트가 없으면(P만) 새 규칙을 타지 않는다: 낡음도 즉시 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 4
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "nocap"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_gtk3_tab_select_all_target3",
+   "note": "S 컨텍스트: 포커스 직후 한자키도 지금처럼 한자(선택 가능 표시는 S 에서 무시)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_stale_rejects_immediately",
+   "note": "S 컨텍스트: 낡음이면 즉시 이모지(Defer 없음)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "focus_in",
+     "t": 1
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "stale"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_click_move_not_a_rule",
+   "note": "S 컨텍스트: 키 없는 커서 이동은 아무 효과 없음",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 7,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 8,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_field_focus_hint_ignored",
+   "note": "S 컨텍스트: kind 6 은 무시(낡음·플래그 불변)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "field_focus",
+     "t": 5
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_with_pointer_cap_stale_rejects_immediately",
+   "note": "S+P 컨텍스트(S 가 있으면 push 아님): 포인터 힌트 뒤 낡음 거절은 즉시",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 7
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "stale"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_pointer_select_does_not_gate",
+   "note": "S 컨텍스트: select 신호는 판정에 쓰이지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 4,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_report_without_new_move_keeps_waiting",
+   "note": "R8 대기 중 같은 커서 재보고(이동 아님): 일찍 재판정하면 selpossible 이모지가 되므로 안정 시각(400)까지 계속 대기 -> 기한에 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 550,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 550,
+     "trigger": "report",
+     "expect": {
+      "poll": "wait",
+      "result": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 800,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_report_new_move_extends_deadline",
+   "note": "대기 중 또 다른 키 없는 이동(650): 안정 시각이 650+300=950 으로 늦춰진다(상한 510+450=960 이내) -> 기한에 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 650,
+     "text": "국어교육",
+     "cursor": 3
+    },
+    {
+     "ev": "poll",
+     "t": 650,
+     "trigger": "report",
+     "expect": {
+      "poll": "wait",
+      "result": "defer",
+      "deadline": 950
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 950,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "hanja",
+      "reason": "ok"
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_total_wait_capped_at_settle_plus_wait",
+   "note": "이동이 계속돼 안정 시각(700+300=1000)이 상한(한자키 510 + 450 = 960)을 넘으면 960 으로 자르고, 그때는 두 번째 Defer 없이 이모지(fail-closed)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 700,
+     "text": "국어교육",
+     "cursor": 3
+    },
+    {
+     "ev": "poll",
+     "t": 700,
+     "trigger": "report",
+     "expect": {
+      "poll": "wait",
+      "result": "defer",
+      "deadline": 960
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 960,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_report_after_deadline_resolves_now",
+   "note": "타이머가 늦어 기한(800)이 지난 뒤 보고가 먼저 오면 곧장 재판정(대기 연장 없음)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 820,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 820,
+     "trigger": "report",
+     "expect": {
+      "poll": "done",
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_stale_report_resolves_immediately",
+   "note": "R7 낡음 대기 중 보고 도착 + 안정 대기 조건 없음 -> 즉시 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 50,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 50,
+     "trigger": "report",
+     "expect": {
+      "poll": "done",
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_deadline_without_report_emoji",
+   "note": "R7 대기 중 보고가 오지 않고 기한 도달 -> 이모지(stale)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 160,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "emoji",
+      "reason": "stale"
+     }
+    }
+   ]
+  },
+  {
+   "name": "poll_after_cancel_is_noop",
+   "note": "R10 으로 취소된 뒤의 보고·기한은 무동작(보류 없음)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "key",
+     "t": 50,
+     "k": "F1",
+     "expect": {
+      "pending": false
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 60,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 60,
+     "trigger": "report",
+     "expect": {
+      "poll": "done",
+      "result": "none",
+      "pending": false
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 160,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "none"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_move_after_settle_since_focus_counts",
+   "note": "대조군: 포커스 300ms 뒤의 키 없는 이동은 클릭으로 센다(§2.5 1행: 창 전환 -> 한참 뒤 클릭 -> 한자)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_move_just_inside_focus_window_not_counted",
+   "note": "포커스 299ms 뒤 이동은 앱 이동으로 본다(경계 안쪽) -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 299,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_move_at_focus_window_edge_counted",
+   "note": "포커스 300ms 뒤 이동은 클릭으로 센다(경계) -> 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 300,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_c0_then_c4_without_primary_emoji",
+   "note": "FIELD_FOCUS -> c0 -> c4 연속 보고(PRIMARY 없음): 앱이 옮긴 것으로 보고 이모지(GTK3 select-on-focus 방어)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 50,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 1000,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_settle_299_not_released_defers",
+   "note": "이동 뒤 299ms: 아직 안 풀림 -> 기한(at+300)까지 보류, 그때 재판정하면 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 699,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 700
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 700,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_settle_299_resume_early_emoji",
+   "note": "이동 뒤 299ms 에 곧장 재판정하면(두 번째 Defer 없음) 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 699,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 700
+     }
+    },
+    {
+     "ev": "resume",
+     "t": 699,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_settle_300_released_no_defer",
+   "note": "이동 뒤 정확히 300ms: 풀림 -> 보류 없이 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 400,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 700,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_select_signal_then_field_focus_then_move_counts",
+   "note": "select 신호 뒤 FIELD_FOCUS 가 원인을 FieldFocus 로 바꾼다 -> 창 밖 이동은 풀려 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "hint",
+     "t": 100,
+     "kind": 4,
+     "key": 0
+    },
+    {
+     "ev": "field_focus",
+     "t": 150
+    },
+    {
+     "ev": "surrounding",
+     "t": 155,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 900,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_hanja_retap_restarts_defer",
+   "note": "보류 중 한자키 재타: 첫 보류는 취소되고 새 시각 기준으로 다시 보류(기한 갱신)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 500,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 510,
+     "expect": {
+      "result": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 800
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 800,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_pointer_plain",
+   "note": "R10: 보류 중 POINTER_PLAIN(다른 위치 클릭) -> 취소",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "hint",
+     "t": 50,
+     "kind": 2,
+     "key": 0,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 160,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "none"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_defer_cancel_by_pointer_select",
+   "note": "R10: 보류 중 POINTER_SELECT(드래그 선택) -> 취소",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "hint",
+     "t": 50,
+     "kind": 3,
+     "key": 0,
+     "expect": {
+      "pending": false,
+      "reason": "defer_cancel"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_selection_stale_defers_then_hanja",
+   "note": "대상②(앱 선택) 낡음도 push(REPLACE|POINTER)에서는 보류(R7): 드래그 선택 -> POINTER_SELECT 뒤 낡음 -> 한자키 -> 새 보고 -> 선택 단어 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4,
+     "anchor": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 3,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 50,
+     "text": "국어교육",
+     "cursor": 4,
+     "anchor": 0
+    },
+    {
+     "ev": "poll",
+     "t": 50,
+     "trigger": "report",
+     "expect": {
+      "poll": "done",
+      "result": "hanja"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_selection_stale_defer_timeout_emoji",
+   "note": "대상②: 보고가 안 오면 기한에 이모지(stale)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4,
+     "anchor": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "defer",
+      "deadline": 160
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 160,
+     "trigger": "deadline",
+     "expect": {
+      "poll": "done",
+      "result": "emoji",
+      "reason": "stale"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_caps_without_replace_selection_stale_immediate",
+   "note": "REPLACE 없는 P 전용(기본 GNOME 0x4): 대상② 낡음은 종전대로 즉시 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 4
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4,
+     "anchor": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1,
+     "kind": 2,
+     "key": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "stale",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_after_reset_defers_then_report_ok",
+   "note": "S3: 보고한 적 있는 push 필드가 재생성으로 문맥이 비면 nosur 대신 보류 -> 새 보고(신선) 도착 -> 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 1,
+     "key": 65363,
+     "state": 4
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 60,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 60,
+     "trigger": "report",
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ],
+      "poll": "done"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_after_reset_deadline_emoji",
+   "note": "S3: 위와 같되 보고가 오지 않고 기한 도달 -> 이모지(nosur), 두 번째 보류 없음",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 1,
+     "key": 65363,
+     "state": 4
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "poll",
+     "t": 170,
+     "trigger": "deadline",
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false,
+      "poll": "done"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_never_reported_immediate",
+   "note": "S3: 보고를 받은 적 없는 필드(문맥 미지원 앱)는 보류 없이 즉시 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_defer_then_selection_report_selpossible",
+   "note": "S3: 사례 9 — Shift+Left 로 선택 -> 재생성 -> 한자키 보류(nosur) -> 보고 -> 선택 가능 표시로 이모지(selpossible)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "key",
+     "t": 5,
+     "k": "ShiftLeft"
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 60,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "poll",
+     "t": 60,
+     "trigger": "report",
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible",
+      "poll": "done"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_nosur_never_defers",
+   "note": "S 컨텍스트: 보고 뒤 문맥이 비어도 보류하지 않고 즉시 nosur",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_click_primary_cleared_empty_ok",
+   "note": "S5: 사례 2·4 — 클릭으로 선택이 해제돼 PRIMARY 가 비었다(kind 7) -> PRIMARY_CHANGED 단독 표시가 풀려 한자",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_shiftnav_then_primary_empty_kept",
+   "note": "S5: Shift+Left 가 원인에 섞여 있으면 kind 7 로 풀리지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 1,
+     "key": 65361,
+     "state": 1
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 505,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_focus_in_then_primary_empty_kept",
+   "note": "S5: FocusIn 원인이 섞이면 kind 7 로 풀리지 않는다(R6 미충족)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "focus_in",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 20,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 30,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_drag_primary_burst_kept",
+   "note": "S5: 사례 13 — 드래그 중 PRIMARY_CHANGED 연발, kind 7 없이 한자키 -> 이모지",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 60,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 110,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 160,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 210,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 260,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 310,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 360,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 410,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 460,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 510,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 560,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 610,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 660,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 710,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 760,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 810,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 860,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 910,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 960,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1010,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1060,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1110,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1160,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 1210,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 1400,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_context_primary_empty_ignored",
+   "note": "S 컨텍스트: kind 7 은 push 전용 — 무효(S 는 표시를 쓰지 않아 어차피 한자)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_key_then_click_report_app_hint_ok",
+   "note": "S4: 키 -> 앱 창 눌림(kind 8) -> 새 보고(c=17) -> 400ms 뒤 한자키 = 한자(FieldFocus 원인만 풀림)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "field_focus",
+     "t": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "key",
+     "t": 10,
+     "k": "F1"
+    },
+    {
+     "ev": "hint",
+     "t": 20,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 30,
+     "text": "국어교육국어교육국어교육국어교육국어",
+     "cursor": 17
+    },
+    {
+     "ev": "hanja",
+     "t": 430,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_field_focus_then_pointer_app_clears",
+   "note": "kind 8: FieldFocus 원인만이면 선택 가능 표시를 풀고 낡음을 세운다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "field_focus",
+     "t": 1
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_primary_changed_then_pointer_app_kept",
+   "note": "kind 8: PrimaryChanged 원인은 풀지 않는다(선택 판단은 PRIMARY 몫)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_shiftnav_then_pointer_app_kept",
+   "note": "kind 8: ShiftNav 원인은 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 1,
+     "key": 65361,
+     "state": 1
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_pointer_select_then_pointer_app_kept",
+   "note": "kind 8: PointerSelect 원인은 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 3,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 15,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "s_context_pointer_app_ignored",
+   "note": "S 컨텍스트: kind 8 은 무효(낡음도 세우지 않는다)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 3
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 8,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok",
+      "span": [
+       4,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_pointer_select_then_primary_empty_kept",
+   "note": "kind 7: PointerSelect 원인은 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 3,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 6,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 10,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_ctrl_a_then_primary_empty_kept",
+   "note": "kind 7: CtrlA 원인이 섞이면 풀지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "key",
+     "t": 5,
+     "k": "CtrlA"
+    },
+    {
+     "ev": "hint",
+     "t": 6,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 10,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "emoji",
+      "reason": "selpossible"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_primary_empty_does_not_clear_stale",
+   "note": "kind 7 은 플래그만 푼다 — 낡음은 그대로라 한자키는 보류",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 2,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 20,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 600,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 610,
+     "expect": {
+      "result": "defer",
+      "reason": "defer"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_primary_empty_does_not_cancel_defer",
+   "note": "kind 7 은 보류를 취소하지 않는다",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 10,
+     "kind": 2,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "pending": true
+     }
+    },
+    {
+     "ev": "hint",
+     "t": 30,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "hint",
+     "t": 40,
+     "kind": 7,
+     "key": 0,
+     "state": 0,
+     "expect": {
+      "pending": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_primary_empty_cause_bits_carry",
+   "note": "원인 비트는 엔진 재생성을 넘어 이월된다: hint4 -> recreate -> hint7 = 풀림",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hint",
+     "t": 5,
+     "kind": 4,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hint",
+     "t": 500,
+     "kind": 7,
+     "key": 0,
+     "state": 0
+    },
+    {
+     "ev": "surrounding",
+     "t": 510,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "hanja",
+     "t": 520,
+     "expect": {
+      "result": "hanja",
+      "reason": "ok"
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_after_field_focus_immediate",
+   "note": "S3: 포커스 표시가 보고 기억을 지운다 -> 즉시 nosur",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "field_focus",
+     "t": 1
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_after_empty_report_immediate",
+   "note": "S3: 빈 보고가 마지막이면 보류 없이 즉시 nosur(빈 입력란)",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "surrounding",
+     "t": 5,
+     "text": "",
+     "cursor": 0
+    },
+    {
+     "ev": "hanja",
+     "t": 10,
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "push_nosur_defer_then_empty_report_immediate",
+   "note": "S3: 보류 중 빈 보고가 오면 기한 연장 없이 즉시 nosur",
+   "events": [
+    {
+     "ev": "caps",
+     "v": 5
+    },
+    {
+     "ev": "surrounding",
+     "t": 0,
+     "text": "국어교육",
+     "cursor": 4
+    },
+    {
+     "ev": "recreate",
+     "t": 10
+    },
+    {
+     "ev": "hanja",
+     "t": 20,
+     "expect": {
+      "result": "defer",
+      "reason": "defer",
+      "deadline": 170
+     }
+    },
+    {
+     "ev": "surrounding",
+     "t": 50,
+     "text": "",
+     "cursor": 0
+    },
+    {
+     "ev": "poll",
+     "t": 50,
+     "trigger": "report",
+     "expect": {
+      "result": "emoji",
+      "reason": "nosur",
+      "pending": false,
+      "poll": "done"
+     }
+    }
+   ]
+  }
+ ]
+}
