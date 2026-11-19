@@ -8,7 +8,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ## [Unreleased]
 
-## [0.4.5] 2026-11-16
+## [0.4.5] 2026-11-20
 
 ### 추가됨
 

@@ -420,7 +420,7 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
-* Mon Nov 16 2026 from104 <from104@gmail.com> - 0.4.5-1
+* Fri Nov 20 2026 from104 <from104@gmail.com> - 0.4.5-1
 - Hanja: convert the word just typed, a selected Hangul word, or the word under
   the cursor in one step; hanja output format setting; per-character meanings.
 - Hanja user dictionary for names and terms missing from the built-in one.
