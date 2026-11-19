@@ -340,6 +340,37 @@ fn prefix_verification_tsf_style_requires_flag() {
     assert_eq!(e2.get_hanja_target(), "대한민국", "surrounding_includes_preedit=true → 통과");
 }
 
+/// CUAS 조합-only 문서(Telegram 등): 문서에 조합 음절만 보여 대조가 늘 실패한다. 호스트가
+/// `surrounding_prefix_unverifiable` 를 켠 키에서만 버퍼를 믿고 대상①을 채택하며, 끄면
+/// 종전대로 단음절로 퇴화한다(플래그는 키 한 번 단위 — 기본 false).
+#[test]
+fn prefix_verification_skipped_only_when_host_declares_unverifiable() {
+    let config = Config::default();
+
+    // 조합-only 문서("국" 1자) — 플래그 없이 실패, "국" 으로 퇴화.
+    let mut e = setup_recent_word_pending(&config);
+    e.set_surrounding_includes_preedit(true);
+    e.set_surrounding_text("국".to_string(), 1, 1);
+    e.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e.get_hanja_target(), "국", "조합-only 문서 + 플래그 없음 → 퇴화");
+
+    // 같은 문서 + 호스트 선언 — 대조 생략, 대상① 채택.
+    let mut e2 = setup_recent_word_pending(&config);
+    e2.set_surrounding_includes_preedit(true);
+    e2.set_surrounding_prefix_unverifiable(true);
+    e2.set_surrounding_text("국".to_string(), 1, 1);
+    e2.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e2.get_hanja_target(), "대한민국", "호스트 선언 → 대조 생략");
+    assert_eq!(e2.hanja_committed_chars(), 3);
+
+    // 기본값은 false — 새 엔진은 선언 없이 시작한다.
+    let mut e3 = setup_recent_word_pending(&config);
+    e3.set_surrounding_text(String::new(), 0, 0);
+    e3.set_surrounding_text("국".to_string(), 1, 1);
+    e3.press_key(KeyCode::F9, ModifierState::default(), &config);
+    assert_eq!(e3.get_hanja_target(), "국", "기본 false");
+}
+
 /// 커서 오프셋이 문자 길이를 넘으면(단위 불일치) 무조건 실패 — 클램프 금지.
 ///
 /// 두 번째 케이스가 핵심: surrounding "대한민"(3자) + 커서 5 는, 만약 구현이 커서를

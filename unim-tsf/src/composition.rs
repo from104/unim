@@ -1,5 +1,6 @@
 //! TSF 조합(Composition) 관리
 
+use std::cell::Cell;
 use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 
@@ -324,6 +325,9 @@ pub struct CompositionManager {
     /// truth 이며, 비어 있으면 "보유 중 아님"을 뜻한다. CUAS/터미널/Blink/IMM32 경로에서는
     /// **절대** 채우지 않는다(호출부 게이트가 보장 — 과거 B2 즉시-terminate 학습 재발 차단).
     english_hold: String,
+    /// 마지막 replace/insert RequestEditSession 이 실패(hr Err 또는 phrSession 실패)했는지.
+    /// 호출부(ATF)가 성공 보고·모드 전환을 되돌릴지 판단한다. `take_edit_failed` 로 소비.
+    edit_failed: Cell<bool>,
 }
 
 impl CompositionManager {
@@ -335,11 +339,36 @@ impl CompositionManager {
             synth_slot: Arc::new(Mutex::new(None)),
             word_mode_hint: false,
             english_hold: String::new(),
+            edit_failed: Cell::new(false),
         }
     }
 
     pub fn is_active(&self) -> bool {
         self.composition.is_some()
+    }
+
+    /// RequestEditSession 결과를 기록한다. hr Err 또는 phrSession 실패면 `edit_failed` 를 세운다.
+    fn note_edit_result(&self, tag: &str, r: Result<HRESULT>) {
+        let failed = match &r {
+            Ok(session_hr) => session_hr.is_err(),
+            Err(_) => true,
+        };
+        if failed {
+            self.edit_failed.set(true);
+            let code = match &r {
+                Ok(h) => h.0,
+                Err(e) => e.code().0,
+            };
+            crate::register::dbg_log(&format!(
+                "{tag}: edit session 실패 hr=0x{:08X}",
+                code as u32
+            ));
+        }
+    }
+
+    /// 직전 replace/insert 편집 세션 실패 여부를 반환하고 비운다.
+    pub fn take_edit_failed(&self) -> bool {
+        self.edit_failed.replace(false)
     }
     pub fn clear(&mut self) {
         self.composition = None;
@@ -396,6 +425,27 @@ impl CompositionManager {
         if self.composition.is_some() {
             self.end_composition_with_text(context, tid, &text);
         } else {
+            self.insert_text(context, tid, &text);
+        }
+    }
+
+    /// 보유 영문을 경계 문자(공백·문장부호 등 `suffix`)와 **한 세션**으로 확정한다.
+    ///
+    /// Word 는 같은 키 안에서 EndComposition 직후의 두 번째 sync 세션(경계 문자 insert_text)을
+    /// TS_E_SYNCHRONOUS(0x80040208)로 거부한다 — 보유 확정 뒤 따로 넣던 공백이 사라졌다
+    /// (「a b c」→「abc」, 2026-11-19 VM 실측). 조합 텍스트를 보유+경계로 SetText 해 종료하면
+    /// 세션이 하나라 거부되지 않는다. 활성 조합이 없어도 한 번에 넣는다.
+    pub fn confirm_english_hold_with(&mut self, context: &ITfContext, tid: u32, suffix: &str) {
+        if self.english_hold.is_empty() {
+            self.insert_text(context, tid, suffix);
+            return;
+        }
+        let mut text = std::mem::take(&mut self.english_hold);
+        if self.composition.is_some() {
+            text.push_str(suffix);
+            self.end_composition_with_text(context, tid, &text);
+        } else {
+            text.push_str(suffix);
             self.insert_text(context, tid, &text);
         }
     }
@@ -518,9 +568,11 @@ impl CompositionManager {
                 word_mode: self.word_mode_hint,
             };
             let session_intf: ITfEditSession = session.into();
+            self.edit_failed.set(false);
             unsafe {
-                let _ =
+                let r =
                     context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+                self.note_edit_result("update_composition", r);
             }
         }
     }
@@ -643,7 +695,8 @@ impl CompositionManager {
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
-            let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            let r = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            self.note_edit_result("insert_text", r);
         }
     }
 
@@ -669,6 +722,7 @@ impl CompositionManager {
         preedit_text: &str,
         comp_sink: &ITfCompositionSink,
     ) -> ReplaceOutcome {
+        self.edit_failed.set(false);
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
         // synth 폴백 슬롯도 매 호출 전 비운다.
@@ -688,8 +742,9 @@ impl CompositionManager {
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
-            // 거부 시 그대로 무시 (skip)
-            let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            // 거부/실패는 edit_failed 로 기록(호출부 ATF 가 성공 보고를 철회한다)
+            let r = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            self.note_edit_result("replace_surrounding", r);
         }
 
         // synth 폴백 판정: edit session 안에서 ShiftStart 가 부족하면 문서를

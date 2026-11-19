@@ -112,12 +112,26 @@ impl AutoTypeFixState {
         std::mem::take(&mut self.notify_events)
     }
 
+    /// 문서에 적용되지 못한 마지막 교정의 흔적(undo·최근 교정)을 버린다 — 남겨 두면 직후
+    /// Ctrl+Z 가 적용된 적 없는 교정을 "되돌리며" 실제 글자를 지운다.
+    pub fn discard_last_correction(&mut self) {
+        self.undo = None;
+        self.recent_corrections.pop();
+        self.notify_events.clear();
+    }
+
     /// config reload 시 blacklist/user_dict 재로드 (mtime 기반).
     pub fn reload_external_data(&mut self, atf_config: &unim::config::AutoTypeFixConfig) {
         self.blacklist.reload_if_changed();
         self.blacklist
             .expire_tentatives(atf_config.tentative_expiry_hours);
         self.user_dict.reload_if_changed();
+    }
+
+    /// 키스트로크 버퍼만 비운다 — 패스쓰루 키(Ctrl+A·화살표 등)로 단어 문맥이 끊겼을 때.
+    /// undo·최근 교정은 남긴다(교정 직후 Ctrl+Z 가 이 경로를 타도 되돌릴 수 있게).
+    pub fn clear_keystrokes(&mut self) {
+        self.buf.clear();
     }
 
     /// 포커스 이동 시 상태 초기화 (engine_worker handle_focus_in 대응).

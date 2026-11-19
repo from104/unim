@@ -42,6 +42,8 @@ pub mod settings_dialog;
 #[cfg(windows)]
 mod sandbox_paths;
 #[cfg(windows)]
+mod reconvert;
+#[cfg(windows)]
 mod synth_input;
 #[cfg(windows)]
 mod text_service;

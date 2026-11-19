@@ -1,7 +1,7 @@
 //! UnimTextService — TSF 메인 구조체
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
@@ -91,6 +91,10 @@ pub struct UnimTextService {
     pub(crate) composition_unsupported: Arc<AtomicBool>,
     /// 폴백 경로에서 문서에 떠있는 미확정(preedit) 글자 수. (RevWndContext 와 공유)
     pub(crate) fallback_pending: Arc<AtomicUsize>,
+    /// 한자 재변환(HANJA_WORD_SPEC §2.4c)이 앱에 남긴 단어 선택의 원문. 팝업이 확정 없이
+    /// 닫히면 이 글자를 그대로 다시 쳐 선택을 풀고(캐럿=단어 끝), 확정이면 선택이 대체된다.
+    /// 다음 키 시작에 팝업이 이미 닫혀 있으면(마우스 확정·포커스 이동) 손대지 않고 비운다.
+    reconv_live: Mutex<Option<String>>,
     /// 마지막 OnKeyDown 시각. OnCompositionTerminated 가 "키 직후 즉시 종료
     /// (wezterm)" 인지 "한참 뒤 종료(포커스 이탈)" 인지 구분하는 데 쓴다.
     pub(crate) last_key_instant: Mutex<Option<Instant>>,
@@ -106,6 +110,12 @@ pub struct UnimTextService {
     /// "이 앱은 composition 유지 불가"로 확정 판정한다 — 느린 머신/원격 데스크톱에서
     /// 지연된 즉시-terminate(>200ms)를 놓쳐 조합이 다시 깨지는 것을 줄인다(지식베이스 P1).
     pub(crate) cuas_windows: Mutex<HashSet<isize>>,
+
+    /// 현재 포커스 문서의 종류(TS_STATUS 정적 플래그 실측 판정, `classify_doc`).
+    /// `DOC_CUAS`(IMM32 앱을 CUAS 가 감싼 문서) / `DOC_CHROMIUM`(Chromium 자체 TSF 스토어) /
+    /// `DOC_UNKNOWN`(그 밖·조회 실패 → 종전 동작). HWND 가 아니라 **문서** 기준이다 — Chrome 은
+    /// 창이 하나인데 기동 직후 문서(0x4)와 입력란 문서(0xC)가 다르다. OnSetFocus·OnKeyDown 에서 갱신.
+    pub(crate) doc_kind: AtomicU8,
 
     /// 오버레이 폴백(자동교정 제한) 고지를 이미 낸 포커스 창(HWND) 집합.
     ///
@@ -237,9 +247,11 @@ impl UnimTextService {
             langbar_state: Mutex::new(Some(LangBarState::new(is_korean))),
             composition_unsupported: Arc::new(AtomicBool::new(false)),
             fallback_pending: Arc::new(AtomicUsize::new(0)),
+            reconv_live: Mutex::new(None),
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
+            doc_kind: AtomicU8::new(DOC_UNKNOWN),
             atf_fallback_notified: Mutex::new(HashSet::new()),
             suppress_cuas_learn: Arc::new(AtomicBool::new(false)),
             last_fg_hwnd: AtomicIsize::new(0),
@@ -365,6 +377,80 @@ impl UnimTextService {
             w.hide();
         }
         engine.remove_preedit();
+        // 패스쓰루 키(Ctrl+A·화살표 등)는 앱이 캐럿·선택을 옮긴다 — ATF 키 버퍼에 남은 직전 단어가
+        // 다음 단어 판정에 섞이지 않게 비운다(Word 「x」 Ctrl+A Delete 「mfxk4」 미교정, VM 실측).
+        // 키 버퍼만 — undo 는 남겨 교정 직후 Ctrl+Z(이 분기를 탄다)가 되돌릴 수 있게 한다.
+        // 락 순서: engine(호출자 보유) → atf_state, OnKeyDown 과 같다.
+        self.atf_state.lock().unwrap().clear_keystrokes();
+    }
+
+    /// 한자 재변환 프로브(HANJA_WORD_SPEC §2.4c) — CUAS 학습 창에서 조합 없이 한자키를 누를
+    /// 때, TSF 문서가 커서 앞 텍스트를 못 주면 앱에 `IMR_RECONVERTSTRING` 을 묻는다.
+    ///
+    /// 조건: 한자키 · 엔진 idle(조합·한자·특수문자 팝업 없음) · 비밀번호 아님 · TSF 읽기가
+    /// 빈 값. 앱이 답하면 그 단어가 **앱에서 선택된 상태**가 된다(Qt 부작용) — 호출부가
+    /// 선택 변환으로 이어 쓰고, 확정 없이 끝나면 다시 쳐서 푼다(`reconv_live`).
+    /// 엔진·조합 락을 잡기 전에 호출해야 한다(앱 재진입). 평문은 로그에 남기지 않는다.
+    fn hanja_reconvert_probe(
+        &self,
+        context: &ITfContext,
+        wparam: WPARAM,
+    ) -> Option<crate::reconvert::ReconvWord> {
+        let keycode = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
+        // 수정자 조합(Ctrl/Alt/Shift+한자키)은 재변환 대상이 아니다 — 앱에 물으면 단어가 선택되고
+        // 다시 치기로 캐럿이 단어 끝으로 옮겨진다.
+        {
+            use windows::Win32::UI::Input::KeyboardAndMouse::{
+                GetKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MENU,
+                VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_SHIFT,
+            };
+            // 한자키 자체가 수정자(RightCtrl·RightAlt 등)면 그 계열은 검사에서 뺀다.
+            let pressed = VIRTUAL_KEY(wparam.0 as u16);
+            let families: [(VIRTUAL_KEY, [VIRTUAL_KEY; 3]); 3] = [
+                (VK_CONTROL, [VK_CONTROL, VK_LCONTROL, VK_RCONTROL]),
+                (VK_MENU, [VK_MENU, VK_LMENU, VK_RMENU]),
+                (VK_SHIFT, [VK_SHIFT, VK_LSHIFT, VK_RSHIFT]),
+            ];
+            if families.iter().any(|(vk, fam)| {
+                !fam.contains(&pressed) && unsafe { GetKeyState(vk.0 as i32) } < 0
+            }) {
+                return None;
+            }
+        }
+        {
+            let engine = self.engine.lock().unwrap();
+            if !engine.is_hanja_key(keycode)
+                || engine.is_composing()
+                || engine.is_hanja_mode()
+                || engine.is_special_char_mode()
+                || engine.content_purpose().should_block_hangul()
+            {
+                return None;
+            }
+        }
+        let tid = self.client_id();
+        if let Some(s) = crate::composition::read_hanja_surrounding(context, tid, false) {
+            if !s.surrounding_text.is_empty() {
+                return None; // TSF 가 텍스트를 준다 — 종전 경로
+            }
+        }
+        let hwnd = unsafe { GetFocus() };
+        // 선택 부작용(답하면서 단어를 선택)은 Qt 에서만 실측했다 — 다른 앱은 답하더라도 선택을
+        // 안 바꿀 수 있어 "선택 풀기" 다시 치기가 단어를 두 번 쓴다. Qt 창(`Qt…QWindow…`)만.
+        if !crate::reconvert::is_qt_window(hwnd) {
+            return None;
+        }
+        let r = crate::reconvert::query(hwnd);
+        crate::register::dbg_log(&match &r {
+            Some(w) => format!(
+                "hanja reconvert: text_len={} word=[{},{})",
+                w.text.chars().count(),
+                w.start,
+                w.end
+            ),
+            None => "hanja reconvert: 앱 무응답 → 종전 경로".to_string(),
+        });
+        r
     }
 
     /// b1 Phase2 — 보류 삽입(PendingInsert)을 TSF 로 삽입한다.
@@ -588,6 +674,19 @@ impl UnimTextService {
     /// 동시성: Win32 호출(GetForegroundWindow/OpenProcess 등)과 CUAS 판정(cuas_windows
     /// 락)은 **엔진 락 밖**에서 먼저 수행하고, 짧게 엔진 락을 잡아 `commit_unit` 을 읽고
     /// `set_word_mode` 만 호출한다(OnKeyDown 의 엔진 락 취득 전에 위치).
+    /// 포커스 창이 CUAS 로 학습됐는지 — 단 현재 문서가 Chromium 자체 스토어면 거짓(Chrome 은
+    /// 창이 하나라 기동 직후 0x4 문서에서 들어간 HWND 가 입력란 문서까지 오염시킨다).
+    fn known_cuas_for(&self, hwnd: isize) -> bool {
+        hwnd != 0
+            && self.doc_kind.load(Ordering::SeqCst) != DOC_CHROMIUM
+            && self.cuas_windows.lock().unwrap().contains(&hwnd)
+    }
+
+    /// 현재 문서가 CUAS 문서(IMM32 앱)로 확정됐는지.
+    fn doc_is_cuas(&self) -> bool {
+        self.doc_kind.load(Ordering::SeqCst) == DOC_CUAS
+    }
+
     fn reapply_word_gate(&self) {
         use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
@@ -628,8 +727,12 @@ impl UnimTextService {
         // 3) composition 미지원(CUAS/즉시-terminate 학습) 판정 — 엔진 락 밖에서 먼저.
         //    Word 설정이어도 비협조앱이면 syllable 로 강제한다. 현재 컨텍스트 폴백
         //    플래그가 true 면 즉시 단정(cuas 락 생략), 아니면 학습 집합을 조회한다.
+        //    CUAS 문서(IMM32 앱, `classify_doc`)로 확정된 문서도 첫 키부터 syllable 이다 — word
+        //    모드의 끝-caret selection 은 CUAS 가 첫 조합을 즉시 종료시켜(Telegram 「ㅎㅎㅏ」·설정
+        //    창 첫 단어 유실, 2026-11-19 VM 실측) 학습 순간 글자를 깨뜨린다.
         let comp_unsupported = self.composition_unsupported.load(Ordering::SeqCst)
-            || (hwnd_isize != 0 && self.cuas_windows.lock().unwrap().contains(&hwnd_isize));
+            || self.known_cuas_for(hwnd_isize)
+            || self.doc_is_cuas();
 
         // 4) 엔진 락(짧게): commit_unit 설정에 따라 desired 판정 → 다를 때만 토글.
         let mut engine = self.engine.lock().unwrap();
@@ -1326,6 +1429,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 즉시 반영. 스로틀(300ms) + 조합 중 미룸으로 글자 깨짐·디스크 부담 방지.
         // 반드시 아래 락 취득 전에 호출(내부에서 동일 락을 잡으므로 재진입 데드락 방지).
         self.maybe_reload_config(true);
+        // 문서 종류 갱신 — 아래 word 게이트보다 먼저(첫 포커스에 OnSetFocus 가 오지 않는 앱이
+        // 있다: UNIM 설정 창 실측). 늦으면 첫 키가 word 모드로 들어가 CUAS 가 조합을 끊는다.
+        self.doc_kind.store(classify_doc(context), Ordering::SeqCst);
         // 단어별 preedit Phase 3a — 매-키 Word 게이트 재적용. maybe_reload_config(엔진
         // 재생성으로 word 모드 리셋 가능) 직후·엔진 키처리 직전에 word 모드를 재보장한다.
         // 내부에서 엔진 락을 짧게 잡으므로 아래 락 취득보다 반드시 앞에 둔다(재진입 방지).
@@ -1333,9 +1439,18 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // Phase 4 — 포커스 창이 학습된 CUAS(즉시-terminate 브리지)인지 판정(영문 라이브 보유
         // 게이트). cuas_windows 는 GetFocus().0 로 키잉되므로 동일 기준 사용. 시스템콜이라
         // 엔진 락 밖에서 먼저 구한다(락 보유 중 시스템콜 금지). Word 는 미등록 불변식 → false.
+        // CUAS 문서로 확정된 문서도 포함한다 — C2 수정 뒤에는 Telegram 이 더는 즉시 종료로
+        // 학습되지 않으므로, 학습에만 걸면 대상① 대조 생략·재변환(§2.2.3·§2.4c)이 꺼진다.
         let known_cuas = {
             let focus_hwnd = unsafe { GetFocus() }.0 as isize;
-            focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd)
+            self.known_cuas_for(focus_hwnd) || self.doc_is_cuas()
+        };
+        // 한자 재변환(HANJA_WORD_SPEC §2.4c) — CUAS 조합-only 문서에서 idle 한자키면 앱에
+        // IMR_RECONVERTSTRING 을 묻는다. 앱 코드로 곧장 들어가므로 아래 락보다 앞에서.
+        let reconv = if known_cuas {
+            self.hanja_reconvert_probe(context, wparam)
+        } else {
+            None
         };
         let mut engine = self.engine.lock().unwrap();
         // ATF 토글 핫키 드레인 시 config.engine.auto_typefix 플래그를 반전하므로 mut.
@@ -1438,6 +1553,8 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             self.composition_unsupported.load(Ordering::SeqCst),
             &self.fallback_pending,
             known_cuas,
+            reconv,
+            &mut self.reconv_live.lock().unwrap(),
         );
 
         // ── ATF 토글 핫키 드레인 (press_key 매칭분 소비) ──
@@ -1693,8 +1810,32 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
             .unwrap()
             .map(|t| t.elapsed() < std::time::Duration::from_millis(200))
             .unwrap_or(false);
-        let known_cuas = focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
-        let immediate = by_time || known_cuas;
+        // 종료된 조합의 문서로 직접 분류한다(공유 doc_kind 는 다른 문서 값일 수 있다).
+        let doc_kind = _pcomposition
+            .as_ref()
+            .and_then(|c| unsafe { c.GetRange() }.ok())
+            .and_then(|r| unsafe { r.GetContext() }.ok())
+            .map(|ctx| classify_doc(&ctx))
+            .unwrap_or_else(|| self.doc_kind.load(Ordering::SeqCst));
+        // 학습된 창만 — 미학습 CUAS 문서(doc_is_cuas)의 키와 떨어진 종료(탭·터치·앱 종료)는
+        // 지연 분기로 보내 preedit 을 버린다(폴백이면 옮겨진 캐럿에서 BS·재삽입해 겹친다).
+        let known_cuas = doc_kind != DOC_CHROMIUM
+            && focus_hwnd != 0
+            && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
+        // 마우스 버튼이 눌려 있다 = 사용자가 입력란을 클릭해 앱이 조합을
+        // 확정했다(Telegram 실측: 종료 시점 동기 상태는 아직 안 눌림, 비동기 상태는 눌림).
+        // 학습된 CUAS 창이라도 폴백(백스페이스 재삽입)으로 보내면 엔진 preedit 이 옮겨진 캐럿에
+        // 다시 쳐져 음절이 겹친다(「학」 클릭 「교」 → 「학학교」) — 아래 지연 종료 분기로 보내
+        // preedit·최근 음절·ATF 를 비운다. 조합 텍스트는 앱이 이미 확정했다.
+        // 키 직후(<200ms)라도 마찬가지다 — 마지막 키 뒤 곧바로 클릭하면 by_time 이 참이라 과거엔
+        // 클릭 검사를 건너뛰어 폴백이 preedit 을 옮겨진 캐럿에 다시 확정했고(Chrome 「가나다교국가」),
+        // 그 한 번으로 chrome.exe 가 영구 CUAS 로 학습돼 이후 조합 중 클릭마다 겹쳤다(2026-11-19 실측).
+        // Chromium 문서라도 키 직후 종료는 폴백으로 둔다 — Blink 가 스스로 끊는 조합(b1 Phase2
+        // 신규 조합, 값 재작성 입력란 등)은 preedit 을 보존해야 자모가 풀리지 않는다. 학습만 막는다.
+        // 한계: 버튼을 이미 뗀 200ms 안 탭·터치 클릭은 여전히 1회 재확정될 수 있다(VM 에서는 가장
+        // 짧은 클릭도 눌림으로 잡혔다).
+        let by_click = mouse_button_down();
+        let immediate = (by_time || known_cuas) && !by_click;
 
         // 학습(1-hit): by_time 즉시-종료가 관찰된 창을 즉시 CUAS 로 학습한다.
         //
@@ -1709,11 +1850,24 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         // 제외한다. 안 하면 Blink 창이 cuas_windows 에 오염돼 이후 정상 한글 입력까지
         // 영구 오버레이 폴백으로 떨어진다(adversarial 검증 requiredRevision 2).
         let suppress_learn = self.suppress_cuas_learn.load(Ordering::SeqCst);
-        if by_time && focus_hwnd != 0 && !suppress_learn {
+        // 클릭 종료·Chromium 자체 스토어 문서는 학습하지 않는다(CUAS 가 아니다).
+        if by_time
+            && !by_click
+            && doc_kind != DOC_CHROMIUM
+            && focus_hwnd != 0
+            && !suppress_learn
+        {
             self.cuas_windows.lock().unwrap().insert(focus_hwnd);
             // 영속화: 이 창의 프로세스명을 CUAS 티어로 기록(2초 throttle 저장).
             // HWND 는 세션마다 바뀌므로 프로세스명 기준으로 남겨 재기동 후 선제 주입한다.
-            if let Some(name) = process_basename_for_hwnd(focus_win) {
+            // 단 말풍선·툴 창(Chrome 「페이지 복원」 풍선 등 비편집 보조 창)에서 난 즉시 종료는
+            // 그 창 하나만 학습하고 프로세스 전체로 영속하지 않는다 — 안 그러면 한 번의 풍선
+            // 타자로 chrome.exe 가 영구 CUAS 가 돼 모든 창이 폴백으로 떨어진다(VM 실측 2026-11-17).
+            if is_auxiliary_window(focus_win) {
+                crate::register::dbg_log(&format!(
+                    "app_tiers: 보조 창(툴/소유 팝업) 즉시 종료 — 영속 학습 skip hwnd={focus_hwnd:#x}"
+                ));
+            } else if let Some(name) = process_basename_for_hwnd(focus_win) {
                 self.app_tiers.lock().unwrap().record_cuas(&name);
             }
         }
@@ -1762,11 +1916,20 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         if immediate && !suppress_learn {
             self.composition_unsupported.store(true, Ordering::SeqCst);
             // 문서에 이미 떠있는 미확정 글자 수 = 현재 엔진 preedit 길이.
-            let pending = self.engine.lock().unwrap().preedit_str().chars().count();
+            let pending = {
+                let mut engine = self.engine.lock().unwrap();
+                // 학습된 CUAS 창의 키와 떨어진 종료(클릭 등) — 캐럿이 옮겨졌을 수 있다. 조합-only
+                // 문서는 대상① 접두를 대조하지 못하므로(HANJA_WORD_SPEC §2.2.3 CUAS 예외) 최근
+                // 확정 음절 버퍼를 비운다(실패 방향 = 단음절). 키 직후 종료(by_time)는 정상 흐름.
+                if !by_time {
+                    engine.recent_clear();
+                }
+                engine.preedit_str().chars().count()
+            };
             self.fallback_pending.store(pending, Ordering::SeqCst);
             crate::register::dbg_log(&format!(
-                "OnCompositionTerminated: IMMEDIATE -> fallback (pending={}, hwnd={:#x}, by_time={}, known_cuas={})",
-                pending, focus_hwnd, by_time, known_cuas
+                "OnCompositionTerminated: IMMEDIATE -> fallback (pending={}, hwnd={:#x}, by_time={}, known_cuas={}, click={}, doc_kind={})",
+                pending, focus_hwnd, by_time, known_cuas, by_click, doc_kind
             ));
         } else if !immediate {
             // 키와 동떨어진 종료 — 같은 입력란 안 마우스 클릭 등으로 앱이 조합을 끝냈다
@@ -1784,7 +1947,7 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
             };
             self.atf_state.lock().unwrap().reset_on_focus();
             crate::register::dbg_log(&format!(
-                "OnCompositionTerminated: 지연 종료(앱 확정) → preedit 폐기 dropped={dropped} hwnd={focus_hwnd:#x}"
+                "OnCompositionTerminated: 지연 종료(앱 확정) → preedit 폐기 dropped={dropped} hwnd={focus_hwnd:#x} click={by_click} known_cuas={known_cuas}"
             ));
         }
         Ok(())
@@ -1803,6 +1966,91 @@ fn foreground_process_basename() -> Option<String> {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     let hwnd = unsafe { GetForegroundWindow() };
     process_basename_for_hwnd(hwnd)
+}
+
+pub(crate) const DOC_UNKNOWN: u8 = 0;
+pub(crate) const DOC_CUAS: u8 = 1;
+pub(crate) const DOC_CHROMIUM: u8 = 2;
+
+/// 문서 정적 플래그로 문서 종류를 가른다(2026-11-19 VM 실측, TS_STATUS.dwStaticFlags).
+///
+/// | 문서 | static |
+/// |---|---|
+/// | Telegram(Qt)·UNIM 설정(Slint/winit)·Win32 Edit — IMM32 앱의 CUAS 문서 | 0x4 |
+/// | Chrome 입력란·주소창(Chromium 자체 TSF 스토어) | 0xC |
+/// | Word | 0x2 · 메모장 0x12 |
+///
+/// TRANSITORY(0x4)만 있고 NOHIDDENTEXT(0x8)가 없으면 CUAS, 둘 다 있으면 Chromium(자체 스토어가
+/// 두 비트를 함께 켠다). 그 밖·조회 실패는 모름 — 호출부는 종전 동작을 유지한다(hwp·카톡 미실측).
+/// dynamic 상위 비트는 문서화되지 않은 값이라 쓰지 않는다.
+fn classify_doc(context: &ITfContext) -> u8 {
+    match unsafe { context.GetStatus() } {
+        Ok(st) => doc_kind_from_static(st.dwStaticFlags),
+        Err(_) => DOC_UNKNOWN,
+    }
+}
+
+/// `classify_doc` 의 순수 판정부.
+pub(crate) fn doc_kind_from_static(flags: u32) -> u8 {
+    use windows::Win32::UI::TextServices::{TS_SS_NOHIDDENTEXT, TS_SS_TRANSITORY};
+    match (flags & TS_SS_TRANSITORY != 0, flags & TS_SS_NOHIDDENTEXT != 0) {
+        (true, false) => DOC_CUAS,
+        (true, true) => DOC_CHROMIUM,
+        _ => DOC_UNKNOWN,
+    }
+}
+
+#[cfg(test)]
+mod doc_kind_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_measured_static_flags() {
+        assert_eq!(doc_kind_from_static(0x4), DOC_CUAS); // Telegram·Slint·Win32 Edit
+        assert_eq!(doc_kind_from_static(0xC), DOC_CHROMIUM); // Chrome 입력란
+        assert_eq!(doc_kind_from_static(0x2), DOC_UNKNOWN); // Word
+        assert_eq!(doc_kind_from_static(0x12), DOC_UNKNOWN); // 메모장
+        assert_eq!(doc_kind_from_static(0x0), DOC_UNKNOWN);
+    }
+}
+
+/// 마우스 버튼(왼쪽·오른쪽·가운데)이 눌려 있는지 — 이 스레드의 동기 상태 또는 물리(비동기)
+/// 상태. 앱이 클릭으로 조합을 확정할 때 `OnCompositionTerminated` 는 버튼-다운 메시지를 꺼내기
+/// 전에 불릴 수 있어(Telegram 실측: 동기 0, 비동기 0x8001) 둘 다 본다.
+fn mouse_button_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, GetKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+    };
+    [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON].iter().any(|vk| unsafe {
+        GetKeyState(vk.0 as i32) < 0 || (GetAsyncKeyState(vk.0 as i32) as u16) & 0x8000 != 0
+    })
+}
+
+/// 포커스 창의 최상위 창이 비편집 보조 창(말풍선·툴 창)인지 판정한다.
+///
+/// `WS_EX_TOOLWINDOW` 이거나, 소유 창이 있는 캡션 없는 팝업이면 보조 창이다. Chrome 의
+/// 말풍선(복원·번역·비밀번호 저장 등)은 소유 팝업 + 툴 창(실측 style 0x96000000,
+/// ex 0x00200080)이고, Telegram 주 창은 WS_POPUP 이라도 소유 창이 없고 캡션이 있어
+/// (0x96cf0000) 보조 창이 아니다. 조회 실패는 false(종전 동작 유지).
+fn is_auxiliary_window(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetWindow, GetWindowLongW, GA_ROOT, GWL_EXSTYLE, GWL_STYLE, GW_OWNER,
+        WS_CAPTION, WS_EX_TOOLWINDOW, WS_POPUP,
+    };
+    unsafe {
+        if hwnd.0 as isize == 0 {
+            return false;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let top = if root.0 as isize == 0 { hwnd } else { root };
+        let style = GetWindowLongW(top, GWL_STYLE) as u32;
+        let ex = GetWindowLongW(top, GWL_EXSTYLE) as u32;
+        if ex & WS_EX_TOOLWINDOW.0 != 0 {
+            return true;
+        }
+        let owned = GetWindow(top, GW_OWNER).map(|h| h.0 as isize != 0).unwrap_or(false);
+        owned && style & WS_POPUP.0 != 0 && style & WS_CAPTION.0 != WS_CAPTION.0
+    }
 }
 
 /// 주어진 창(HWND)의 프로세스 실행파일 basename(소문자)을 반환한다.
@@ -1877,6 +2125,16 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         //   학습 안 된 창이면 false 로 두고, 즉시-terminate 발생 시 자동 재감지한다.
         let focus_win = unsafe { GetFocus() };
         let focus_hwnd = focus_win.0 as isize;
+        // 문서 종류(CUAS/Chromium/모름) — 아래 선제 주입·known_cuas 판정 전에 갱신한다.
+        let doc_kind = pdimfocus
+            .as_ref()
+            .and_then(|dim| unsafe { dim.GetTop() }.ok())
+            .map(|ctx| classify_doc(&ctx))
+            .unwrap_or(DOC_UNKNOWN);
+        self.doc_kind.store(doc_kind, Ordering::SeqCst);
+        crate::register::dbg_log(&format!(
+            "OnSetFocus: doc_kind={doc_kind} hwnd={focus_hwnd:#x}"
+        ));
         // 영속 티어 캐시(선제 주입): 이전 세션에서 CUAS 로 학습된 프로세스면 이 세션의
         // focus HWND 를 cuas_windows 에 미리 넣어 첫 키부터 known_cuas=true 로 만든다
         // → 재기동 후 첫 단어가 실험 대상(composition 시도→즉시-terminate)이 되지 않는다.
@@ -1884,14 +2142,15 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         if focus_hwnd != 0 {
             if let Some(name) = process_basename_for_hwnd(focus_win) {
                 let mut tiers = self.app_tiers.lock().unwrap();
-                if tiers.is_cuas(&name) {
+                // Chromium 자체 스토어 문서는 CUAS 가 아니다 — 예전 판이 오학습한 chrome.exe·
+                // Electron 항목이 파일에 남아 있어도 주입하지 않는다(파일 수정 없이 무해화).
+                if tiers.is_cuas(&name) && doc_kind != DOC_CHROMIUM {
                     self.cuas_windows.lock().unwrap().insert(focus_hwnd);
                 }
                 tiers.maybe_flush();
             }
         }
-        let known_cuas =
-            focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
+        let known_cuas = self.known_cuas_for(focus_hwnd);
         // 한자 팝업 정리(아래)는 **떠나는** 컨텍스트가 오버레이였는지로 판정한다 — 새 포커스
         // 값으로 덮어쓰기 전에 캡처.
         let prev_comp_unsupported = self.composition_unsupported.load(Ordering::SeqCst);
@@ -1974,10 +2233,11 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             let commit_unit = engine.commit_unit();
             let word_mode = match commit_unit {
                 CommitUnit::Syllable => false,
-                CommitUnit::Word => !known_cuas,
+                // CUAS 문서(doc_kind)도 첫 키부터 syllable — reapply_word_gate 와 같은 기준.
+                CommitUnit::Word => !(known_cuas || doc_kind == DOC_CUAS),
                 // Smart: 화이트리스트(winword/wmux)만 word, known_cuas 비협조앱은 syllable 강제
                 // (reapply_word_gate 의 !comp_unsupported 와 동일 안전망).
-                CommitUnit::Smart => is_word_app && !known_cuas,
+                CommitUnit::Smart => is_word_app && !(known_cuas || doc_kind == DOC_CUAS),
             };
             // 진단: ThreadMgr OnSetFocus 게이트 발화 여부 + 판정 확인용(매-키 게이트와 동일 포맷).
             //

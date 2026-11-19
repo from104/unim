@@ -171,6 +171,15 @@ pub struct InputEngine {
     /// surrounding text 가 preedit(조합 텍스트)을 포함하는 호스트(TSF)만 true.
     /// 접두 정합성 검증의 `prefix+pre` 절을 이 플래그로 게이트한다. `reset()` 에서 보존.
     pub(super) surrounding_includes_preedit: bool,
+    /// 호스트 선언(키 한 번 한정): 이 문서는 조합 앞의 확정 텍스트를 보여 주지 못한다
+    /// (CUAS 조합-only 문서 — Telegram 등 Qt IMM32 앱). true 면 §2.2.3 접두 대조를 생략하고
+    /// 최근 확정 음절 버퍼를 믿는다(surrounding 을 한 번도 못 받은 XIM 과 같은 신뢰 수준).
+    /// 기본 false — 호스트가 키마다 켜고 끈다. Linux 경로는 켜지 않는다.
+    pub(super) surrounding_prefix_unverifiable: bool,
+    /// 이번 키에서 팝업이 미지원 키로 닫히고 그 키가 재처리됐는지(popup_dispatch NotHandled).
+    /// 매 `press_key` 시작에서 내린다. 호스트가 팝업 확정과 "닫고 재처리"를 가르는 데 쓴다
+    /// (Windows 재변환 선택 풀기 순서 — HANJA_WORD_SPEC §2.4c).
+    pub(super) popup_reprocessed: bool,
     /// 관측으로 학습한 "이 컨텍스트의 surrounding 은 preedit 을 포함한다"(LibreOffice VCL 등).
     /// `set_surrounding_text` 의 두 보고 대조로만 켜지고(`learn_obs`), 포커스 이동
     /// (`clear_learned_includes_preedit`)·엔진 재생성(`new`)에서 해제된다. `reset()` 에서는
@@ -360,8 +369,9 @@ impl InputEngine {
         // 사전은 불변이고 한 벌이 약 100MB 라, 엔진(=데몬 컨텍스트)마다 새로 파싱하면
         // 컨텍스트 수만큼 메모리가 쌓이고 glibc 가 해제분을 OS 에 돌려주지 않는다
         // (2026-09 CI 기능 시험에서 데몬이 수 GB 까지 불어 러너가 죽음).
-        static SHARED_HANJA_DICT: std::sync::OnceLock<std::sync::Arc<crate::hanja::HanjaDictionary>> =
-            std::sync::OnceLock::new();
+        static SHARED_HANJA_DICT: std::sync::OnceLock<
+            std::sync::Arc<crate::hanja::HanjaDictionary>,
+        > = std::sync::OnceLock::new();
         let hanja_dict = SHARED_HANJA_DICT
             .get_or_init(|| std::sync::Arc::new(crate::hanja::HanjaDictionary::new()))
             .clone();
@@ -402,6 +412,8 @@ impl InputEngine {
             hanja_output_format: config.engine.korean.hanja_output_format,
             hanja_word_replace_capable: false,
             surrounding_includes_preedit: false,
+            surrounding_prefix_unverifiable: false,
+            popup_reprocessed: false,
             learned_includes_preedit: false,
             learn_obs: None,
             surrounding_seen: false,
@@ -829,6 +841,18 @@ impl InputEngine {
         self.surrounding_includes_preedit = includes;
     }
 
+    /// 호스트가 "이 문서는 조합 앞 확정 텍스트를 보여 주지 못한다"고 선언한다(HANJA_WORD_SPEC
+    /// §2.2.3 CUAS 예외). 켜져 있는 동안 대상① 접두 대조를 생략한다. 키 한 번 단위로 켜고
+    /// 끄는 것은 호출자 책임(TSF 한자키 경로). 기본 false.
+    /// 이번 키에서 팝업이 닫히고 그 키가 재처리됐는지(`popup_reprocessed`).
+    pub fn popup_reprocessed(&self) -> bool {
+        self.popup_reprocessed
+    }
+
+    pub fn set_surrounding_prefix_unverifiable(&mut self, on: bool) {
+        self.surrounding_prefix_unverifiable = on;
+    }
+
     /// 관측 학습으로 켜진 "surrounding 이 preedit 을 포함" 상태(진단·테스트용).
     pub fn learned_includes_preedit(&self) -> bool {
         self.learned_includes_preedit
@@ -926,6 +950,16 @@ impl InputEngine {
     /// 반환한다 — `set_word_mode` 런타임 토글이 반영된다.
     pub fn is_word_mode(&self) -> bool {
         self.korean_context.is_accumulate_word()
+    }
+
+    /// 주어진 ASCII 문자가 현재 한글 레이아웃에서 자모로 매핑되는 키인지 판정한다.
+    ///
+    /// 두벌식은 영문자만, 세벌식은 숫자·문장부호까지 자모에 대응한다. 영문 라이브 보유
+    /// (Word ATF 순방향)가 레이아웃 자모 키에서 끊기지 않게 하는 술어다. 키맵이 없으면 false.
+    pub fn is_hangul_layout_char(&self, c: char) -> bool {
+        self.keyboard_map
+            .as_ref()
+            .is_some_and(|m| m.contains_key(&c))
     }
 
     /// 현재 조합 확정 단위(`CommitUnit`)를 반환합니다.
@@ -1468,6 +1502,19 @@ mod tests {
 
         type_ganan(&mut engine, &word_config);
         assert_eq!(engine.preedit_str(), "가나", "rebuild 후 단어 누적 일관");
+    }
+
+    /// 한글 레이아웃 자모 키 술어: 두벌식은 영문자만, 세벌식 390 은 숫자도 자모.
+    #[test]
+    fn hangul_layout_char_predicate() {
+        let mut engine = InputEngine::new(&Config::default());
+        engine.set_korean_layout("ko_2bulstd".to_string());
+        assert!(engine.is_hangul_layout_char('m'));
+        assert!(!engine.is_hangul_layout_char('4'));
+        engine.set_korean_layout("ko_3bul390".to_string());
+        assert!(engine.is_hangul_layout_char('4'), "390 의 '4' 는 ㅛ");
+        assert!(engine.is_hangul_layout_char('m'));
+        assert!(!engine.is_hangul_layout_char(' '));
     }
 
     /// set_korean_layout 재구성 경로도 기존 commit_unit 캐시를 유지·반영한다.

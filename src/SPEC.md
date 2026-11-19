@@ -125,6 +125,8 @@ pub struct InputEngine {
     hanja_output_format: HanjaOutputFormat, // config 캐시 (set_hanja_output_format 비파괴)
     hanja_word_replace_capable: bool,       // 호스트 능력 플래그 (기본 false — IMM32·capi 바이트 동일)
     surrounding_includes_preedit: bool,     // TSF 만 true(호스트 선언) — 접두 검증 prefix+pre 절 게이트(학습과 OR)
+    surrounding_prefix_unverifiable: bool,  // 호스트 선언(키 한 번) — CUAS 조합-only 문서: 대상① 접두 대조 생략 (HANJA_WORD_SPEC §2.2.3 CUAS 예외, 기본 false)
+    popup_reprocessed: bool,  // 이번 키에서 팝업이 미지원 키로 닫히고 그 키가 재처리됨 (press_key 시작에서 내림, 호스트 조회용)
     learned_includes_preedit: bool,         // 관측 학습: surrounding 이 preedit 포함 (두 보고 대조, FocusIn·재생성 해제) — prefix+pre 절 게이트
     learn_obs: Option<PreeditLearnObs>,     // 학습용 직전 보고(앞부분·preedit 끝 글자), 확정·리셋 시 비움
     surrounding_seen: bool,                 // set_surrounding_text 를 받은 적 있음 (빈 값 포함)
@@ -144,6 +146,8 @@ pub struct InputEngine {
 |---|---|---|---|
 | `recent_syllables`·`hanja_source` 등 대상 필드·`pending_hanja_replacement` | 비움 | 기본값 | 버퍼만 비움 |
 | `hanja_word_replace_capable`·`surrounding_includes_preedit` | 보존(호스트 속성) | false — 호스트가 생성 직후 다시 켠다 | 보존 |
+| `surrounding_prefix_unverifiable` | 보존(호스트가 키마다 켜고 끈다 — TSF 한자키 경로가 `press_key` 직후 끈다) | false | 보존 |
+| `popup_reprocessed` | 보존(다음 `press_key` 시작에서 내린다) | false | 보존 |
 | `learned_includes_preedit` | 보존(앱·포커스 컨텍스트; 데몬 `Reset` 은 엔진 재생성이라 해제) · 관측 `learn_obs` 는 비움 | false (데몬 FocusIn 도 `clear_learned_includes_preedit` 로 해제) | 보존 |
 | `surrounding_seen` | 보존(앱·포커스 컨텍스트 — `surrounding_*` 와 동일) | false | 보존 |
 | `surrounding_caps`·`surrounding_stale`·`selection_possible`·`selection_unknown_once`·`surrounding_word_exhausted` | 보존(앱·포커스 컨텍스트) | false — 데몬이 `surrounding_word_carry()` / `restore_surrounding_word_carry()` 로 이월 | 보존 |

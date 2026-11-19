@@ -140,6 +140,37 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 /// TSF sink 발화 패턴)로 분기한다. 정식 TSF 앱(메모장/Word — OnTestKeyDown 발화 +
 /// ShiftStart 성공)은 두 조건 모두 불충족이라 이 경로를 타지 않는다(회귀 0).
 /// SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다(호출부가 보장).
+/// 실제 키처럼 처리될 키 한 번(down/up)을 보낸다 — 표식(EXTRA_INFO_MARK) 없이 스캔코드와
+/// 함께. echo 카운터 대상(VK_PACKET·BS·DELETE)이 아니므로 우리 TIP 이 보통 키로 처리한다.
+/// 앞서 보낸 배치 뒤에 입력 큐 순서대로 도착한다(재변환 선택 풀기 뒤 키 재주입).
+pub fn send_key_tap(vk: u16) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MapVirtualKeyW, KEYEVENTF_EXTENDEDKEY, MAPVK_VK_TO_VSC,
+    };
+    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+    let mk = |flags: KEYBD_EVENT_FLAGS| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    // 확장 키(방향·편집 블록·넘패드 / 등)는 확장 비트가 있어야 넘패드 키로 오인되지 않는다.
+    let ext = if matches!(vk, 0x21..=0x28 | 0x2D | 0x2E | 0x6F | 0xA3 | 0xA5) {
+        KEYEVENTF_EXTENDEDKEY
+    } else {
+        KEYBD_EVENT_FLAGS(0)
+    };
+    let inputs = [mk(ext), mk(ext | KEYEVENTF_KEYUP)];
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    crate::register::dbg_log(&format!("synth_input: key tap vk=0x{vk:02X} sent={sent}/2"));
+}
+
 pub fn send_replacement_batch(delete_chars: u32, text: &str) {
     send_batch(0, delete_chars, text);
 }

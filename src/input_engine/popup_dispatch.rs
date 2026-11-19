@@ -180,6 +180,7 @@ impl InputEngine {
             PopupKeyResult::NotHandled => {
                 unim_log!("ENGINE", "팝업 미지원 키 {:?} → 팝업 닫고 재처리", keycode);
                 self.popup_cancel();
+                self.popup_reprocessed = true;
                 // 키를 다시 처리 (재귀 방지: popup 모드가 이미 해제됨). 외곽 래퍼
                 // (`press_key` — 최근 확정 음절 버퍼 추적)는 1회만 돌도록 inner 를 부른다.
                 self.press_key_inner(keycode, modifier, config)

@@ -140,7 +140,12 @@ pub fn test_key_down(
         }
         // 한자키 재타도 소비해야 OnKeyDown 이 불려 엔진이 대상을 접미 축소한다
         // (HANJA_WORD_SPEC Q7(a)). 사용자 설정 hanja_keys 라 고정 목록에 넣을 수 없다.
-        return is_popup_key(keycode) || engine.is_hanja_key(keycode);
+        // 한국어 모드의 문자 키도 소비한다 — 통과시키면 OnKeyDown 이 안 불려 POPUP_SPEC 「기타 키:
+        // 닫고 재처리」가 안 되고, 키가 팝업을 연 채 앱으로 곧장 간다(재변환 선택이 「/」 로 대체,
+        // 2026-11-19 VM 실측). 영문 모드는 종전대로(winit 설정 창 영문 통과 예외 보존).
+        return is_popup_key(keycode)
+            || engine.is_hanja_key(keycode)
+            || (engine.input_category() == InputCategory::Korean && keycode.is_character_key());
     }
 
     // 한/영 전환 키는 소비 — RightAlt 같은 수정자 토글키도 포함하되, 단축키 조합
@@ -409,10 +414,27 @@ pub fn handle_key_down(
     // true 면 영문 라이브 보유를 하지 않는다(B2 즉시-terminate 학습 재발 차단). Word 는
     // 정식 TSF 앱이라 cuas_windows 미등록 불변식 → 항상 false(방어적 게이트).
     known_cuas: bool,
+    // 한자 재변환 결과(HANJA_WORD_SPEC §2.4c) — text_service 가 락 밖에서 앱에 물어 얻었다.
+    // Some 이면 앱이 그 단어를 이미 선택했다.
+    reconv: Option<crate::reconvert::ReconvWord>,
+    // 재변환이 남긴 앱 선택의 원문(팝업이 확정 없이 닫히면 다시 쳐서 푼다).
+    reconv_live: &mut Option<String>,
 ) -> KeyDownOutcome {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
     let modifiers = get_modifier_state();
+
+    // 재변환 팝업이 이 키 전에 이미 닫혔다(마우스 확정·포커스 이동 등) — 선택은 앱이 이미
+    // 정리했으므로 손대지 않고 잊는다(낡은 원문을 다시 치면 엉뚱한 곳에 글자가 생긴다).
+    if reconv_live.is_some() && !engine.is_hanja_mode() {
+        // 알려진 한계 진단용(HANJA_WORD_SPEC §2.4c): 바깥 클릭으로 확정 없이 닫혔다면 선택이
+        // 남아 있을 수 있다. 길이만 남긴다(§2.8).
+        crate::register::dbg_log(&format!(
+            "hanja reconvert: 팝업이 키 밖에서 닫힘 → 선택 상태 잊음 (word_len={})",
+            reconv_live.as_deref().map_or(0, |w| w.chars().count())
+        ));
+        *reconv_live = None;
+    }
 
     // 비밀번호/PIN 필드 여부 — AutoTypeFix 전 경로 런타임 AND-게이트. content_purpose 는
     // OnSetFocus 에서 세팅되어 키 처리 중 불변이므로 진입 시 1회 산출한다. false 면 ATF
@@ -571,28 +593,61 @@ pub fn handle_key_down(
     //   오버레이 앱은 preedit 이 창에만 있어 `prefix+pre` 절을 열면 클릭 드리프트(문서의
     //   기존 "…대한민국" 뒤 클릭 + 오버레이 "국")가 검증을 뚫는다(§2.2.3).
     // 비번 필드(atf_active=false)에서는 문서 텍스트를 읽지 않는다(엔진도 차단).
+    //
+    // CUAS 조합-only 문서(HANJA_WORD_SPEC §2.2.3 CUAS 예외·§2.4c — Telegram 등 Qt IMM32 앱):
+    // - 조합 중: 문서가 조합 글자만 보여 접두 대조가 늘 실패한다. 학습된 CUAS 창에서 조합이
+    //   문서에 있고 읽은 값이 조합 글자뿐이면 이 키 한 번만 대조를 생략한다(버퍼를 믿는다).
+    //   클릭은 조합 종료(마우스 가드)·포커스 정리가 버퍼를 비운다.
+    // - idle: text_service 가 앱에서 받은 재변환 단어(`reconv`, 앱이 이미 선택)를 선택으로 넣는다.
     let hanja_key_read = atf_active && engine.is_hanja_key(keycode);
+    let reconv_word: Option<String> = reconv.as_ref().filter(|_| hanja_key_read).map(|w| {
+        w.text
+            .chars()
+            .skip(w.start as usize)
+            .take(w.end.saturating_sub(w.start) as usize)
+            .collect()
+    });
     if hanja_key_read {
         let doc_composition = comp_mgr.is_active() && !composition_unsupported;
         let collapse = engine.is_composing() || comp_mgr.is_active();
-        engine.set_surrounding_includes_preedit(doc_composition);
-        match composition::read_hanja_surrounding(context, tid, collapse) {
-            Some(s) => {
-                crate::register::dbg_log(&format!(
-                    "hanja surrounding: len={} cursor={} anchor={} collapse={collapse} in_doc={doc_composition}",
-                    s.surrounding_text.chars().count(),
-                    s.cursor,
-                    s.anchor
-                ));
-                engine.set_surrounding_text(s.surrounding_text, s.cursor, s.anchor);
-            }
-            None => {
-                crate::register::dbg_log(
-                    "hanja surrounding: 읽기 실패 → 빈 값(확정 접두 대상① 단음절 퇴화)",
-                );
-                engine.set_surrounding_text(String::new(), 0, 0);
+        let mut unverifiable = false;
+        if let (Some(w), Some(_)) = (reconv.as_ref(), reconv_word.as_ref()) {
+            engine.set_surrounding_includes_preedit(false);
+            crate::register::dbg_log(&format!(
+                "hanja surrounding: 재변환 len={} cursor={} anchor={}",
+                w.text.chars().count(),
+                w.end,
+                w.start
+            ));
+            engine.set_surrounding_text(w.text.clone(), w.end, w.start);
+        } else {
+            engine.set_surrounding_includes_preedit(doc_composition);
+            match composition::read_hanja_surrounding(context, tid, collapse) {
+                Some(s) => {
+                    // 조합이 실제로 문서에 있을 때만(오버레이 폴백 모드는 클릭이 조합 종료를
+                    // 부르지 않아 버퍼가 옮겨진 캐럿을 모른다 — 종전대로 단음절로 퇴화).
+                    unverifiable = known_cuas
+                        && engine.is_composing()
+                        && doc_composition
+                        && !s.surrounding_text.is_empty()
+                        && s.surrounding_text == engine.preedit_str();
+                    crate::register::dbg_log(&format!(
+                        "hanja surrounding: len={} cursor={} anchor={} collapse={collapse} in_doc={doc_composition} cuas_comp_only={unverifiable}",
+                        s.surrounding_text.chars().count(),
+                        s.cursor,
+                        s.anchor
+                    ));
+                    engine.set_surrounding_text(s.surrounding_text, s.cursor, s.anchor);
+                }
+                None => {
+                    crate::register::dbg_log(
+                        "hanja surrounding: 읽기 실패 → 빈 값(확정 접두 대상① 단음절 퇴화)",
+                    );
+                    engine.set_surrounding_text(String::new(), 0, 0);
+                }
             }
         }
+        engine.set_surrounding_prefix_unverifiable(unverifiable);
     }
 
     let was_composing = engine.is_composing();
@@ -609,6 +664,43 @@ pub fn handle_key_down(
     // 수동 typefix 가 stale 선택을 쓰게 된다. 빈 값이라도 surrounding_seen 은 유지된다.
     if hanja_key_read {
         engine.set_surrounding_text(String::new(), 0, 0);
+        engine.set_surrounding_prefix_unverifiable(false);
+    }
+
+    // ── 한자 재변환 선택 정리 (HANJA_WORD_SPEC §2.4c) ──
+    let mut reinject_after_drain: Option<String> = None;
+    // 재변환 단어로 선택 변환 팝업이 떴으면 원문을 기억해 둔다(확정이 선택을 대체한다).
+    // 팝업이 안 떴거나(사전에 없음·공백 단어) 확정 없이 닫혔으면 원문을 그대로 다시 쳐서
+    // 앱 선택을 푼다 — 남겨 두면 다음 글자가 단어를 지운다. 합성 UNICODE 는 팝업이 떠 있어도
+    // sink 에서 통과한다(synth_input echo 카운터).
+    if let Some(word) = reconv_word {
+        if engine.is_hanja_mode() && engine.hanja_source() == HanjaSource::Selection {
+            *reconv_live = Some(word);
+        } else {
+            crate::register::dbg_log(&format!(
+                "hanja reconvert: 팝업 없음 → 선택 풀기 len={}",
+                word.chars().count()
+            ));
+            crate::synth_input::send_replacement_batch(0, &word);
+        }
+    } else if reconv_live.is_some() && !engine.is_hanja_mode() {
+        let word = reconv_live.take().unwrap_or_default();
+        if engine.popup_reprocessed() {
+            // 팝업 미지원 키(자모·문장부호 등)로 닫혀 그 키가 재처리됐다. 그 출력을 지금 문서에
+            // 쓰면 아직 선택된 단어를 먼저 대체하고, 뒤늦게 도착한 원문 다시 치기가 그 뒤에 붙는다
+            // (「우리 ㅇ학교」, VM 실측). 엔진 출력을 버리고 [원문 다시 치기 → 같은 키 재주입]을
+            // 입력 큐 순서로 보내 「우리 학교ㅇ」 이 되게 한다 — 아래 조기 반환들보다 앞에서 처리.
+            reinject_after_drain = Some(word);
+        } else if !engine.commit_str().is_empty() {
+            // `commit_changed` 는 Esc 취소에도 켜진다(실측) — 확정 버퍼에 글자가 있어야 확정이다.
+            crate::register::dbg_log("hanja reconvert: 확정 → 선택 대체");
+        } else {
+            crate::register::dbg_log(&format!(
+                "hanja reconvert: 확정 없이 닫힘 → 선택 풀기 len={}",
+                word.chars().count()
+            ));
+            crate::synth_input::send_replacement_batch(0, &word);
+        }
     }
 
     crate::register::dbg_log_ev!(
@@ -625,6 +717,35 @@ pub fn handle_key_down(
     let current_mode = engine.input_category();
     if atf_active && prev_mode != current_mode {
         auto_typefix::observe_mode_switch(atf_state, &config.engine.auto_typefix);
+    }
+
+    if let Some(word) = reinject_after_drain {
+        // 팝업 hide 액션을 먼저 내보낸다(reset 이 대기 액션을 지운다). 재주입은 재처리가 글자를
+        // 냈거나 엔진이 소비하지 않은 키만 — 소비만 하고 글자가 없는 키(한/영 전환 등)를 다시
+        // 보내면 두 번 토글된다. 원 키는 이 경로에서 늘 먹는다(미소비 키를 통과시키면 앱이 아직
+        // 선택된 단어에 적용해 Backspace 가 단어를 지운다).
+        let caret_rect = get_composition_screen_rect(context, tid);
+        drain_popup_actions(engine, popup, caret_rect);
+        let reinject = !result.consumed
+            || !engine.commit_str().is_empty()
+            || !engine.preedit_str().is_empty();
+        engine.reset();
+        crate::register::dbg_log(&format!(
+            "hanja reconvert: 재처리 키로 닫힘 → 선택 풀기(다시 치기) len={} 재주입={} vk=0x{:02X}",
+            word.chars().count(),
+            reinject,
+            vk
+        ));
+        // 선택은 원문 다시 치기(UNICODE)로 푼다. → 키로 접는 방식은 CUAS 미러 선택이 늦게 갱신돼
+        // 재주입 키의 조합이 선택된 단어를 대체했다(단어 삭제, r12 VM 실측) — 쓰지 않는다.
+        crate::synth_input::send_replacement_batch(0, &word);
+        if reinject {
+            crate::synth_input::send_key_tap(vk);
+        }
+        return KeyDownOutcome {
+            eaten: true,
+            ..Default::default()
+        };
     }
 
     if !result.consumed && !result.commit_changed && !result.preedit_changed {
@@ -775,14 +896,24 @@ pub fn handle_key_down(
             && prev_mode == InputCategory::English
             && preedit.is_empty()
             && commit.chars().count() == 1
-            && commit.chars().all(|c| c.is_ascii_alphabetic());
+            && commit
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || (c.is_ascii() && engine.is_hangul_layout_char(c)));
         if hold_eligible {
             comp_mgr.hold_english(context, tid, &commit, comp_sink);
         } else {
         // 보유 중이던 영문 조합이 있는데 비-연장 키(경계/한글/모드전환)가 왔으면, 종전 경로
         // 진입 전에 보유 영문을 영문 그대로 먼저 확정한다(미교정 영문 단어 경계 확정).
+        // 순수 확정(경계 문자, 새 조합 없음)이면 보유와 한 세션으로 묶는다 — Word 가 같은 키의
+        // 두 번째 sync 세션을 거부해 공백이 사라진다(`confirm_english_hold_with`).
+        let mut commit_merged = false;
         if comp_mgr.english_hold_active() {
-            comp_mgr.confirm_english_hold(context, tid);
+            if !commit.is_empty() && preedit.is_empty() && !was_composing {
+                comp_mgr.confirm_english_hold_with(context, tid, &commit);
+                commit_merged = true;
+            } else {
+                comp_mgr.confirm_english_hold(context, tid);
+            }
         }
         let composing = was_composing || comp_mgr.is_active();
 
@@ -796,8 +927,8 @@ pub fn handle_key_down(
             // 조합으로 인식할 여지가 생긴다.
             comp_mgr.commit_and_restart(context, tid, &commit, &preedit, comp_sink);
         } else {
-            // commit 처리
-            if !commit.is_empty() {
+            // commit 처리(보유와 묶어 이미 넣었으면 건너뜀)
+            if !commit.is_empty() && !commit_merged {
                 if composing {
                     comp_mgr.end_composition_with_text(context, tid, &commit);
                 } else {
@@ -903,6 +1034,22 @@ pub fn handle_key_down(
                     && comp_mgr.english_hold_text().chars().count() == apply.delete_chars as usize
                 {
                     comp_mgr.update_composition(context, tid, &apply.replay_preedit);
+                    if comp_mgr.take_edit_failed() {
+                        // SetText 치환 실패 — 문서는 보유 영문 그대로다. 길이 불일치 분기와 같은
+                        // 안전 degrade(영문 확정 + 엔진 reset·영문 복원)에 교정 흔적 폐기를 더한다.
+                        comp_mgr.confirm_english_hold(context, tid);
+                        atf_state.discard_last_correction();
+                        engine.reset();
+                        engine.set_input_category(InputCategory::English);
+                        crate::register::dbg_log(
+                            "ATF word-fwd: 보유 영문 SetText 치환 실패 → 영문 확정·교정 철회·영문 복원",
+                        );
+                        return KeyDownOutcome {
+                            eaten: result.consumed,
+                            schedule_flush,
+                            atf_fallback,
+                        };
+                    }
                     comp_mgr.clear_english_hold();
                     crate::register::dbg_log_ev!(
                         "ATF word-fwd: 보유 영문 라이브 조합 → SetText 치환(삭제0, live 유지)",
@@ -952,6 +1099,23 @@ pub fn handle_key_down(
                 &apply.replay_preedit,
                 comp_sink,
             );
+            if comp_mgr.take_edit_failed() {
+                // 편집 세션 실패 — 교정이 문서에 적용되지 않았다. 성공 토스트·undo·최근 교정
+                // 기록을 버리고 엔진을 교정 이전 모드(prev_mode)로 되돌린다. 원 키 출력은 이
+                // 키에서 이미 문서에 들어갔으므로(위 insert/commit) 다시 넣지 않는다 — 재삽입은
+                // 세션이 거부된 같은 이유로 실패하거나, 문서가 안 바뀐 경우 글자를 겹친다.
+                atf_state.discard_last_correction();
+                engine.reset();
+                engine.set_input_category(prev_mode);
+                crate::register::dbg_log(
+                    "ATF: replace_surrounding 편집 세션 실패 → 교정 철회(토스트·undo 폐기)·모드 복원",
+                );
+                return KeyDownOutcome {
+                    eaten: result.consumed,
+                    schedule_flush,
+                    atf_fallback,
+                };
+            }
             match outcome {
                 ReplaceOutcome::Normal => {}
                 ReplaceOutcome::PhaseSplit => {

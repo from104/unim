@@ -320,11 +320,15 @@ impl InputEngine {
     /// 지울 확정 접두(`prefix`)가 앱 문서의 커서 앞과 맞는지 대조한다(§2.2.3 안전망).
     ///
     /// - surrounding 을 한 번도 받지 않은 컨텍스트(XIM 등)는 검증 생략(통과).
+    /// - 호스트가 조합-only 문서라고 선언한 키(`surrounding_prefix_unverifiable`, CUAS)도 생략.
     /// - 받은 적 있는 컨텍스트에서 빈 surrounding 은 실패(Wayland 미수신 마커, Q9(b)).
     /// - 커서 오프셋 초과(단위 불일치)·커서 앞 빈 문자열은 실패(fail-closed).
     /// - `prefix+pre` 절은 surrounding 이 조합 텍스트를 포함하는 컨텍스트에서만 —
     ///   호스트 선언(TSF) 또는 관측 학습(`learned_includes_preedit`, LibreOffice 등).
     fn recent_prefix_verified(&self, prefix: &str, pre: &str) -> bool {
+        if self.surrounding_prefix_unverifiable {
+            return true; // 호스트 선언: 조합-only 문서(CUAS) — 대조 불가, 버퍼를 믿는다
+        }
         if self.surrounding_text.is_empty() {
             return !self.surrounding_seen;
         }

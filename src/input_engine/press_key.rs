@@ -66,6 +66,7 @@ impl InputEngine {
         config: &Config,
     ) -> InputResult {
         self.last_toggle_blocked = false;
+        self.popup_reprocessed = false;
         // R10 — 판정을 미룬 한자키가 있는데 다른 키가 왔다: 조용히 취소하고 이 키는 정상 처리.
         if self.sw_pending_defer.is_some() && !keycode.is_modifier() {
             self.sw_cancel_defer("key");

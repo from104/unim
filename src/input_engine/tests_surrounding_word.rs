@@ -393,6 +393,20 @@ fn sw_ctrl_hanja_in_popup_reprocesses() {
     assert_eq!(e.commit_str(), "");
 }
 
+#[test]
+fn popup_reprocessed_flag_marks_close_and_reprocess_only() {
+    let mut e = eng("국어교육", 4);
+    f9(&mut e);
+    assert!(e.is_hanja_mode());
+    assert!(!e.popup_reprocessed());
+    // Ctrl+한자키 = 팝업 미지원 키 → 닫고 재처리.
+    key(&mut e, KeyCode::F9, ctrl());
+    assert!(e.popup_reprocessed());
+    // 다음 키에서 내려간다.
+    key(&mut e, KeyCode::Escape, m());
+    assert!(!e.popup_reprocessed());
+}
+
 // =============================================================================
 // 우선순위
 // =============================================================================
