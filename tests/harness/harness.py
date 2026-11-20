@@ -263,7 +263,48 @@ class Injector:
                 y = int(s.rsplit(":", 1)[1])
         return x, y
 
+    # 펑션키는 키심 이름이 아니라 키코드로 넣는다. Ubuntu 26.04 xkb-data 2.46
+    # 의 types/pc "CTRL+ALT" 타입(F1~F12)은 `map[Control] = Level1;
+    # map[Alt] = Level1;` 을 명시한다(24.04 의 2.41 은 map[None] 뿐). xdotool
+    # 3.20160805 는 그 레벨의 map 항목 수식키를 키심에 필요한 수식키로 여겨
+    # `xdotool key F9` 를 Alt_L+F9 로 보낸다(실측 RawKeyPress 64,75 — 2026-11
+    # v0.4.5 CI 의 ubuntu26.04·fedora43 레그 로그에도 같은 Alt_L 선행). 앱에는 Alt+F9 가 가서 한자키·이모지키가 안 먹는다. 키코드를
+    # 직접 주면 xdotool 은 수식키를 붙이지 않는다.
+    _FKEY_RE = re.compile(r"F([1-9]|[1-2][0-9]|3[0-5])")
+    _keycode_cache: dict[str, int | None] = {}
+
+    @classmethod
+    def _keycode_for(cls, keyname: str) -> int | None:
+        if keyname in cls._keycode_cache:
+            return cls._keycode_cache[keyname]
+        code = None
+        try:
+            import ctypes
+            x11 = ctypes.CDLL("libX11.so.6")
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XStringToKeysym.restype = ctypes.c_ulong
+            x11.XStringToKeysym.argtypes = [ctypes.c_char_p]
+            x11.XKeysymToKeycode.restype = ctypes.c_ubyte
+            x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+            dpy = x11.XOpenDisplay(None)
+            if dpy:
+                sym = x11.XStringToKeysym(keyname.encode())
+                kc = x11.XKeysymToKeycode(dpy, sym) if sym else 0
+                x11.XCloseDisplay(dpy)
+                # 두 자리 미만 키코드는 xdotool 이 숫자 키심("9")으로 읽는다
+                code = kc if kc >= 10 else None
+        except OSError:
+            code = None
+        cls._keycode_cache[keyname] = code
+        return code
+
     def key(self, keyname: str) -> None:
+        if self._FKEY_RE.fullmatch(keyname):
+            kc = self._keycode_for(keyname)
+            if kc is not None:
+                keyname = str(kc)
         self._run("key", "--clearmodifiers", "--delay", self.delay, keyname)
 
     def click(self, x: int, y: int) -> None:
